@@ -125,11 +125,11 @@ int main(int argc,char** argv) {
         CHECK(calls[i]==1 && lifetimes[i].expired() && results[i]);
         CHECK(results[i]->context()==context && results[i]->valueVersion()==5+i && results[i]->topologyVersion()==3 && results[i]->pointCount()==2);
         std::vector<uint8_t> bytes;
-        CHECK(results[i]->PlaneOwner("width") && results[i]->PlaneOwner("points"));
-        CHECK(ReadVulkanBytes(native,context,results[i]->PlaneOwner("width")->buffer(),8,results[i],&bytes));
+        CHECK(results[i]->PlaneOwner(TfToken("width")) && results[i]->PlaneOwner(TfToken("points")));
+        CHECK(ReadVulkanBytes(native,context,results[i]->PlaneOwner(TfToken("width"))->buffer(),8,results[i],&bytes));
         CHECK(bytes.size()==8);
         float widths[2]{};std::memcpy(widths,bytes.data(),sizeof(widths));CHECK(widths[0]==float(i+3) && widths[1]==float(i+3));
-        CHECK(ReadVulkanBytes(native,context,results[i]->PlaneOwner("points")->buffer(),24,results[i],&bytes));
+        CHECK(ReadVulkanBytes(native,context,results[i]->PlaneOwner(TfToken("points"))->buffer(),24,results[i],&bytes));
         CHECK(bytes.size()==24);
         float points[6]{};std::memcpy(points,bytes.data(),sizeof(points));
         CHECK(points[0]==0 && points[1]==0 && points[2]==0 && points[3]==1 && points[4]==1 && points[5]==1);

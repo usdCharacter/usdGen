@@ -446,7 +446,7 @@ bool CheckSourcePayload(std::shared_ptr<const UsdGenDeviceGeneration> const& gen
         if (!Near(uv[i].x, reference.rootUV[i][0]) || !Near(uv[i].y, reference.rootUV[i][1])) return false;
     for (auto const* planes : {&reference.extraCv, &reference.extraCurve})
         for (auto const& plane : *planes) {
-            auto channel = gpu::AcquireNamedChannel(generation, plane.name.GetString(), stream);
+            auto channel = gpu::AcquireNamedChannel(generation, plane.name, stream);
             if (!channel || plane.type != TfToken("float")) return false;
             auto bytes = channel.Bytes();
             std::vector<float> data(plane.f.size());

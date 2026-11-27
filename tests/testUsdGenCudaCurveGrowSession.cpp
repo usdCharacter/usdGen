@@ -639,7 +639,7 @@ bool NoiseDagReference(UsdGenGraphDesc const& desc,UsdGenCurveBuffer* output) {
 bool CheckNamed(std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
                 UsdGenCurveBuffer const& reference, cudaStream_t stream) {
     for (auto const* planes : {&reference.extraCv,&reference.extraCurve}) for(auto const& plane : *planes) {
-        auto channel=gpu::AcquireNamedChannel(generation,plane.name.GetString(),stream);
+        auto channel=gpu::AcquireNamedChannel(generation,plane.name,stream);
         if(!channel) return false;
         auto bytes=channel.Bytes();
         if(plane.type==TfToken("float")) {
@@ -759,8 +759,8 @@ bool CheckEndpointLengths(std::shared_ptr<const UsdGenDeviceGeneration> const& g
 
 bool CheckNoNamed(std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
                   cudaStream_t stream) {
-    return !gpu::AcquireNamedChannel(generation,"sourceValue",stream) &&
-           !gpu::AcquireNamedChannel(generation,"sourceGroup",stream);
+    return !gpu::AcquireNamedChannel(generation,TfToken("sourceValue"),stream) &&
+           !gpu::AcquireNamedChannel(generation,TfToken("sourceGroup"),stream);
 }
 
 bool CudaRejected(UsdGenGraphDesc const& desc) {

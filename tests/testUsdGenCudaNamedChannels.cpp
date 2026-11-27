@@ -52,7 +52,7 @@ CudaNamedChannelPlane Plane(char const* name, UsdGenDeviceValueType type,
                             UsdGenDeviceDomain domain, uint64_t elements,
                             uint32_t arity, std::array<T, N> const& values) {
     CudaNamedChannelPlane result;
-    result.metadata = {name, type, domain, elements, arity,
+    result.metadata = {TfToken(name), type, domain, elements, arity,
                        static_cast<uint32_t>(sizeof(T) * arity), true,
                        UsdGenDeviceChannelSemantic::Generic};
     result.bytes = std::make_unique<DeviceBuffer<unsigned char>>();
@@ -117,7 +117,7 @@ int main() {
     CHECK(local && local->Identity().generation == 1 &&
           HasChannel(local, "sourceValue", 1));
     {
-        auto lease = AcquireNamedChannel(local, "sourceValue", nullptr);
+        auto lease = AcquireNamedChannel(local, TfToken("sourceValue"), nullptr);
         std::array<float, 2> read{};
         CHECK(Read(lease, nullptr, &read) && read == sourceValues);
     }
@@ -220,13 +220,13 @@ int main() {
     cudaStream_t stream = nullptr;
     CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) == cudaSuccess);
     {
-        auto indexLease = AcquireNamedChannel(withBoth, "guideIndex", stream);
-        auto weightLease = AcquireNamedChannel(withBoth, "guideWeight", stream);
+        auto indexLease = AcquireNamedChannel(withBoth, TfToken("guideIndex"), stream);
+        auto weightLease = AcquireNamedChannel(withBoth, TfToken("guideWeight"), stream);
         CHECK(indexLease && indexLease.Metadata() &&
               indexLease.Metadata()->type == UsdGenDeviceValueType::Int32 &&
               weightLease && weightLease.Metadata() &&
               weightLease.Metadata()->type == UsdGenDeviceValueType::Float32 &&
-              !AcquireNamedChannel(withBoth, "missing", stream));
+              !AcquireNamedChannel(withBoth, TfToken("missing"), stream));
         std::array<int, 3> readIndices{};
         std::array<float, 3> readWeights{};
         CHECK(Read(indexLease, stream, &readIndices));

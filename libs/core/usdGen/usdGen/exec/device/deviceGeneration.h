@@ -7,6 +7,7 @@
 #ifndef USDGEN_DEVICE_GENERATION_H
 #define USDGEN_DEVICE_GENERATION_H
 
+#include "usdGen/api/token.h"
 #include "usdGen/registries/handles.h"
 
 #include <array>
@@ -92,7 +93,7 @@ struct UsdGenDeviceIdentity
 
 struct UsdGenDeviceChannelMetadata
 {
-    std::string name;
+    UsdGenToken name;   // interned when the plan compiles
     UsdGenDeviceValueType type = UsdGenDeviceValueType::Float32;
     UsdGenDeviceDomain domain = UsdGenDeviceDomain::Point;
     uint64_t elementCount = 0;

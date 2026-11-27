@@ -570,10 +570,10 @@ int main(int argc, char** argv) {
             // Named-channel twin through the resample-mode topology transform.
             CudaNamedChannelTopologyCandidate named;
             std::vector<CudaNamedChannelTopologyCandidate::RawInputPlane> planes{
-                {{"f", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->fBytes)},
-                {{"i", UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->iBytes)},
-                {{"u", UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, asBytes(lifetime->uBytes)},
-                {{"c", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 1, 4, true}, asBytes(lifetime->cBytes)}};
+                {{TfToken("f"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->fBytes)},
+                {{TfToken("i"), UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Point, 6, 1, 4, true}, asBytes(lifetime->iBytes)},
+                {{TfToken("u"), UsdGenDeviceValueType::Int32, UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, asBytes(lifetime->uBytes)},
+                {{TfToken("c"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 1, 4, true}, asBytes(lifetime->cBytes)}};
             std::string reason;
             CHECK(named.BeginRaw(input, view, std::move(planes), stream, CudaNamedChannelTopologyMode::Resample,
                 lifetime, &reason) == cudaSuccess);

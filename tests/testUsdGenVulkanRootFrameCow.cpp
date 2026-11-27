@@ -198,7 +198,7 @@ int main(int argc, char** argv) {
         return pending->TakeReady();
     };
     auto base = upload(rooted); CHECK(base);
-    CHECK(base->PlaneOwner("rootPrim") && base->PlaneOwner("rootUV") && base->sourceFrames().size() == 3);
+    CHECK(base->PlaneOwner(TfToken("rootPrim")) && base->PlaneOwner(TfToken("rootUV")) && base->sourceFrames().size() == 3);
     for (auto const& plane : base->planes())
         CHECK(plane.metadata.name != "sourceRootT" && plane.metadata.name != "sourceRootB" && plane.metadata.name != "sourceRootN");
     BytesByName originalFrames; CHECK(ReadFrames(native, context, base, &originalFrames));
@@ -220,30 +220,30 @@ int main(int argc, char** argv) {
     auto compare = NonWidthComparePipeline::Create(context, compareCode, &status);
     CHECK(width && length && blend && compare);
     auto makeWidth = [&](float factor, uint64_t version) {
-        auto candidate = width->Begin(base->PlaneOwner("width"), base->pointCount(), factor, 0, &status);
+        auto candidate = width->Begin(base->PlaneOwner(TfToken("width")), base->pointCount(), factor, 0, &status);
         if (!candidate || !Prove(native)) return std::shared_ptr<const VulkanSourceGeneration>{};
         uint32_t semantic = UINT32_MAX;
         if (candidate->Poll(&semantic) != VK_SUCCESS || semantic || !candidate->succeeded()) return std::shared_ptr<const VulkanSourceGeneration>{};
-        if (candidate->inputOwner() != base->PlaneOwner("width") ||
+        if (candidate->inputOwner() != base->PlaneOwner(TfToken("width")) ||
             candidate->context() != base->context()) return std::shared_ptr<const VulkanSourceGeneration>{};
         return VulkanSourceGeneration::WithWidth(base, *candidate, version, &reason);
     };
     auto widthLeft = makeWidth(1.f, 11), widthRight = makeWidth(2.f, 12); CHECK(widthLeft && widthRight);
     for (auto const& child : {widthLeft, widthRight}) {
-        CHECK(child->PlaneOwner("rootPrim") == base->PlaneOwner("rootPrim") &&
-              child->PlaneOwner("rootUV") == base->PlaneOwner("rootUV") &&
+        CHECK(child->PlaneOwner(TfToken("rootPrim")) == base->PlaneOwner(TfToken("rootPrim")) &&
+              child->PlaneOwner(TfToken("rootUV")) == base->PlaneOwner(TfToken("rootUV")) &&
               &child->sourceFrames() == &base->sourceFrames() && SameFrames(native, context, base, child));
     }
-    auto pointRun = length->Begin(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+    auto pointRun = length->Begin(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 1.f, &status);
     CHECK(pointRun && Prove(native)); uint32_t pointStatus = UINT32_MAX;
     CHECK(pointRun->Poll(&pointStatus) == VK_SUCCESS && pointStatus == 0 && pointRun->succeeded());
-    CHECK(pointRun->inputOwner() == base->PlaneOwner("points") &&
-          pointRun->offsetsOwner() == base->PlaneOwner("curveOffsets") && pointRun->context() == base->context());
+    CHECK(pointRun->inputOwner() == base->PlaneOwner(TfToken("points")) &&
+          pointRun->offsetsOwner() == base->PlaneOwner(TfToken("curveOffsets")) && pointRun->context() == base->context());
     auto points = VulkanSourceGeneration::WithPoints(base, *pointRun, 13, &reason); CHECK(points);
-    CHECK(points->PlaneOwner("points") == pointRun->output() && points->PlaneOwner("points") != base->PlaneOwner("points") &&
-          points->PlaneOwner("rootPrim") == base->PlaneOwner("rootPrim") &&
-          points->PlaneOwner("rootUV") == base->PlaneOwner("rootUV") &&
+    CHECK(points->PlaneOwner(TfToken("points")) == pointRun->output() && points->PlaneOwner(TfToken("points")) != base->PlaneOwner(TfToken("points")) &&
+          points->PlaneOwner(TfToken("rootPrim")) == base->PlaneOwner(TfToken("rootPrim")) &&
+          points->PlaneOwner(TfToken("rootUV")) == base->PlaneOwner(TfToken("rootUV")) &&
           &points->sourceFrames() == &base->sourceFrames() && SameFrames(native, context, base, points));
 
     // An equality proof binds its exact rooted predecessors; it is then the
@@ -252,15 +252,15 @@ int main(int argc, char** argv) {
     CHECK(proof->leftOwner() == widthLeft && proof->rightOwner() == widthRight && Prove(native));
     NonWidthComparePipeline::Candidate::Status compareStatus{};
     CHECK(proof->Poll(&compareStatus) == VK_SUCCESS && compareStatus == NonWidthComparePipeline::Candidate::Status::Ready && proof->succeeded());
-    auto blendRun = blend->Begin(widthLeft->PlaneOwner("width"), widthRight->PlaneOwner("width"),
+    auto blendRun = blend->Begin(widthLeft->PlaneOwner(TfToken("width")), widthRight->PlaneOwner(TfToken("width")),
         base->pointCount(), .25f, &status); CHECK(blendRun && Prove(native));
     uint32_t blendStatus = UINT32_MAX;
     CHECK(blendRun->Poll(&blendStatus) == VK_SUCCESS && blendStatus == 0 && blendRun->succeeded());
-    CHECK(blendRun->leftOwner() == widthLeft->PlaneOwner("width") &&
-          blendRun->rightOwner() == widthRight->PlaneOwner("width") && blendRun->context() == base->context());
+    CHECK(blendRun->leftOwner() == widthLeft->PlaneOwner(TfToken("width")) &&
+          blendRun->rightOwner() == widthRight->PlaneOwner(TfToken("width")) && blendRun->context() == base->context());
     auto blended = VulkanSourceGeneration::WithWidthBlend(widthLeft, widthRight, *blendRun, 14, &reason, proof.get());
-    CHECK(blended && blended->PlaneOwner("rootPrim") == base->PlaneOwner("rootPrim") &&
-          blended->PlaneOwner("rootUV") == base->PlaneOwner("rootUV") &&
+    CHECK(blended && blended->PlaneOwner(TfToken("rootPrim")) == base->PlaneOwner(TfToken("rootPrim")) &&
+          blended->PlaneOwner(TfToken("rootUV")) == base->PlaneOwner(TfToken("rootUV")) &&
           &blended->sourceFrames() == &base->sourceFrames() && SameFrames(native, context, base, blended));
     CHECK(!VulkanSourceGeneration::WithWidthBlend(widthRight, widthLeft, *blendRun, 14, &reason, proof.get()));
 
@@ -268,7 +268,7 @@ int main(int argc, char** argv) {
     // fail GPU non-width equality, even though private frames are not planes().
     auto changedRooted = rooted; changedRooted.rootT[0][0] += 1.f;
     auto changed = upload(changedRooted); CHECK(changed && changed->sourceFrames().size() == 3);
-    CHECK(changed->PlaneOwner("rootPrim") != base->PlaneOwner("rootPrim"));
+    CHECK(changed->PlaneOwner(TfToken("rootPrim")) != base->PlaneOwner(TfToken("rootPrim")));
     // Only a derived private frame changed: every public geometry plane is
     // byte-identical, but GPU non-width comparison must still reject it.
     CHECK(changedRooted.px == rooted.px && changedRooted.py == rooted.py &&

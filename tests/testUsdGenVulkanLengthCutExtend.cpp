@@ -79,7 +79,7 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
                                 UsdGenCurveLayoutWrap::Pinned);
     i.geometry.tiles = {{3,0,2,0,7}};
     uint32_t named[] = {73, 81};
-    i.additionalNamed.push_back({{"namedCurve", UsdGenDeviceValueType::UInt32,
+    i.additionalNamed.push_back({{TfToken("namedCurve"), UsdGenDeviceValueType::UInt32,
         UsdGenDeviceDomain::Primitive, 2, 1, 4, true}, Bytes(named, 2)});
     return i;
 }
@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     unsigned featureHooks = 0;
     auto old = LengthScalePipeline::Create(context, scaleCode, &status);
     CHECK(old && !old->HasCutExtend());
-    auto oldCut = old->BeginCutExtend(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+    auto oldCut = old->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 2.f, true, &status,
         [&] { ++featureHooks; return true; });
     CHECK(!oldCut && status == VK_ERROR_FEATURE_NOT_PRESENT && featureHooks == 0 &&
@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
           pool->Snapshot().byKind == liveBaseline.byKind); old.reset();
     auto oldSet = LengthScalePipeline::CreateWithSet(context, scaleCode, setCode, &status);
     CHECK(oldSet && !oldSet->HasCutExtend());
-    oldCut = oldSet->BeginCutExtend(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+    oldCut = oldSet->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 2.f, true, &status,
         [&] { ++featureHooks; return true; });
     CHECK(!oldCut && status == VK_ERROR_FEATURE_NOT_PRESENT && featureHooks == 0 &&
@@ -125,7 +125,7 @@ int main(int argc, char** argv) {
     auto pipeline = LengthScalePipeline::CreateWithCutExtend(context, scaleCode, setCode, cutCode, &status);
     CHECK(pipeline && pipeline->HasSet() && pipeline->HasCutExtend());
     auto run = [&](std::shared_ptr<const VulkanSourceGeneration> const& g, float value, bool absolute) {
-        auto c = pipeline->BeginCutExtend(g->PlaneOwner("points"), g->PlaneOwner("curveOffsets"),
+        auto c = pipeline->BeginCutExtend(g->PlaneOwner(TfToken("points")), g->PlaneOwner(TfToken("curveOffsets")),
             g->curveCount(), g->pointCount(), value, absolute, &status);
         if (!c || status != VK_SUCCESS || !Prove(native))
             return std::make_pair(std::unique_ptr<LengthScalePipeline::Candidate>{}, UINT32_MAX);
@@ -140,7 +140,7 @@ int main(int argc, char** argv) {
     Packet original; CHECK(Capture(native, context, base, &original));
     CHECK(original.count("stableIds") && original.count("rest") && original.count("sourceRootT"));
     auto verifyChild = [&](std::shared_ptr<const VulkanSourceGeneration> const& child, float const* points) {
-        CHECK(child && child->PlaneOwner("points") != base->PlaneOwner("points"));
+        CHECK(child && child->PlaneOwner(TfToken("points")) != base->PlaneOwner(TfToken("points")));
         CHECK(child->topologyVersion() == base->topologyVersion());
         for (auto const& plane : base->planes()) if (plane.metadata.name != "points")
             CHECK(child->PlaneOwner(plane.metadata.name) == base->PlaneOwner(plane.metadata.name));
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
     CHECK(pressure);
     auto saturatedBaseline = pool->Snapshot();
     unsigned admissionHooks = 0;
-    auto noRoom = pipeline->BeginCutExtend(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+    auto noRoom = pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 3.f, true, &status,
         [&] { ++admissionHooks; return true; });
     auto saturatedAfter = pool->Snapshot();
@@ -187,13 +187,13 @@ int main(int argc, char** argv) {
     CHECK(pool->Snapshot().usedBytes == baseline.usedBytes &&
           pool->Snapshot().byKind == baseline.byKind);
     auto beforeHookFailure = pool->Snapshot();
-    auto hookFalse = pipeline->BeginCutExtend(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+    auto hookFalse = pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 3.f, true, &status,
         [&] { ++admissionHooks; return false; });
     auto afterHookFalse = pool->Snapshot();
     CHECK(!hookFalse && status == VK_ERROR_OUT_OF_DEVICE_MEMORY && admissionHooks == 1 &&
           afterHookFalse.usedBytes == beforeHookFailure.usedBytes && afterHookFalse.byKind == beforeHookFailure.byKind);
-    auto hookThrow = pipeline->BeginCutExtend(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+    auto hookThrow = pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
         base->curveCount(), base->pointCount(), 3.f, true, &status,
         [&]() -> bool { ++admissionHooks; throw std::runtime_error("cut admission"); });
     auto afterHookThrow = pool->Snapshot();
@@ -203,7 +203,7 @@ int main(int argc, char** argv) {
         [&] { ++admissionHooks; return true; });
     CHECK(empty && status == VK_SUCCESS && empty->succeeded() && admissionHooks == 2);
     auto invalid = [&](float value) {
-        return pipeline->BeginCutExtend(base->PlaneOwner("points"), base->PlaneOwner("curveOffsets"),
+        return pipeline->BeginCutExtend(base->PlaneOwner(TfToken("points")), base->PlaneOwner(TfToken("curveOffsets")),
             base->curveCount(), base->pointCount(), value, true, &status,
             [&] { ++admissionHooks; return true; });
     };

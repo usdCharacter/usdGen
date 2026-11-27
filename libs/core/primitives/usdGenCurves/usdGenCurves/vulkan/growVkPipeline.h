@@ -13,7 +13,7 @@ public:
         std::shared_ptr<CurveGrowPipeline>, std::shared_ptr<ResampleVkPipeline>);
     std::shared_ptr<DeviceContext> const& context() const noexcept;
     std::unique_ptr<Candidate> Begin(std::shared_ptr<const VulkanSourceGeneration>,
-        CurveGrowPipeline::Controls const&, std::string const& targetPlane,
+        CurveGrowPipeline::Controls const&, UsdGenToken const& targetPlane,
         uint64_t valueVersion, VkResult* = nullptr,
         CurveGrowPipeline::BeforeSubmit = {});
 private:

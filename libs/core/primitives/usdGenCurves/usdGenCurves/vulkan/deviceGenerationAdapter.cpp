@@ -413,11 +413,12 @@ UsdGenDeviceChannelMetadata PublicChannel(UsdGenDeviceChannelMetadata metadata)
     // Native pipeline storage names are private. Publish the same neutral
     // channel names as CUDA so consumers can select either backend unchanged.
     using Semantic = UsdGenDeviceChannelSemantic;
+    UsdGenCurveChannelTokens const& ct = UsdGenCurveChannels();
     switch (metadata.semantic) {
-        case Semantic::Widths: metadata.name = "widths"; break;
-        case Semantic::StableIds: metadata.name = "curveId"; break;
-        case Semantic::RootPrim: metadata.name = "skinprim"; break;
-        case Semantic::RootUV: metadata.name = "skinprimuv"; break;
+        case Semantic::Widths: metadata.name = ct.widths; break;
+        case Semantic::StableIds: metadata.name = ct.curveId; break;
+        case Semantic::RootPrim: metadata.name = ct.skinprim; break;
+        case Semantic::RootUV: metadata.name = ct.skinprimuv; break;
         default: break;
     }
     return metadata;

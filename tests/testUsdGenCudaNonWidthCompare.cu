@@ -44,10 +44,10 @@ struct Owner {
         x.frames = {tangent.view(), binormal.view(), normal.view(), {}};
         x.chunks = {{0, curves, curves, 0, pointsCount, 0, 0}};
         if (!namedFloat.size() && !namedInt.size()) return x;
-        UsdGenDeviceChannelMetadata fm; fm.name="testFloat"; fm.type=UsdGenDeviceValueType::Float32;
+        UsdGenDeviceChannelMetadata fm; fm.name=TfToken("testFloat"); fm.type=UsdGenDeviceValueType::Float32;
         fm.domain=UsdGenDeviceDomain::Point; fm.elementCount=pointsCount; fm.arity=1;
         fm.strideBytes=sizeof(float); x.named.push_back({fm,namedFloat.view(),nullptr});
-        UsdGenDeviceChannelMetadata im; im.name="testInt"; im.type=UsdGenDeviceValueType::Int32;
+        UsdGenDeviceChannelMetadata im; im.name=TfToken("testInt"); im.type=UsdGenDeviceValueType::Int32;
         im.domain=UsdGenDeviceDomain::Point; im.elementCount=pointsCount; im.arity=1;
         im.strideBytes=sizeof(int32_t); x.named.push_back({im,namedInt.view(),nullptr});
         return x;
@@ -199,7 +199,7 @@ int main() {
         if(field==2) changed.chunks[0].liveCount=0;
         CHECK(Compare(base,changed,lifetime,stream,false));
     }
-    auto renamed=b->input(1,3); renamed.named[0].metadata.name="other";
+    auto renamed=b->input(1,3); renamed.named[0].metadata.name=TfToken("other");
     CHECK(Compare(base,renamed,lifetime,stream,false));
     auto reordered=b->input(1,3); std::swap(reordered.named[0],reordered.named[1]);
     CHECK(Compare(base,reordered,lifetime,stream,false));
@@ -211,7 +211,7 @@ int main() {
             plane.bytes.size=sizeof(float);
         }
         CHECK(Compare(left,right,lifetime,stream,true));
-        right.named[0].metadata.name="domainMismatch";
+        right.named[0].metadata.name=TfToken("domainMismatch");
         CHECK(Compare(left,right,lifetime,stream,false));
     }
 

@@ -119,8 +119,8 @@ struct LengthCompactionPipeline::Candidate::State : std::enable_shared_from_this
     using Bindings=std::array<std::shared_ptr<const ChargedBuffer>,10>;
     Bindings Bind() const {
         Bindings b; b.fill(dummy);
-        b[0]=base->PlaneOwner("points"); if(!b[0])b[0]=dummy;
-        b[1]=base->PlaneOwner("curveOffsets"); if(!b[1])b[1]=dummy;
+        b[0]=base->PlaneOwner(UsdGenCurveChannels().points); if(!b[0])b[0]=dummy;
+        b[1]=base->PlaneOwner(UsdGenCurveChannels().curveOffsets); if(!b[1])b[1]=dummy;
         b[2]=keep;b[3]=finalScan?finalScan:scanA;b[4]=scanB;b[5]=status;b[6]=spans;
         if(reverseCurve)b[7]=reverseCurve;
         if(reversePoint)b[8]=reversePoint;
@@ -277,8 +277,8 @@ std::unique_ptr<LengthCompactionPipeline::Candidate> LengthCompactionPipeline::B
                 !b->unproven()&&b->sizeBytes()>=bytes&&b->sizeBytes()<=native_->limits.maxStorageBufferRange&&
                 (b->usage()&VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
         };
-        if(!valid(s->base->PlaneOwner("points"),uint64_t(s->push.points)*12)||
-            !valid(s->base->PlaneOwner("curveOffsets"),(uint64_t(s->push.curves)+1)*4))return {};
+        if(!valid(s->base->PlaneOwner(UsdGenCurveChannels().points),uint64_t(s->push.points)*12)||
+            !valid(s->base->PlaneOwner(UsdGenCurveChannels().curveOffsets),(uint64_t(s->push.curves)+1)*4))return {};
         s->dummy=s->Buffer(4,true,r);if(!s->dummy||!s->Write(s->dummy,nullptr,0,r))goto failed;
         s->status=s->Buffer(s->control.size()*4,true,r);
         s->spans=s->Buffer(spans.size()*4,true,r);

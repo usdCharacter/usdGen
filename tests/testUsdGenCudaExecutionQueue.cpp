@@ -635,7 +635,7 @@ int main() {
         CHECK(cudaStreamCreateWithFlags(&namedReader, cudaStreamNonBlocking) == cudaSuccess);
         {
             auto retainedDensity = gpu::AcquireNamedChannel(
-                retained->generation, "density", namedReader);
+                retained->generation, TfToken("density"), namedReader);
             std::vector<float> before(2), after(2);
             CHECK(retainedDensity &&
                   cudaMemcpyAsync(before.data(), retainedDensity.Bytes().data,

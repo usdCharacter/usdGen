@@ -77,9 +77,10 @@ inline bool PackSource(VulkanSourcePrepareInfo const& in,
         (g.topologyVersion && g.topologyVersion != b.topologyVersion) ||
         (g.valueVersion && g.valueVersion != b.valueVersion)) return fail("source capture metadata mismatch");
     g.elementCount = c; g.pointCount = p; g.topologyVersion = b.topologyVersion; g.valueVersion = b.valueVersion;
+    UsdGenCurveChannelTokens const& ct = UsdGenCurveChannels();
     std::vector<SourceHostPlane> packed;
     using T = UsdGenDeviceValueType; using D = UsdGenDeviceDomain; using S = UsdGenDeviceChannelSemantic;
-    auto add = [&](char const* name, T type, D domain, size_t elements, uint32_t arity,
+    auto add = [&](UsdGenToken const& name, T type, D domain, size_t elements, uint32_t arity,
                    S semantic, void const* bytes, size_t count, bool privateFrame = false) {
         SourceHostPlane item;
         item.metadata = {name, type, domain, elements, arity, uint32_t((type == T::UInt64 ? 8 : 4) * arity), true, semantic};
@@ -90,28 +91,28 @@ inline bool PackSource(VulkanSourcePrepareInfo const& in,
     };
     std::vector<float> points(p * 3);
     for (size_t i = 0; i != p; ++i) { points[3*i] = b.px[i]; points[3*i+1] = b.py[i]; points[3*i+2] = b.pz[i]; }
-    add("points", T::Float32x3, D::Point, p, 3, S::Points, points.data(), points.size()*4);
-    add("curveOffsets", T::UInt32, D::Topology, c+1, 1, S::ElementOffsets, offsets.data(), offsets.size()*4);
-    add("stableIds", T::UInt64, D::Primitive, c, 1, S::StableIds, b.curveId.cdata(), c*8);
-    auto optional = [&](char const* name, T type, D domain, size_t n, uint32_t arity, S semantic, auto const& array, bool privateFrame = false) {
+    add(ct.points, T::Float32x3, D::Point, p, 3, S::Points, points.data(), points.size()*4);
+    add(ct.curveOffsets, T::UInt32, D::Topology, c+1, 1, S::ElementOffsets, offsets.data(), offsets.size()*4);
+    add(ct.stableIds, T::UInt64, D::Primitive, c, 1, S::StableIds, b.curveId.cdata(), c*8);
+    auto optional = [&](UsdGenToken const& name, T type, D domain, size_t n, uint32_t arity, S semantic, auto const& array, bool privateFrame = false) {
         if (!array.empty()) add(name, type, domain, n, arity, semantic, array.cdata(), array.size()*sizeof(array[0]), privateFrame);
     };
-    optional("rest",T::Float32x3,D::Point,p,3,S::RestPoints,b.rest);
-    optional("width",T::Float32,D::Point,p,1,S::Widths,b.width);
-    optional("hairT",T::Float32,D::Point,p,1,S::HairT,b.hairT);
+    optional(ct.rest,T::Float32x3,D::Point,p,3,S::RestPoints,b.rest);
+    optional(ct.width,T::Float32,D::Point,p,1,S::Widths,b.width);
+    optional(ct.hairT,T::Float32,D::Point,p,1,S::HairT,b.hairT);
     if (!p) {
         // Empty CUDA generations retain the complete core channel schema.
-        add("rest", T::Float32x3, D::Point, 0, 3, S::RestPoints, nullptr, 0);
-        add("width", T::Float32, D::Point, 0, 1, S::Widths, nullptr, 0);
-        add("hairT", T::Float32, D::Point, 0, 1, S::HairT, nullptr, 0);
+        add(ct.rest, T::Float32x3, D::Point, 0, 3, S::RestPoints, nullptr, 0);
+        add(ct.width, T::Float32, D::Point, 0, 1, S::Widths, nullptr, 0);
+        add(ct.hairT, T::Float32, D::Point, 0, 1, S::HairT, nullptr, 0);
     }
-    optional("rootPrim",T::Int32,D::Primitive,c,1,S::RootPrim,b.rootPrim);
-    optional("rootUV",T::Float32x2,D::Primitive,c,2,S::RootUV,b.rootUV);
+    optional(ct.rootPrim,T::Int32,D::Primitive,c,1,S::RootPrim,b.rootPrim);
+    optional(ct.rootUV,T::Float32x2,D::Primitive,c,2,S::RootUV,b.rootUV);
 
-    optional("sourceRootT",T::Float32x3,D::Primitive,c,3,S::Generic,b.rootT,true);
-    optional("sourceRootB",T::Float32x3,D::Primitive,c,3,S::Generic,b.rootB,true);
-    optional("sourceRootN",T::Float32x3,D::Primitive,c,3,S::Generic,b.rootN,true);
-    std::set<std::string> names{"points","curveOffsets","stableIds","rest","width","widths","restPoints","hairT","rootPrim","rootUV","sourceRootT","sourceRootB","sourceRootN","sourceChunks"};
+    optional(ct.sourceRootT,T::Float32x3,D::Primitive,c,3,S::Generic,b.rootT,true);
+    optional(ct.sourceRootB,T::Float32x3,D::Primitive,c,3,S::Generic,b.rootB,true);
+    optional(ct.sourceRootN,T::Float32x3,D::Primitive,c,3,S::Generic,b.rootN,true);
+    std::set<UsdGenToken> names{ct.points,ct.curveOffsets,ct.stableIds,ct.rest,ct.width,ct.widths,ct.restPoints,ct.hairT,ct.rootPrim,ct.rootUV,ct.sourceRootT,ct.sourceRootB,ct.sourceRootN,ct.sourceChunks};
     auto named = [&](VulkanSourceNamedChannel const& channel) {
         if (channel.metadata.semantic != S::Generic || !names.insert(channel.metadata.name).second)
             return fail("source named channel collides with a reserved or authored field");
@@ -131,7 +132,7 @@ inline bool PackSource(VulkanSourcePrepareInfo const& in,
             (plane.type == t.float_ ? !plane.i.empty() : !plane.f.empty())) return fail("invalid CPU named plane schema");
         D domain = plane.interpolation == t.vertex ? D::Point : plane.interpolation == t.uniform ? D::Primitive : D::Groom;
         VulkanSourceNamedChannel channel;
-        channel.metadata = {plane.name.GetString(), plane.type == t.float_ ? T::Float32 : T::Int32,
+        channel.metadata = {plane.name, plane.type == t.float_ ? T::Float32 : T::Int32,
             domain, domain == D::Point ? p : domain == D::Primitive ? c : 1, plane.arity, uint32_t(4*plane.arity), true, S::Generic};
         size_t count = plane.type == t.float_ ? plane.f.size()*4 : plane.i.size()*4;
         channel.bytes.resize(count);

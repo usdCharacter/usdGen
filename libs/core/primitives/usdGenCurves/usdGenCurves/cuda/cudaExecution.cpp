@@ -8203,7 +8203,7 @@ bool ExecutionState::UploadAuthoredPlanes(
                 sizeof(uint32_t);
             gpu::CudaNamedChannelPlane plane;
             plane.metadata = {
-                authored.name.GetString(),
+                authored.name,
                 authored.type == UsdGenAuthoredPlaneType::Float32
                     ? UsdGenDeviceValueType::Float32
                     : UsdGenDeviceValueType::Int32,

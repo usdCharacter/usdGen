@@ -849,8 +849,8 @@ bool ReadPlane(VulkanDevice const& dev,
             out->clear();
             return true;
         }
-        auto owner = priv ? gen->SourceFrameOwner(name)
-                          : gen->PlaneOwner(name);
+        auto owner = priv ? gen->SourceFrameOwner(TfToken(name))
+                          : gen->PlaneOwner(TfToken(name));
         if (p.buffer == VK_NULL_HANDLE || !owner) return false;
         return ReadVulkanBytes(dev.native, dev.context, p.buffer,
                                size_t(p.bytes), owner, out);
@@ -1155,7 +1155,7 @@ struct CudaSourceLeg {
                     return false;
                 gpu::CudaNamedChannelTopologyCandidate::RawInputPlane in;
                 in.metadata = {
-                    authored.name.GetString(),
+                    authored.name,
                     authored.type == UsdGenAuthoredPlaneType::Float32
                         ? UsdGenDeviceValueType::Float32
                         : UsdGenDeviceValueType::Int32,

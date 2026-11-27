@@ -106,13 +106,13 @@ int main()
     info.geometry.pointCount = 12;
     info.geometry.tiles.push_back({7, 0, 3, 0, 12});
     info.tool = {"brushA", 21, 17};
-    info.channels.push_back({"points", usdGen::UsdGenDeviceValueType::Float32x3,
+    info.channels.push_back({TfToken("points"), usdGen::UsdGenDeviceValueType::Float32x3,
                              usdGen::UsdGenDeviceDomain::Point, 12, 3, 12, true,
                              usdGen::UsdGenDeviceChannelSemantic::Points});
-    info.channels.push_back({"width", usdGen::UsdGenDeviceValueType::Float32,
+    info.channels.push_back({TfToken("width"), usdGen::UsdGenDeviceValueType::Float32,
                              usdGen::UsdGenDeviceDomain::Point, 12, 1, 4, true,
                              usdGen::UsdGenDeviceChannelSemantic::Widths});
-    info.channels.push_back({"curveOffsets", usdGen::UsdGenDeviceValueType::UInt32,
+    info.channels.push_back({TfToken("curveOffsets"), usdGen::UsdGenDeviceValueType::UInt32,
                              usdGen::UsdGenDeviceDomain::Topology, 4, 1, 4, true,
                              usdGen::UsdGenDeviceChannelSemantic::ElementOffsets});
     info.owner = owner;
@@ -187,11 +187,11 @@ int main()
     genericArrays.tool = generation->Tool();
     genericArrays.channels = generation->Channels();
     genericArrays.channels.push_back(
-        {"guideIndex", usdGen::UsdGenDeviceValueType::Int32,
+        {TfToken("guideIndex"), usdGen::UsdGenDeviceValueType::Int32,
          usdGen::UsdGenDeviceDomain::Primitive, 3, 3, 12, true,
          usdGen::UsdGenDeviceChannelSemantic::Generic});
     genericArrays.channels.push_back(
-        {"guideWeight", usdGen::UsdGenDeviceValueType::Float32,
+        {TfToken("guideWeight"), usdGen::UsdGenDeviceValueType::Float32,
          usdGen::UsdGenDeviceDomain::Primitive, 3, 3, 12, true,
          usdGen::UsdGenDeviceChannelSemantic::Generic});
     genericArrays.owner = generation->Owner();
@@ -207,7 +207,7 @@ int main()
     badGenericStride.tool = generation->Tool();
     badGenericStride.channels = generation->Channels();
     badGenericStride.channels.push_back(
-        {"guideIndex", usdGen::UsdGenDeviceValueType::Int32,
+        {TfToken("guideIndex"), usdGen::UsdGenDeviceValueType::Int32,
          usdGen::UsdGenDeviceDomain::Primitive, 3, 3, 8, true,
          usdGen::UsdGenDeviceChannelSemantic::Generic});
     badGenericStride.owner = generation->Owner();
@@ -234,7 +234,7 @@ int main()
     badShape.geometry.pointCount = 12;
     badShape.owner = owner;
     badShape.channels.push_back(
-        {"width", usdGen::UsdGenDeviceValueType::Float32,
+        {TfToken("width"), usdGen::UsdGenDeviceValueType::Float32,
          usdGen::UsdGenDeviceDomain::Point, 11, 1, 4, true,
          usdGen::UsdGenDeviceChannelSemantic::Widths});
     Check(!usdGen::UsdGenDeviceGeneration::Create(std::move(badShape), &reason),

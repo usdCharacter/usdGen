@@ -229,7 +229,7 @@ std::unique_ptr<ResampleVkPipeline::Candidate> ResampleVkPipeline::Begin(
         auto candidate = std::unique_ptr<Candidate>(new Candidate(s));
         s->curves = base->curveCount(); s->points = uint32_t(outPoints64); s->target = target;
         s->push.curves = s->curves; s->push.srcPoints = base->pointCount(); s->push.target = target;
-        auto offsetsOwner = base->PlaneOwner("curveOffsets");
+        auto offsetsOwner = base->PlaneOwner(UsdGenCurveChannels().curveOffsets);
         uint64_t const offsetsBytes = (curves64 + 1) * 4;
         if (!offsetsOwner || offsetsOwner->context() != context || offsetsOwner->unproven() ||
             offsetsOwner->sizeBytes() < offsetsBytes || !(offsetsOwner->usage() & VK_BUFFER_USAGE_STORAGE_BUFFER_BIT))

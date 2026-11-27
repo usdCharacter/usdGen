@@ -12,6 +12,7 @@
 #include "usdGenCurves/publish/curvePublisher.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenCurves/types/deviceChannelTokens.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
@@ -91,6 +92,7 @@ extern "C" void usdGenRegister(UsdGenRegistrar &r)
 
 extern "C" void usdGenRegister_usdGenCurves(UsdGenRegistrar &r)
 {
+    (void)UsdGenCurveChannels();   // device channel names, interned here
     UsdGenRegisterCurveSetType(r, UsdGenMakeCurvePublishDesc());   // first: op defs name its type
     UsdGenRegisterCurvePublisher(r);
     UsdGenCurvesKernelOps &k = gKernelOps;

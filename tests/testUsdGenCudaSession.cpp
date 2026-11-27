@@ -369,9 +369,9 @@ int main() {
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors() &&
               session.Stats().executionCacheMisses == 1 &&
               session.Stats().executionCacheAdmissions == 1);
-        auto firstDensity = gpu::AcquireNamedChannel(first->device, "density", consumer);
-        auto firstClasses = gpu::AcquireNamedChannel(first->device, "classPair", consumer);
-        auto firstGroom = gpu::AcquireNamedChannel(first->device, "groomWeight", consumer);
+        auto firstDensity = gpu::AcquireNamedChannel(first->device, TfToken("density"), consumer);
+        auto firstClasses = gpu::AcquireNamedChannel(first->device, TfToken("classPair"), consumer);
+        auto firstGroom = gpu::AcquireNamedChannel(first->device, TfToken("groomWeight"), consumer);
         std::vector<float> density;
         std::vector<int32_t> classes;
         std::vector<float> groomValue;
@@ -386,7 +386,7 @@ int main() {
         usdGenUsd::SetGraphDesc(session, desc);
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second->device && second != first);
-        auto secondDensity = gpu::AcquireNamedChannel(second->device, "density", consumer);
+        auto secondDensity = gpu::AcquireNamedChannel(second->device, TfToken("density"), consumer);
         CHECK(ReadNamed(secondDensity, consumer, &density) && density[3] == 99.f);
         CHECK(ReadNamed(firstDensity, consumer, &density) && density[3] == 1.f);
     }
@@ -433,11 +433,11 @@ int main() {
               !session.LastDiagnostics().HasErrors());
         auto geometry = gpu::AcquireGeometry(compacted->device, consumer);
         auto densityLease = gpu::AcquireNamedChannel(
-            compacted->device, "density", consumer);
+            compacted->device, TfToken("density"), consumer);
         auto classLease = gpu::AcquireNamedChannel(
-            compacted->device, "classPair", consumer);
+            compacted->device, TfToken("classPair"), consumer);
         auto groomLease = gpu::AcquireNamedChannel(
-            compacted->device, "groomWeight", consumer);
+            compacted->device, TfToken("groomWeight"), consumer);
         std::vector<float> density;
         std::vector<int32_t> classes;
         std::vector<float> groomValue;
@@ -458,7 +458,7 @@ int main() {
         auto revised = session.Commit(11, UsdGenCommitReason::SetTime);
         CHECK(revised && revised->device && revised != compacted);
         auto revisedDensity = gpu::AcquireNamedChannel(
-            revised->device, "density", consumer);
+            revised->device, TfToken("density"), consumer);
         CHECK(ReadNamed(revisedDensity, consumer, &density) && density.front() == 33.f);
         CHECK(ReadNamed(densityLease, consumer, &density) && density.front() == 3.f);
     }
@@ -495,9 +495,9 @@ int main() {
         auto first = session.Commit(1, UsdGenCommitReason::SetTime);
         CHECK(first && first->device && !session.LastDiagnostics().HasErrors());
         auto const firstOwner = first->device->Owner();
-        auto firstDensity = gpu::AcquireNamedChannel(first->device, "density", consumer);
-        auto firstClasses = gpu::AcquireNamedChannel(first->device, "classPair", consumer);
-        auto firstGroom = gpu::AcquireNamedChannel(first->device, "groomWeight", consumer);
+        auto firstDensity = gpu::AcquireNamedChannel(first->device, TfToken("density"), consumer);
+        auto firstClasses = gpu::AcquireNamedChannel(first->device, TfToken("classPair"), consumer);
+        auto firstGroom = gpu::AcquireNamedChannel(first->device, TfToken("groomWeight"), consumer);
         std::vector<float> density;
         std::vector<int32_t> classes;
         std::vector<float> groomValue;
@@ -515,7 +515,7 @@ int main() {
         usdGenUsd::SetGraphDesc(session, desc);
         auto second = session.Commit(2, UsdGenCommitReason::SetTime);
         CHECK(second && second->device && second != first);
-        auto secondDensity = gpu::AcquireNamedChannel(second->device, "density", consumer);
+        auto secondDensity = gpu::AcquireNamedChannel(second->device, TfToken("density"), consumer);
         CHECK(ReadNamed(secondDensity, consumer, &density) && density.size() == 8 &&
               std::fabs(density[4] - 99.f) < 1e-4f);
         CHECK(ReadNamed(firstDensity, consumer, &density) &&
