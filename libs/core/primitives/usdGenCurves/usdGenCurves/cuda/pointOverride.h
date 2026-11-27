@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -22,7 +23,7 @@ enum class PointOverrideStatus {
 // The base is never modified.  A successful Finish publishes a private full
 // point buffer; callers may then transfer that completed buffer to a
 // generation owner with releaseCompleted().
-class CudaPointOverride {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaPointOverride {
 public:
     CudaPointOverride() = default;
     ~CudaPointOverride();

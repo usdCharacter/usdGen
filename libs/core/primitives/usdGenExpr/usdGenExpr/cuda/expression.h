@@ -3,6 +3,7 @@
 
 #include "usdGenCuda/gpu/deviceBuffer.h"
 #include "usdGenExpr/expressions/ir.h"
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -33,7 +34,7 @@ enum class ExpressionStatus { Ok, InvalidArgument, InvalidProgram, InvalidValue,
 // Upload is compile-time control data. Evaluate reads/writes only device
 // fields; Finish validates one scalar diagnostic before publication. An
 // instance allows one pending execution, serialized across caller streams.
-class CudaExpressionProgram {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaExpressionProgram {
 public:
     ~CudaExpressionProgram();
     CudaExpressionProgram() = default;

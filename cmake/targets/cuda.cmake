@@ -247,7 +247,8 @@ if(USDGEN_ENABLE_CUDA)
             target_include_directories(${_usdgen_gpu_object}Cuda PRIVATE
                 ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
                 $<TARGET_PROPERTY:usdGenCuda,INTERFACE_INCLUDE_DIRECTORIES>)
-            target_compile_definitions(${_usdgen_gpu_object}Cuda PRIVATE USDGEN_ENABLE_CUDA)
+            # Linked into usdGenCurvesCuda: its symbols export with that DLL's macro.
+            target_compile_definitions(${_usdgen_gpu_object}Cuda PRIVATE USDGEN_ENABLE_CUDA usdGenCurvesCuda_EXPORTS)
             set_target_properties(${_usdgen_gpu_object}Cuda PROPERTIES
                 POSITION_INDEPENDENT_CODE ON
                 CUDA_ARCHITECTURES "${USDGEN_CUDA_ARCH}")

@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -51,7 +52,7 @@ struct RestRootFrames {
 // recordUse stores one last-use event per buffer, so the owning scheduler must
 // serialize consumers (or hold an owning snapshot); independent concurrent
 // consumers are not aggregated by this helper.
-class CudaRestRootFrames {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaRestRootFrames {
 public:
     CudaRestRootFrames() = default;
     ~CudaRestRootFrames();

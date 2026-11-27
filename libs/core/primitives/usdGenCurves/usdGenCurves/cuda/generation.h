@@ -6,6 +6,7 @@
 #include "usdGenCurves/cuda/curveResample.h"
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCurves/cuda/scatterGrow.h"
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -22,7 +23,7 @@ struct CudaNamedChannelPlane {
 
 // Takes exclusive ownership of a completed source. Each published generation
 // gets distinct mutable storage; it is never replaced underneath a reader.
-std::shared_ptr<const UsdGenDeviceGeneration> MakeSourceGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakeSourceGeneration(
     std::unique_ptr<CudaCurveSource> source, uint64_t generation,
     std::string* reason = nullptr, bool alreadyDeformed = false,
     std::unique_ptr<DeviceBuffer<float>> widths = {},
@@ -33,7 +34,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeSourceGeneration(
 // Owns both the immutable uploaded source and its completed device-only
 // resample. The source remains alive because the resampler borrowed it until
 // Finish; consumers expose only the resampled channels.
-std::shared_ptr<const UsdGenDeviceGeneration> MakeResampledGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakeResampledGeneration(
     std::unique_ptr<CudaCurveSource> source, std::unique_ptr<CudaCurveResample> resampled,
     uint64_t generation, std::string* reason = nullptr, bool alreadyDeformed = false,
     std::unique_ptr<DeviceBuffer<float>> widths = {},
@@ -42,7 +43,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeResampledGeneration(
     std::vector<CudaNamedChannelPlane> namedChannels = {});
 
 // Owns a completed GPU topology revision, including every reordered channel.
-std::shared_ptr<const UsdGenDeviceGeneration> MakeCompactedGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakeCompactedGeneration(
     std::unique_ptr<CudaCurveCompaction> geometry, uint64_t generation,
     std::string* reason = nullptr, bool alreadyDeformed = false,
     std::unique_ptr<DeviceBuffer<float>> widths = {},
@@ -53,7 +54,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeCompactedGeneration(
 // Owns a completed Scatter-capture/Grow topology expansion.  The producer
 // carries the immutable copied roots and T/B/N frame planes through its
 // completion proof; only its fresh expanded storage is transferred here.
-std::shared_ptr<const UsdGenDeviceGeneration> MakeScatterGrowGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakeScatterGrowGeneration(
     std::unique_ptr<CudaScatterGrow> geometry, uint64_t generation,
     std::string* reason = nullptr, bool alreadyDeformed = false,
     uint64_t topologyVersion = UINT64_MAX,
@@ -66,7 +67,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeScatterGrowGeneration(
 // Owns a completed C3-native Grow topology expansion. The producer has
 // already copied every C3 geometry/binding channel into fresh output storage;
 // named planes are the executor-owned, freshly transformed counterparts.
-std::shared_ptr<const UsdGenDeviceGeneration> MakeCurveGrowGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakeCurveGrowGeneration(
     std::unique_ptr<CudaCurveGrow> geometry, uint64_t generation,
     std::string* reason = nullptr, bool alreadyDeformed = false,
     uint64_t topologyVersion = UINT64_MAX,
@@ -77,12 +78,12 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeCurveGrowGeneration(
 // Completed device-only point edit of an immutable snapshot. All other
 // channels and the topology version are shared with base. A null points
 // revision republishes the unmodified base (gesture cancellation).
-std::shared_ptr<const UsdGenDeviceGeneration> MakePointRevisionGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakePointRevisionGeneration(
     std::shared_ptr<const UsdGenDeviceGeneration> base, uint64_t generation,
     std::unique_ptr<DeviceBuffer<float3>> points,
     UsdGenDeviceToolMetadata tool = {}, std::string* reason = nullptr);
 
-std::shared_ptr<const UsdGenDeviceGeneration> MakeNamedChannelRevisionGeneration(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> MakeNamedChannelRevisionGeneration(
     std::shared_ptr<const UsdGenDeviceGeneration> base, uint64_t generation,
     std::vector<CudaNamedChannelPlane> planes, UsdGenDeviceToolMetadata tool = {},
     std::string* reason = nullptr);
@@ -100,11 +101,11 @@ private:
     UsdGenDeviceLease lease_;
     UsdGenDeviceChannelMetadata metadata_;
     DeviceView<const unsigned char> bytes_;
-    friend CudaNamedChannelLease AcquireNamedChannel(
+    friend USDGEN_CURVES_CUDA_INTERNAL_API CudaNamedChannelLease AcquireNamedChannel(
         std::shared_ptr<const UsdGenDeviceGeneration> const&, UsdGenToken const&, cudaStream_t);
 };
 
-CudaNamedChannelLease AcquireNamedChannel(
+USDGEN_CURVES_CUDA_INTERNAL_API CudaNamedChannelLease AcquireNamedChannel(
     std::shared_ptr<const UsdGenDeviceGeneration> const&, UsdGenToken const&, cudaStream_t);
 
 // Read-only geometry access for CUDA tools/consumers. The native stream must
@@ -132,7 +133,7 @@ private:
     DeviceView<const int32_t> rootPrim_{};
     DeviceView<const float2> rootUV_{};
     DeviceView<const float3> rootT_{}, rootB_{}, rootN_{};
-    friend CudaGeometryLease AcquireGeometry(
+    friend USDGEN_CURVES_CUDA_INTERNAL_API CudaGeometryLease AcquireGeometry(
         std::shared_ptr<const UsdGenDeviceGeneration> const&, cudaStream_t);
 };
 
@@ -166,22 +167,22 @@ public:
 private:
     CudaGeometryLease parent_;
     CudaGeometryTileView view_{};
-    friend CudaGeometryTileLease AcquireGeometryTile(
+    friend USDGEN_CURVES_CUDA_INTERNAL_API CudaGeometryTileLease AcquireGeometryTile(
         std::shared_ptr<const UsdGenDeviceGeneration> const&, uint32_t,
         uint64_t, cudaStream_t);
 };
 
-CudaGeometryLease AcquireGeometry(
+USDGEN_CURVES_CUDA_INTERNAL_API CudaGeometryLease AcquireGeometry(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     cudaStream_t stream);
 
-CudaGeometryTileLease AcquireGeometryTile(
+USDGEN_CURVES_CUDA_INTERNAL_API CudaGeometryTileLease AcquireGeometryTile(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     uint32_t tileId, uint64_t expectedGeneration, cudaStream_t stream);
 
 /// Attach immutable tile-range metadata without copying or replacing any
 /// backend channels/owner. Returns a new immutable wrapper on success.
-std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> WithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles,
     std::string* reason = nullptr,

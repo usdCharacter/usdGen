@@ -7,6 +7,7 @@
 
 #include <memory>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen { class UsdGenExecutionMemoryReservation; }
 namespace usdGen::gpu {
@@ -46,7 +47,7 @@ struct CurveFullNonWidthCompareResult {
 // descriptor disagreement is a valid proved unequal result, while malformed
 // views/offsets are cudaErrorInvalidValue. Curve type/basis/wrap are not part
 // of this buffer primitive and remain executor-level policy.
-class CudaCurveFullNonWidthCompare {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaCurveFullNonWidthCompare {
 public:
     CudaCurveFullNonWidthCompare() = default;
     ~CudaCurveFullNonWidthCompare();

@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen { class UsdGenExecutionMemoryReservation; }
 namespace usdGen::gpu {
@@ -24,7 +25,7 @@ enum class CudaNamedChannelTopologyMode : uint8_t {
     Compaction
 };
 
-class CudaNamedChannelTopologyCandidate {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaNamedChannelTopologyCandidate {
 public:
     // A raw input belongs to an execution-job candidate rather than a
     // published generation. `bytes` and both raw geometry views passed to
@@ -111,7 +112,7 @@ private:
 // on CudaNamedChannelTopologyCandidate and synchronizes only after its
 // terminal callback has been installed.  Test hook: the cook uses the
 // candidate directly.
-std::shared_ptr<const UsdGenDeviceGeneration>
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration>
 TransformCudaNamedChannelsForResample(
     std::shared_ptr<const UsdGenDeviceGeneration> const& source,
     std::shared_ptr<const UsdGenDeviceGeneration> const& topology,
@@ -121,7 +122,7 @@ TransformCudaNamedChannelsForResample(
 // As above, but `topology` is a completed stable compaction result.  Output
 // curves are located by stable id in `source`, which makes survivor mapping
 // explicit and rejects duplicate/missing ids transactionally.
-std::shared_ptr<const UsdGenDeviceGeneration>
+USDGEN_CURVES_CUDA_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration>
 TransformCudaNamedChannelsForCompaction(
     std::shared_ptr<const UsdGenDeviceGeneration> const& source,
     std::shared_ptr<const UsdGenDeviceGeneration> const& topology,

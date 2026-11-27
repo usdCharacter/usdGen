@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -14,7 +15,7 @@ enum class CurveResampleStatus { Ok, InvalidArgument, NonFiniteInput, CudaError,
 // target>=2 makes every curve uniform.  Borrowed inputs remain live through
 // Finish; active output is replaced only by a successful Finish.  Fresh
 // inputs remain borrowed through the terminal callback and CommitFreshFinish.
-class CudaCurveResample {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaCurveResample {
 public:
     CudaCurveResample() = default;
     ~CudaCurveResample();

@@ -238,6 +238,6 @@ cudaError_t BuildCurveTileBounds(CurveTileBoundsOptions options,
 }
 
 // The runtime instantiates only element types it knows.
-template class DeviceBuffer<CurveTileBoundsScratch>;
+template class USDGEN_CURVES_CUDA_INTERNAL_API DeviceBuffer<CurveTileBoundsScratch>;
 
 } // namespace usdGen::gpu

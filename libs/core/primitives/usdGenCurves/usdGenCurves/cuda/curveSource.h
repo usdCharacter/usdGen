@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -55,7 +56,7 @@ enum CurveSourceWarningFlags : uint32_t {
 // until Finish succeeds; Finish reads no generated geometry back to the host.
 // Call recordUse/waitOn when consumers use view() across streams, just as for
 // CudaCurveGeometry.
-class CudaCurveSource {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaCurveSource {
 public:
     CudaCurveSource() = default;
     ~CudaCurveSource();

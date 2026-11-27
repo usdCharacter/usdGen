@@ -241,6 +241,6 @@ cudaError_t BuildCurveTiles(CurveTileInput input,
 }
 
 // The runtime instantiates only element types it knows.
-template class DeviceBuffer<CurveTileSpan>;
+template class USDGEN_CURVES_CUDA_INTERNAL_API DeviceBuffer<CurveTileSpan>;
 
 } // namespace usdGen::gpu

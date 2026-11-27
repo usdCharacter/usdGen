@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen {
 
@@ -21,7 +22,7 @@ enum class CudaScatterInputStatus {
     CaptureFailed
 };
 
-CudaScatterInputStatus PrepareCudaScatterInput(
+USDGEN_CURVES_CUDA_INTERNAL_API CudaScatterInputStatus PrepareCudaScatterInput(
     UsdGenGraphSpec const& desc, UsdGenNodeKey scatterKey,
     std::shared_ptr<const gpu::ScatterGrowRoots>* out,
     std::string* reason = nullptr);

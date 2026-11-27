@@ -6,13 +6,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
 // Queries CUB's selected-device scan workspace for a compaction of `curves`.
 // This is a host-only sizing call: it allocates no temporary storage and
 // enqueues no CUDA work.
-cudaError_t GetCudaCurveCompactionScanTemporaryBytes(
+USDGEN_CURVES_CUDA_INTERNAL_API cudaError_t GetCudaCurveCompactionScanTemporaryBytes(
     size_t curves, size_t* bytes, cudaStream_t stream = nullptr);
 
 enum class CurveCompactionStatus {
@@ -28,7 +29,7 @@ enum class CurveCompactionStatus {
 // must be supplied together.  Legacy input views are borrowed until Finish
 // returns; fresh input views remain borrowed through the final native proof
 // and CommitFreshFinish.
-class CudaCurveCompaction {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaCurveCompaction {
 public:
     CudaCurveCompaction() = default;
     ~CudaCurveCompaction();
@@ -141,7 +142,7 @@ private:
 };
 
 // Test-only: fails the next fresh scatter before output allocation/submission.
-void failNextCudaCurveCompactionFreshScatterAllocationForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaCurveCompactionFreshScatterAllocationForTesting();
 
 } // namespace usdGen::gpu
 

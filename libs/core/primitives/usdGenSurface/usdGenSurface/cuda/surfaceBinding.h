@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen { namespace gpu {
 
@@ -22,7 +23,7 @@ enum class SurfaceBindingStatus {
     CudaError
 };
 
-class CudaSurfaceBinding {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaSurfaceBinding {
 public:
     CudaSurfaceBinding() = default;
     ~CudaSurfaceBinding();
@@ -150,9 +151,9 @@ private:
 };
 
 // Test-only fresh failure seams. They affect no legacy operation.
-void failNextCudaSurfaceFreshProofAllocationForTesting();
-void failNextCudaSurfaceFreshProofEnqueueForTesting();
-void failNextCudaSurfaceFreshProofAfterStatusForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaSurfaceFreshProofAllocationForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaSurfaceFreshProofEnqueueForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaSurfaceFreshProofAfterStatusForTesting();
 void TestFailNextFreshSurfaceResolvePreflight() noexcept;
 void TestFailNextFreshSurfaceResolveCommit() noexcept;
 uint64_t FreshSurfaceAcceptAttemptCountForTesting() noexcept;

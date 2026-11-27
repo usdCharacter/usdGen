@@ -4,6 +4,7 @@
 #include "usdGenCurves/cuda/width.h"
 
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -45,7 +46,7 @@ struct LengthParameters {
     int seed = 0;
 };
 
-class CudaLength {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaLength {
 public:
     CudaLength() = default;
     ~CudaLength();

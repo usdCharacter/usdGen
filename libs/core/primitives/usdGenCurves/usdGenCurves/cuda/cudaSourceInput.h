@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen {
 
@@ -39,7 +40,7 @@ struct CudaSourcePreparationInput {
     std::vector<std::array<double, 16>> rootFrames;
 };
 
-struct CudaSourcePrepared {
+struct USDGEN_CURVES_CUDA_INTERNAL_API CudaSourcePrepared {
     std::vector<int32_t> curveVertexCounts;
     std::vector<float3> points, rest;
     std::vector<float> widths, hairT;
@@ -61,10 +62,10 @@ enum class CudaSourcePreparationStatus {
 // Compact a validated source into fresh owners without renumbering stable IDs.
 // Retained IDs may be unordered; duplicates/unknown IDs and malformed channel
 // cardinalities reject transactionally. Empty optional channels stay absent.
-bool CompactCudaSource(CudaSourcePrepared* prepared,
+USDGEN_CURVES_CUDA_INTERNAL_API bool CompactCudaSource(CudaSourcePrepared* prepared,
                        std::vector<uint64_t> const& retainedStableIds);
 
-CudaSourcePreparationStatus PrepareCudaSource(
+USDGEN_CURVES_CUDA_INTERNAL_API CudaSourcePreparationStatus PrepareCudaSource(
     CudaSourcePreparationInput const& source,
     CudaSourcePreparationOptions const& options,
     CudaSourcePrepared* prepared,

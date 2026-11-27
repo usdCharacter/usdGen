@@ -3,6 +3,7 @@
 
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenExpr/cuda/expression.h"
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -26,7 +27,7 @@ enum class ExpressionContextStatus { Ok, InvalidArgument, InvalidGeometry,
 // Builds one domain-specialized expression invocation context without a
 // geometry readback.  The object owns converted device fields until the next
 // Build/destruction and must outlive expression evaluation using Inputs().
-class CudaExpressionContext {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaExpressionContext {
 public:
     ~CudaExpressionContext();
     CudaExpressionContext() = default;

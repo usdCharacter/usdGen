@@ -5,6 +5,7 @@
 #include "usdGenSurface/cuda/rootFrames.h"
 
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -58,7 +59,7 @@ struct NoiseParameters {
 // Fractional preserveLength blends uncorrected displacement toward a
 // sequential root-anchored restoration using authored rest segment lengths;
 // 0 is no restoration and 1 restores every nondegenerate segment exactly.
-class CudaNoise {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaNoise {
 public:
     CudaNoise() = default;
     ~CudaNoise();

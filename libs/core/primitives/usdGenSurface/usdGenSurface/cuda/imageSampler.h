@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -22,7 +23,7 @@ struct CudaImageView {
     UsdGenImageRowOrientation orientation = UsdGenImageRowOrientation::TopDown;
 };
 
-class CudaImage final {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaImage final {
 public:
     CudaImage() = default;
     ~CudaImage();
