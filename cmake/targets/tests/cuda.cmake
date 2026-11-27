@@ -224,7 +224,7 @@ if(USDGEN_ENABLE_CUDA)
     set(USDGEN_OPENUSD_SOURCE_DIR "${PROJECT_SOURCE_DIR}/../OpenUSD" CACHE PATH
         "Matching OpenUSD source tree for native Storm index oracle tests")
     add_executable(testUsdGenCudaCurveIndices tests/testUsdGenCudaCurveIndices.cpp)
-    target_link_libraries(testUsdGenCudaCurveIndices PRIVATE usdGenCurvesCuda usdGen hdSt)
+    target_link_libraries(testUsdGenCudaCurveIndices PRIVATE usdGenHydraCurves usdGenCurvesCuda usdGen hdSt)
     if(EXISTS "${USDGEN_OPENUSD_SOURCE_DIR}/pxr/imaging/hdSt/basisCurvesTopology.h")
         target_include_directories(testUsdGenCudaCurveIndices SYSTEM PRIVATE "${USDGEN_OPENUSD_SOURCE_DIR}")
         target_compile_definitions(testUsdGenCudaCurveIndices PRIVATE USDGEN_HAS_STORM_INDEX_ORACLE)

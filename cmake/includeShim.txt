@@ -51,7 +51,6 @@ usdGen/gpu/cudaRetirement.h usdGenCuda/gpu/cudaRetirement.h
 usdGen/gpu/curveCompaction.h usdGenCurves/cuda/curveCompaction.h
 usdGen/gpu/curveGeometry.h usdGenCurves/cuda/curveGeometry.h
 usdGen/gpu/curveGrow.h usdGenCurves/cuda/curveGrow.h
-usdGen/gpu/curveIndices.h usdGenCurves/cuda/curveIndices.h
 usdGen/gpu/curveResample.h usdGenCurves/cuda/curveResample.h
 usdGen/gpu/curveSource.h usdGenCurves/cuda/curveSource.h
 usdGen/gpu/curveTileBounds.h usdGenCurves/cuda/curveTileBounds.h

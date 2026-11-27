@@ -1,4 +1,6 @@
-#include "usdGenCurves/cuda/curveIndices.h"
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+#include "usdGenHydraCurves/cuda/stormIndices.h"
 #include "usdGenCuda/gpu/cudaCompat.h"
 
 #include <cub/device/device_scan.cuh>
@@ -6,7 +8,7 @@
 #include <climits>
 #include <limits>
 
-namespace usdGen::gpu {
+namespace usdGen::hydraCurves {
 namespace {
 
 constexpr int kThreads = 128;
@@ -206,7 +208,7 @@ cudaError_t BuildCurveIndices(CurveIndexOptions o, CurveIndexSpan span,
  CurveIndexRequirements const& req,CurveIndexWorkspace ws,CurveIndexOutput out,cudaStream_t stream) {
     size_t const curves = span.curveCount;
     size_t const points = span.pointCount;
-    DeviceView<const uint32_t> const offsets = span.curveOffsets;
+    IndexView<const uint32_t> const offsets = span.curveOffsets;
     CurveIndexRequirements expected;
     // cudaStreamGetDevice rejects an actively captured stream. Validate it
     // during preparation, then bind execution to that live stream and device.
@@ -243,15 +245,15 @@ cudaError_t BuildCurveIndices(CurveIndexOptions o, CurveIndexSpan span,
 }
 
 cudaError_t BuildCurveIndices(CurveIndexOptions o, size_t curves, size_t points,
-    DeviceView<const uint32_t> offsets, CurveIndexRequirements const& req,
+    IndexView<const uint32_t> offsets, CurveIndexRequirements const& req,
     CurveIndexWorkspace ws, CurveIndexOutput out, cudaStream_t stream) {
     return BuildCurveIndices(o, CurveIndexSpan{offsets, curves, points, 0},
         req, ws, out, stream);
 }
 
-cudaError_t PackCurveDrawCount(DeviceView<const uint64_t> recordCount,
-    DeviceView<const uint32_t> status, uint32_t indexArity,
-    size_t maxRecords, DeviceView<uint32_t> drawCount,
+cudaError_t PackCurveDrawCount(IndexView<const uint64_t> recordCount,
+    IndexView<const uint32_t> status, uint32_t indexArity,
+    size_t maxRecords, IndexView<uint32_t> drawCount,
     cudaStream_t stream) {
     if ((indexArity != 1 && indexArity != 2 && indexArity != 4) ||
         recordCount.size != 1 || status.size != 1 || drawCount.size != 1 ||
@@ -262,4 +264,4 @@ cudaError_t PackCurveDrawCount(DeviceView<const uint64_t> recordCount,
         indexArity, static_cast<uint64_t>(maxRecords), drawCount.data);
     return cudaGetLastError();
 }
-} // namespace usdGen::gpu
+} // namespace usdGen::hydraCurves

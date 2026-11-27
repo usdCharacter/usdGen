@@ -1,6 +1,7 @@
 // Test-only readback oracle. Production index generation never reads offsets,
 // generated indices, primitive IDs, or draw counts back to the host.
-#include "usdGenCurves/cuda/curveIndices.h"
+#include "usdGenHydraCurves/cuda/stormIndices.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include "usdGenCurves/cuda/curveCompaction.h"
 #ifdef USDGEN_HAS_STORM_INDEX_ORACLE
 #include "pxr/imaging/hdSt/basisCurvesTopology.h"
@@ -16,6 +17,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 #include <string>
 #include <vector>
 using namespace usdGen::gpu;
+using namespace usdGen::hydraCurves;
 namespace {
 int failures = 0;
 void Check(bool value, char const* label) {
