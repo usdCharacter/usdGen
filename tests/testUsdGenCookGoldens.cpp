@@ -17,8 +17,9 @@
 // the guide tiles, instancers, scalp cap and prim-set signature; and every
 // column of the terminal set (compile + scheduler run at the same time).
 //
-// Must equal tests/golden/cookDigests.<os>-<cc>.txt byte for byte. MSVC
-// golden only: another toolchain without its own file skips (exit 77).
+// Must equal tests/golden/cookDigests.<os>-<cc>.txt byte for byte. A
+// toolchain without its own file writes cookDigests.<os>-<cc>.actual.txt
+// (CI uploads it) and skips (exit 77).
 // --write regenerates (an intended output change; never to make a refactor
 // pass). USDGEN_COOK_GOLDEN_THREADS overrides the thread count (default 4;
 // the digests must not depend on it). USDGEN_GOLDEN_VERBOSE=1 prints
@@ -97,6 +98,7 @@ namespace {
 #define USDGEN_COOK_CC "unknown"
 #endif
 constexpr char const *kGoldenName = "cookDigests." USDGEN_COOK_OS "-" USDGEN_COOK_CC ".txt";
+constexpr char const *kActualName = "cookDigests." USDGEN_COOK_OS "-" USDGEN_COOK_CC ".actual.txt";
 
 bool g_verbose = false;
 int g_threads = 4;
@@ -758,11 +760,6 @@ int main(int argc, char **argv)
     }
     std::string const goldenPath = std::string(USDGEN_GOLDEN_DIR) + "/" + kGoldenName;
     std::string const expected = ReadFile(goldenPath);
-    if (!rewrite && expected.empty()) {
-        // Float bits belong to one toolchain; only the recorded ones compare.
-        std::printf("SKIP: no %s for this toolchain\n", kGoldenName);
-        return 77;
-    }
 
     Table table;
     Counters counters;
@@ -780,12 +777,17 @@ int main(int argc, char **argv)
         std::printf("wrote %s\n", goldenPath.c_str());
         return g_failures ? 1 : 0;
     }
+    if (expected.empty()) {
+        // Float bits belong to one toolchain: record this one's for review.
+        std::ofstream(kActualName, std::ios::binary) << text;
+        std::printf("SKIP: no tests/golden/%s for this toolchain (wrote %s)\n", kGoldenName, kActualName);
+        return g_failures ? 1 : 77;
+    }
     if (expected != text) {
-        std::string const actualName = std::string(kGoldenName) + ".actual";
-        std::ofstream(actualName, std::ios::binary) << text;
+        std::ofstream(kActualName, std::ios::binary) << text;
         Compare(expected, text);
         Fail(std::string("output differs from tests/golden/") + kGoldenName + " (actual: " +
-             actualName + ")");
+             kActualName + ")");
     }
     if (g_failures) std::printf("testUsdGenCookGoldens: FAILED (%d)\n", g_failures);
     else std::printf("testUsdGenCookGoldens: PASS\n");
