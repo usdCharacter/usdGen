@@ -396,7 +396,8 @@ void UsdGenWindOp::Evaluate(
     if (!stiffFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kInterp, Record().Token(kTokCatmullRom)) : Record().Token(kTokCatmullRom),
+            UsdGenParseRampInterp((p ? p->GetToken(kInterp, Record().Token(kTokCatmullRom))
+                                     : Record().Token(kTokCatmullRom)).GetText()),
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }

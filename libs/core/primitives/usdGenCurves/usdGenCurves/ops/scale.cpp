@@ -233,7 +233,7 @@ void UsdGenScaleOp::Evaluate(
     if (!rampFlat) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kScaleInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
+            UsdGenParseRampInterp((p ? p->GetToken(kScaleInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom).GetText()),
             tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }

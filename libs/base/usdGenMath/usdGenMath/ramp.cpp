@@ -39,16 +39,9 @@ float KnotY(UsdGenVec2fArray const &knots, int i)
     return knots[size_t(i)][1];
 }
 
-float EvalOne(UsdGenVec2fArray const &knots, UsdGenToken const &interpolation, float u)
+float EvalOne(UsdGenVec2fArray const &knots, UsdGenRampInterp interpolation, float u)
 {
     u = ClampU(u);
-    // Interned once: EvalOne runs per LUT sample (257x per chunk per node on
-    // workers); each UsdGenToken("literal") re-hashes + re-probes the global
-    // token registry under a lock — the E-7 negative-scaling term.
-    static const UsdGenToken sConstant{"constant"};
-    static const UsdGenToken sLinear{"linear"};
-    static const UsdGenToken sCatmullRom{"catmullRom"};
-    static const UsdGenToken sBspline{"bspline"};
     if (knots.size() < 2) return 1.0f;
     // Endpoints: u before the first knot / after the last resolves to that
     // knot's value (clamped-end behaviour, 02 §2.17).
@@ -61,13 +54,13 @@ float EvalOne(UsdGenVec2fArray const &knots, UsdGenToken const &interpolation, f
     float const t = (xb - xa > 1e-9f) ? (u - xa) / (xb - xa) : 0.0f;
     const float tc = std::min(std::max(t, 0.0f), 1.0f);
 
-    if (interpolation == sConstant) {
+    if (interpolation == UsdGenRampInterp::Constant) {
         return ya;  // hold the previous knot's value
     }
-    if (interpolation == sLinear) {
+    if (interpolation == UsdGenRampInterp::Linear) {
         return ya + (yb - ya) * tc;
     }
-    if (interpolation == sCatmullRom) {
+    if (interpolation == UsdGenRampInterp::CatmullRom) {
         // Uniform Catmull-Rom through the knots, clamped endpoints.
         float const p0 = KnotY(knots, int(i) - 1);
         float const p1 = ya;
@@ -79,7 +72,7 @@ float EvalOne(UsdGenVec2fArray const &knots, UsdGenToken const &interpolation, f
                        (p0 - 2.0f * p1 + p2) * t2 +
                        (-p0 + 3.0f * p1 - 3.0f * p2 + p3) * t3);
     }
-    if (interpolation == sBspline) {
+    if (interpolation == UsdGenRampInterp::Bspline) {
         // Uniform cubic B-spline approximating the knots (basis on [i, i+3]).
         float const p0 = KnotY(knots, int(i));
         float const p1 = KnotY(knots, int(i) + 1);
@@ -92,7 +85,7 @@ float EvalOne(UsdGenVec2fArray const &knots, UsdGenToken const &interpolation, f
                 (p2 * (1.0f + 3.0f * tc + 3.0f * t2 - 3.0f * t3)) +
                 (p3 * t3));
     }
-    // Unknown token: linear fallback.
+    // Unreachable: every mode returns above.
     return ya + (yb - ya) * tc;
 }
 
@@ -100,7 +93,7 @@ float EvalOne(UsdGenVec2fArray const &knots, UsdGenToken const &interpolation, f
 
 void UsdGenBuildRampLut(
     UsdGenVec2fArray const &knots,
-    UsdGenToken const &interpolation,
+    UsdGenRampInterp interpolation,
     float *lut,
     size_t lutSize)
 {
@@ -115,7 +108,7 @@ void UsdGenBuildRampLut(
 
 float UsdGenEvalRamp(
     UsdGenVec2fArray const &knots,
-    UsdGenToken const &interpolation,
+    UsdGenRampInterp interpolation,
     float u)
 {
     return EvalOne(knots, interpolation, u);

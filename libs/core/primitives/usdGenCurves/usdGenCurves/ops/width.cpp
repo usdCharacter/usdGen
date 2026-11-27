@@ -265,8 +265,8 @@ void UsdGenWidthOp::Evaluate(
     thread_local std::vector<float> tLut;
     if (!widthKnots.empty()) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(widthKnots, p ? p->GetToken(kKnotsInterp, Record().Token(kTokCatmullRom))
-                : Record().Token(kTokCatmullRom), tLut.data(), kUsdGenRampLutSize);
+        UsdGenBuildRampLut(widthKnots, UsdGenParseRampInterp((p ? p->GetToken(kKnotsInterp, Record().Token(kTokCatmullRom))
+                : Record().Token(kTokCatmullRom)).GetText()), tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
     // Uniform fast path: a flat ramp with uniform width/mask fields makes

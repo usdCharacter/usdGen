@@ -245,7 +245,7 @@ void UsdGenCurlOp::Evaluate(
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kRadiusInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
+            UsdGenParseRampInterp((p ? p->GetToken(kRadiusInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom).GetText()),
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }

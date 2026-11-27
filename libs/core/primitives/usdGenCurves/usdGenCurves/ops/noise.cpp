@@ -461,8 +461,8 @@ void UsdGenNoiseOp::Evaluate(
     thread_local std::vector<float> tLut;
     if (!magFlat) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(magKnots, p ? p->GetToken(kMagInterp, Record().Token(kTokCatmullRom))
-                : Record().Token(kTokCatmullRom), tLut.data(), kUsdGenRampLutSize);
+        UsdGenBuildRampLut(magKnots, UsdGenParseRampInterp((p ? p->GetToken(kMagInterp, Record().Token(kTokCatmullRom))
+                : Record().Token(kTokCatmullRom)).GetText()), tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }
     const size_t cv = size_t(view->cvCount);

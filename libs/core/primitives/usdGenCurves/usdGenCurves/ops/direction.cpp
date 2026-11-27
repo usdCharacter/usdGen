@@ -488,7 +488,7 @@ void UsdGenDirectionOp::Evaluate(
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
+            UsdGenParseRampInterp((p ? p->GetToken(kInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom).GetText()),
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }

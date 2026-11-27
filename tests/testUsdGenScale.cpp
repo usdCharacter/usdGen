@@ -396,7 +396,7 @@ static void CheckRampCook()
     if (plain.totalCvs == 0 || plain.hairT.size() != out.totalCvs) return;
     // Expected factors from the same LUT builder over the source hairT.
     std::vector<float> lut(kUsdGenRampLutSize, 1.0f);
-    UsdGenBuildRampLut(knots, TfToken("linear"), lut.data(),
+    UsdGenBuildRampLut(knots, UsdGenRampInterp::Linear, lut.data(),
                        kUsdGenRampLutSize);
     bool profile = true, rootsFixed = true, gathered = true;
     for (size_t c = 0; c < 2; ++c) {

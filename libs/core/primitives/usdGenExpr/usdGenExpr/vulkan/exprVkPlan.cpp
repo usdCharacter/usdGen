@@ -158,7 +158,8 @@ bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &no
             return false;
         }
     if (!knots.empty())
-        UsdGenBuildRampLut(knots, interpolation, data.literal.profile.data(), 257);
+        UsdGenBuildRampLut(knots, UsdGenParseRampInterp(interpolation.GetText()),
+                           data.literal.profile.data(), 257);
     // Bezier profile mode replaces the ramp LUT with the profile factor.
     UsdGenStackParams const params(desc, node, *widthKernel.record);
     bool const bezier = widthKernel.kernel->profileLut &&

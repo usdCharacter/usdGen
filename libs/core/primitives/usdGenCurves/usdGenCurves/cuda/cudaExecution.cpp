@@ -699,7 +699,7 @@ void BuildCudaStepProfile(UsdGenParamView const& params, UsdGenCudaExecutionPlan
         UsdGenValue const empty(UsdGenVec2fArray{});
         UsdGenValue const& value = params.GetValue(StepSlot(step, knots), empty);
         UsdGenBuildRampLut(value.UncheckedGet<UsdGenVec2fArray>(),
-            params.GetToken(StepSlot(step, interpolation), UsdGenCurveTokens().catmullRom),
+            UsdGenParseRampInterp(params.GetToken(StepSlot(step, interpolation), UsdGenCurveTokens().catmullRom).GetText()),
             output->data(), output->size());
     };
     if (step.stage == UsdGenCudaStage::Width) {

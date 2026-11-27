@@ -539,7 +539,7 @@ bool ValidateNoise(UsdGenOpNode const &node, VulkanLiteralNoiseControls *out,
         if (!ramp.knots.empty() || !ramp.positions.empty() || !ramp.colors.empty())
             return Fail(diagnostics, "anonymous Noise ramp requires named parameter");
     if (!knots.empty())
-        UsdGenBuildRampLut(knots, interpolation, out->profile.data(), 257);
+        UsdGenBuildRampLut(knots, UsdGenParseRampInterp(interpolation.GetText()), out->profile.data(), 257);
     return true;
 }
 

@@ -518,8 +518,9 @@ bool UsdGenClumpOp::Capture(
     UsdGenVec2fArray const knots = s.bezier ? UsdGenVec2fArray() : ReadKnots(p, kProfileKnots);
     if (!knots.empty()) {
         profile.assign(kUsdGenRampLutSize, 1.0f);
-        UsdGenBuildRampLut(knots, p ? p->GetToken(kProfileInterpolation, UsdGenCurveTokens().catmullRom)
-                                : UsdGenCurveTokens().catmullRom,
+        UsdGenBuildRampLut(knots,
+                           UsdGenParseRampInterp((p ? p->GetToken(kProfileInterpolation, UsdGenCurveTokens().catmullRom)
+                                                    : UsdGenCurveTokens().catmullRom).GetText()),
                            profile.data(), kUsdGenRampLutSize);
     }
 

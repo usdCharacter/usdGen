@@ -18,11 +18,11 @@
 #include "usdGenMath/usdGenMath.h"
 
 #include "usdGenMath/math.h"
-#include "usdGen/api/token.h"
 #include "usdGen/api/cowArray.h"
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 
 namespace usdGen {
@@ -31,15 +31,26 @@ namespace usdGen {
 /// keeps the interpolated j+1 read in range).
 constexpr size_t kUsdGenRampLutSize = 257;
 
+/// The R11 interpolation modes. Callers parse the token once per build.
+enum class UsdGenRampInterp : uint8_t { Linear, Constant, CatmullRom, Bspline };
+
+/// R11 token text to a mode; anything else is Linear (02 §2.17's
+/// "unknown token -> no special mode").
+inline UsdGenRampInterp UsdGenParseRampInterp(std::string_view text) noexcept
+{
+    if (text == "constant") return UsdGenRampInterp::Constant;
+    if (text == "catmullRom") return UsdGenRampInterp::CatmullRom;
+    if (text == "bspline") return UsdGenRampInterp::Bspline;
+    return UsdGenRampInterp::Linear;
+}
+
 /// Build a 257-entry LUT: lut[i] = ramp(i/256) for i in [0, 256].
 ///
 /// `knots` are (position in [0,1], value), sorted by position (the adapter
 /// guarantees order). Empty knots -> the identity ramp (flat 1.0).
-/// `interpolation` is one of the R11 tokens (anything else falls back to
-/// linear, matching 02 §2.17's "unknown token -> no special mode").
 void UsdGenBuildRampLut(
     UsdGenVec2fArray const &knots,
-    UsdGenToken const &interpolation,
+    UsdGenRampInterp interpolation,
     float *lut,
     size_t lutSize = kUsdGenRampLutSize);
 
@@ -47,7 +58,7 @@ void UsdGenBuildRampLut(
 /// single-sample paths); delegates to the same spline code as the LUT.
 float UsdGenEvalRamp(
     UsdGenVec2fArray const &knots,
-    UsdGenToken const &interpolation,
+    UsdGenRampInterp interpolation,
     float u);
 
 }  // namespace usdGen
