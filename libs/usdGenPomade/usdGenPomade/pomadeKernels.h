@@ -8,6 +8,7 @@
 #ifndef USDGEN_POMADE_KERNELS_H
 #define USDGEN_POMADE_KERNELS_H
 
+#include "usdGenPomade/api.h"
 #include "usdGenPomade/pomadeCheck.h"
 #include "usdGenPomade/pomadeHierarchy.h"
 #include "usdGenPomade/pomadeTessellate.h"
@@ -30,7 +31,7 @@ namespace usdGenPomade {
 // Tessellate the test tube on `stream`: one thread per vertex, writing
 // interleaved positions (3 floats) and normals (3 floats). Returns false on
 // launch failure with a NUL-terminated message in errBuf (may be null).
-bool PomadeLaunchTessellate(PomadeTubeShape const &shape,
+USDGENPOMADE_API bool PomadeLaunchTessellate(PomadeTubeShape const &shape,
                            float const *deviceCenterX,
                            float const *deviceCenterY,
                            float const *deviceCenterZ,
@@ -63,7 +64,7 @@ struct PomadeDeviceBvhNode {
     int left, right, faceBegin, faceEnd;
 };
 
-bool PomadeLaunchRaycastBatch(float const *devicePoints,
+USDGENPOMADE_API bool PomadeLaunchRaycastBatch(float const *devicePoints,
                              int const *deviceFaceCounts,
                              int const *deviceFaceIndices,
                              int const *deviceFaceOffsets,
@@ -87,7 +88,7 @@ bool PomadeLaunchRaycastBatch(float const *devicePoints,
 // brute-force closest point over all faces (test-scale meshes; the CPU twin
 // uses the same projection with an AABB pre-filter). Ends are pinned
 // exactly, as the CPU twin does. CPU twin: PomadeTraceEdgeCpu.
-bool PomadeLaunchEdgeTrace(float const *devicePoints,
+USDGENPOMADE_API bool PomadeLaunchEdgeTrace(float const *devicePoints,
                           int const *deviceFaceCounts,
                           int const *deviceFaceIndices,
                           int const *deviceFaceOffsets,
@@ -107,7 +108,7 @@ bool PomadeLaunchEdgeTrace(float const *devicePoints,
 // the same flattened loops as PomadeClassifyPointCpu (no flood fill on
 // either side; the bake constrains by connectivity on the host). Writes the
 // lowest claiming interp id, or -1.
-bool PomadeLaunchClassifyPoints(float const *devicePositions,  // 3 * pointCount
+USDGENPOMADE_API bool PomadeLaunchClassifyPoints(float const *devicePositions,  // 3 * pointCount
                                int pointCount,
                                float const *deviceLoopPts,  // 3 * total
                                int const *deviceLoopBegin,  // regionCount
@@ -129,7 +130,7 @@ bool PomadeLaunchClassifyPoints(float const *devicePositions,  // 3 * pointCount
 // `nCv` frames through the shared PomadeReflectNormal spelling; the lane
 // exists to keep the data device-resident for K5/K9, not for parallelism.
 // CPU twin: PomadeCenterFramesCpu (bit-exact: arithmetic only).
-bool PomadeLaunchCenterFrames(float const *deviceCenterX,
+USDGENPOMADE_API bool PomadeLaunchCenterFrames(float const *deviceCenterX,
                              float const *deviceCenterY,
                              float const *deviceCenterZ, int nCv,
                              PomadeFrame *deviceFrames, cudaStream_t stream,
@@ -141,7 +142,7 @@ bool PomadeLaunchCenterFrames(float const *deviceCenterX,
 // ringVerts grid, ring-major. Sections arrive as device arrays (t, packed
 // u/v rows of ringVerts, scale, twist); frames come from K4. CPU twin:
 // PomadeTessellateCpu (tolerance: twist trigonometry).
-bool PomadeLaunchTubeTessellate(
+USDGENPOMADE_API bool PomadeLaunchTubeTessellate(
     float const *deviceCenterX, float const *deviceCenterY,
     float const *deviceCenterZ, int nCv, PomadeFrame const *deviceFrames,
     float const *deviceSectionT, float const *deviceSectionU,
@@ -167,13 +168,13 @@ struct PomadeDeviceRoot {
 // The mesh form writes the sampled count to `deviceOutCount` (1 int).
 // CPU twins: PomadeRootSampleDiscCpu / PomadeRootSampleMeshCpu (bit-exact:
 // the same hash draws in the same order; sqrt/cos/sin take tolerance).
-bool PomadeLaunchRootSampleDisc(int tubeId, int seed, float radius,
+USDGENPOMADE_API bool PomadeLaunchRootSampleDisc(int tubeId, int seed, float radius,
                                float centerX, float centerY, float centerZ,
                                PomadeFrame const &rootFrame, int count,
                                PomadeDeviceRoot *deviceRoots, int frozen,
                                cudaStream_t stream, char *errBuf,
                                size_t errBufLen);
-bool PomadeLaunchRootSampleMesh(
+USDGENPOMADE_API bool PomadeLaunchRootSampleMesh(
     float const *devicePoints, int const *deviceFaceCounts,
     int const *deviceFaceIndices, int const *deviceFaceOffsets, int faceCount,
     int const *deviceRegionFaces, int regionFaceCount, float density,
@@ -188,7 +189,7 @@ bool PomadeLaunchRootSampleMesh(
 // a host-built triangle/material binding into the complete K5 section
 // payload, so terminal and interior rings retain authored U/V, scale/twist.
 // CPU twin: PomadeGuideFillCpu (tolerance: Hermite/trigonometry).
-bool PomadeLaunchGuideFill(
+USDGENPOMADE_API bool PomadeLaunchGuideFill(
     float const *deviceCenterX, float const *deviceCenterY,
     float const *deviceCenterZ, int nCv, PomadeFrame const *deviceFrames,
     float const *deviceSectionT, float const *deviceSectionU,
@@ -205,7 +206,7 @@ bool PomadeLaunchGuideFill(
 // One thread per guide (input CV count per guide <= 64, uniform or ragged
 // via offsets). Root directions are 9 floats (tube root N/B/T). CPU twin:
 // PomadeGuideResampleCpu (tolerance: sqrt/division chains).
-bool PomadeLaunchGuideResample(float const *devicePoints,
+USDGENPOMADE_API bool PomadeLaunchGuideResample(float const *devicePoints,
                               int const *deviceOffsets,
                               int const *deviceCounts, int guideCount,
                               int cvCount, float const rootDirs[9],
@@ -228,7 +229,7 @@ struct PomadeDevicePickBest {
     int hit = 0;
 };
 
-bool PomadeLaunchPickReduce(float const *devicePositions, int candidateCount,
+USDGENPOMADE_API bool PomadeLaunchPickReduce(float const *devicePositions, int candidateCount,
                            float const viewProj[16], int w, int h, float x,
                            float y, float radiusPx,
                            PomadeDevicePickBest *deviceBest,
@@ -245,7 +246,7 @@ bool PomadeLaunchPickReduce(float const *devicePositions, int candidateCount,
 // pairs is tested and the rectangle arguments are ignored. Both tests spell
 // through the PomadePointInRect / PomadePointInPolygon inlines the CPU twin
 // uses, so the two lanes agree candidate for candidate.
-bool PomadeLaunchSelectMask(float const *devicePositions, int candidateCount,
+USDGENPOMADE_API bool PomadeLaunchSelectMask(float const *devicePositions, int candidateCount,
                            float const viewProj[16], int w, int h, float x0,
                            float y0, float x1, float y1,
                            float const *devicePolygonXY, int polygonCount,
@@ -267,7 +268,7 @@ struct PomadeDeviceRootChart {
     float verts[96];  // world xyz, 32 max (kPomadeCheckRingMax * 3)
 };
 
-bool PomadeLaunchSmoothnessScores(float const *deviceCenterX,
+USDGENPOMADE_API bool PomadeLaunchSmoothnessScores(float const *deviceCenterX,
                                  float const *deviceCenterY,
                                  float const *deviceCenterZ, int nCv,
                                  float *deviceScores, cudaStream_t stream,
@@ -276,7 +277,7 @@ bool PomadeLaunchSmoothnessScores(float const *deviceCenterX,
 // devicePairHits/deviceBroadHits take tubeCount^2 ints (slot i * n + j is
 // the ordered pair, set only for i < j); deviceFlags takes tubeCount.
 // Related pairs (PomadePairRelated over the id arrays) report 0/0.
-bool PomadeLaunchTubeIntersect(PomadeDeviceRootChart const *deviceCharts,
+USDGENPOMADE_API bool PomadeLaunchTubeIntersect(PomadeDeviceRootChart const *deviceCharts,
                               int const *deviceTubeIds,
                               int const *deviceParentIds, int tubeCount,
                               int *devicePairHits, int *deviceBroadHits,
@@ -319,7 +320,7 @@ constexpr int kPomadeDeviceMaxChildren = 8;   // K14 count, K7 group size
 // PomadeSubdivideTubeCpu(parents[i], parentFrames[i], params[i], ...) writes,
 // child identities included. `parentFrames[i]` holds the K4 frames at
 // parents[i]'s center CVs. One block per parent, one lane per child.
-bool PomadeSubdivideTubesDevice(
+USDGENPOMADE_API bool PomadeSubdivideTubesDevice(
     PomadeTubeDesc const *parents,
     std::vector<PomadeFrame> const *parentFrames,
     PomadeSubdivideDesc const *params, int parentCount,
@@ -330,7 +331,7 @@ bool PomadeSubdivideTubesDevice(
 // PomadeParentAverageCpu(groups[i], ...) writes, aggregate identity included.
 // Two launches: centers plus parent frames (one block per group), then the
 // per-section union refit (one block per group and section).
-bool PomadeParentAverageDevice(std::vector<PomadeTubeDesc> const *groups,
+USDGENPOMADE_API bool PomadeParentAverageDevice(std::vector<PomadeTubeDesc> const *groups,
                               int groupCount,
                               std::vector<PomadeTubeDesc> *parentsOut,
                               cudaStream_t stream, std::string *err);
@@ -351,7 +352,7 @@ struct PomadeSculptApplyItem {
 // writes. The derivation half is K14 above, which production already runs
 // once per parent; this lane is the per-child tail that follows it. One
 // thread per item.
-bool PomadeHierarchicalSculptApplyDevice(
+USDGENPOMADE_API bool PomadeHierarchicalSculptApplyDevice(
     PomadeSculptApplyItem const *items, int itemCount,
     std::vector<PomadeTubeDesc> *outActual,
     std::vector<PomadeShapeDeltas> *outStored, cudaStream_t stream,
@@ -369,11 +370,11 @@ bool PomadeHierarchicalSculptApplyDevice(
 // the committer and hydrate compare generated guides bit for bit
 // (pomadeModel.h, PomadeGenerateGuides), so a mixed lane would break the
 // hydrate equality the P1 commit test asserts.
-bool PomadeSmoothnessScoreDevice(float const *cx, float const *cy,
+USDGENPOMADE_API bool PomadeSmoothnessScoreDevice(float const *cx, float const *cy,
                                 float const *cz, int nCv, float *out,
                                 cudaStream_t stream, std::string *err);
 
-bool PomadeTubeIntersectDevice(PomadeTubeDesc const *tubes, int tubeCount,
+USDGENPOMADE_API bool PomadeTubeIntersectDevice(PomadeTubeDesc const *tubes, int tubeCount,
                               int *outFlags, cudaStream_t stream,
                               std::string *err);
 

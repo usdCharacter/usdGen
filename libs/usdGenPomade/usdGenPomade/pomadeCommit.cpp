@@ -1,10 +1,14 @@
 // usdGenPomade — the asynchronous commit pipeline (plan/17 section 3, P1).
 #include "usdGenPomade/pomadeCommit.h"
+#include "usdGenUsd/convert/math.h"
+#include "usdGenPomade/pomadeModelState.h"
 #include "usdGenPomade/pomadeBake.h"
 
 // The cook the stage swap starts lives on the description's imaging
 // session; cancelling it is the plan/17 §3.2 rule 2 half of G7.
 #include "usdGenImaging/usdGenImagingSession.h"
+
+#include "usdGen/api/parkingWord.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/vec2f.h"
@@ -165,6 +169,7 @@ _SetAttr(SdfPrimSpecHandle const &prim, char const *name,
     if (!attr) {
         return false;
     }
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     attr->SetDefaultValue(VtValue(value));
     return true;
 }
@@ -920,9 +925,17 @@ PomadeGuideCache::Clear()
 }
 
 PomadeSnapshot
-PomadeSnapshotFromModel(PomadeModel const &model)
+PomadeSnapshotFromState(PomadeModelState const &state)
 {
     PomadeSnapshot snapshot;
+    auto getRecord = [&](int id, PomadeModel::TubeRecord *out) {
+        auto it = state.records.find(id);
+        if (it == state.records.end()) {
+            return false;
+        }
+        *out = it->second;
+        return true;
+    };
     auto copyBoundaryBindings = [](PomadeTubeDesc const &desc,
                                    PomadeSnapshotTube *entry) {
         if (!entry) {
@@ -938,15 +951,15 @@ PomadeSnapshotFromModel(PomadeModel const &model)
             entry->inheritedBoundaryBindings.push_back(binding.childSlot);
         }
     };
-    PomadeModel::TubeSnapshot tube = model.Snapshot();
+    PomadeModel::TubeSnapshot tube = state.tube;
     snapshot.version = tube.version;
-    snapshot.generatedCurvesSuppressed = model.GeneratedCurvesSuppressed();
-    PomadeModel::OutputSettings const output = model.GetOutputSettings();
+    snapshot.generatedCurvesSuppressed = state.generatedCurvesSuppressed;
+    PomadeModel::OutputSettings const &output = state.output;
     snapshot.outputEnabled = output.enabled;
     snapshot.outputDensityMultiplier = output.densityMultiplier;
     snapshot.outputWidth = output.width;
     snapshot.outputPtexResolution = output.ptexResolution;
-    snapshot.tubeRegionId = model.GetTubeRegionId();
+    snapshot.tubeRegionId = state.tubeRegionId;
     if (tube.hasTube) {
         PomadeSnapshotTube entry;
         entry.tubeId = 0;
@@ -962,13 +975,13 @@ PomadeSnapshotFromModel(PomadeModel const &model)
     // V6: every further L1 root (one per closed region, plan/18 §7 G14).
     // They are ordinary store tubes with no parent, emitted right after
     // tube 0 so the breadth-first walk below can seed on all of them.
-    std::vector<int> const l1Ids = model.L1TubeIds();
+    std::vector<int> const &l1Ids = state.l1TubeIds;
     for (int id : l1Ids) {
         if (id == 0) {
             continue;
         }
         PomadeModel::TubeRecord record;
-        if (!model.GetTubeRecord(id, &record) || !record.hasTube) {
+        if (!getRecord(id, &record) || !record.hasTube) {
             continue;
         }
         PomadeSnapshotTube entry;
@@ -988,14 +1001,14 @@ PomadeSnapshotFromModel(PomadeModel const &model)
     // from its parent's, and hydrate has to subdivide a parent before it can
     // restore that parent's children.
     if (!snapshot.tubes.empty()) {
-        std::vector<int> const ids = model.TubeIds();
+        std::vector<int> const &ids = state.tubeIds;
         std::map<int, PomadeModel::TubeRecord> records;
         for (int id : ids) {
             if (id == 0) {
                 continue;
             }
             PomadeModel::TubeRecord record;
-            if (model.GetTubeRecord(id, &record) && record.hasTube) {
+            if (getRecord(id, &record) && record.hasTube) {
                 records[id] = std::move(record);
             }
         }
@@ -1089,7 +1102,7 @@ PomadeSnapshotFromModel(PomadeModel const &model)
             }
         }
     }
-    snapshot.graph = model.SnapshotGraph();
+    snapshot.graph = state.graph;
     for (PomadeSnapshotTube &entry : snapshot.tubes) {
         if (entry.regionId >= 0 &&
             size_t(entry.regionId) < snapshot.graph.regionBoundaries.size()) {
@@ -1106,7 +1119,7 @@ PomadeSnapshotFromModel(PomadeModel const &model)
     // Mesh-fill inputs: the scalp copy plus the tube's region faces at
     // its interpolation id (the SnapshotGraph rasterise is always
     // current, so this never reads a stale map).
-    std::shared_ptr<PomadeScalpMesh const> scalp = model.GetScalp();
+    std::shared_ptr<PomadeScalpMesh const> const &scalp = state.scalp;
     // Union-find over the linked pairs (min id wins), mirroring
     // PomadeScalpGraph::InterpId. (Sized by resize, not by a single-argument
     // size constructor: `X(size_t(n))` parses as a function declaration —
@@ -1189,6 +1202,12 @@ PomadeSnapshotFromModel(PomadeModel const &model)
     // has to see the entry exactly as the guide fill will (plan/18 §7 G6).
     PomadeHashSnapshot(&snapshot);
     return snapshot;
+}
+
+PomadeSnapshot
+PomadeSnapshotFromModel(PomadeModel const &model)
+{
+    return PomadeSnapshotFromState(*PomadeCaptureModelState(model));
 }
 
 PomadeSnapshotGuides
@@ -3661,23 +3680,86 @@ PomadeSaveGroomAndMaps(UsdStagePtr const &stage, SdfLayerHandle const &live,
     return true;
 }
 
+// The lane's shared state (see the header).
+struct PomadeCommitter::_Lane {
+    struct Request : usdGen::UsdGenRefCounted {
+        uint64_t version = 0;
+        PomadeFillPlan plan;
+    };
+    struct Diagnostic : usdGen::UsdGenRefCounted {
+        std::string text;
+    };
+    struct Paths : usdGen::UsdGenRefCounted {
+        PomadeCommitPaths paths;
+    };
+    // A built layer on the shelf. Its fate is decided once: the UI claims it
+    // for a swap, or a newer build (or Detach) drops it, never both.
+    enum : uint32_t { kFresh = 0, kClaimed = 1, kDropped = 2 };
+    struct Built : usdGen::UsdGenRefCounted {
+        SdfLayerRefPtr layer;  // strong: anonymous layers die with it
+        uint64_t version = 0;
+        mutable std::atomic<uint32_t> fate{kFresh};
+        bool Decide(uint32_t to) const
+        {
+            uint32_t fresh = kFresh;
+            return fate.compare_exchange_strong(fresh, to,
+                                                std::memory_order_acq_rel);
+        }
+    };
+    // Newest-wins handoffs; the worker parks on `wake`, reading it BEFORE
+    // it checks for work, so a Notify in between makes the park return.
+    usdGen::UsdGenNewestWins<Request> pending;
+    usdGen::UsdGenAtomicRef<Paths> paths;
+    usdGen::UsdGenAtomicRef<Built> ready;
+    usdGen::UsdGenRef<Built> partial;  // UI thread: the layer in transfer
+    usdGen::UsdGenNewestWins<Diagnostic> diagnostic;
+    std::atomic<uint32_t> wake{0};
+
+    void Notify()
+    {
+        wake.fetch_add(1u, std::memory_order_seq_cst);
+        usdGen::UsdGenUnparkAll(wake);
+    }
+
+    uint64_t ReadyVersion() const
+    {
+        usdGen::UsdGenEpochGuard guard;
+        Built const *b = ready.Peek();
+        return b ? b->version : 0;
+    }
+    void PublishPaths(PomadeCommitPaths const &p)
+    {
+        usdGen::UsdGenRef<Paths> next = usdGen::UsdGenMakeRef<Paths>();
+        next->paths = p;
+        paths.Store(std::move(next));
+    }
+    void Diagnose(std::string text)
+    {
+        auto d = usdGen::UsdGenMakeRef<Diagnostic>();
+        d->text = std::move(text);
+        diagnostic.Publish(std::move(d));
+    }
+};
+
 PomadeCommitter::PomadeCommitter(PomadeModel *model, PomadeCommitPaths paths)
     : _model(model)
     , _paths(std::move(paths))
+    , _lane(new _Lane())
 {
+    _lane->PublishPaths(_paths);
+    // Every member is live before the lane starts (see the header).
     _worker = std::thread(&PomadeCommitter::_WorkerLoop, this);
 }
 
 PomadeCommitter::~PomadeCommitter()
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _stop = true;
-    }
-    _wake.notify_all();
+    _stop.store(true, std::memory_order_seq_cst);
+    _lane->Notify();
     if (_worker.joinable()) {
         _worker.join();
     }
+    _lane.reset();
+    usdGen::UsdGenEpochDrain();
 }
 
 void
@@ -3742,25 +3824,23 @@ PomadeCommitter::CancelDescriptionCooks() const
 void
 PomadeCommitter::SetScalpPath(SdfPath const &scalpPath, SdfPath const &meshPath)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _paths.scalpPath = scalpPath;
     // A retarget always restates the Mesh: a stale parent from the previous
     // subset must not receive the next scalp's rest binding.
     _paths.scalpMeshPath =
         (scalpPath.IsEmpty() || meshPath == scalpPath) ? SdfPath() : meshPath;
+    _lane->PublishPaths(_paths);
 }
 
 SdfPath
 PomadeCommitter::GetScalpPath() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _paths.scalpPath;
 }
 
 SdfPath
 PomadeCommitter::GetScalpMeshPath() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _paths.ScalpMeshPath();
 }
 
@@ -3774,98 +3854,105 @@ PomadeCommitter::EnqueuePlan(PomadeFillPlan const &plan,
     // silent drop.
     SdfPath const blocked = _BlockedOutputPath(stage);
     if (!blocked.IsEmpty()) {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _diagnostic = "refusing to overwrite artist-owned output at " +
-                      blocked.GetString();
-        _failedVersion = _model->GetVersion();
+        _lane->Diagnose("refusing to overwrite artist-owned output at " +
+                        blocked.GetString());
+        _failedVersion.store(_model->GetVersion());
         return;
     }
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        // An explicit enqueue is a request to try again: without this a
-        // "Retry commit" of an unchanged model would name the very version
-        // the worker parked and never build.
-        _failedVersion = 0;
-        _pendingVersion = _model->GetVersion();
-        _pendingPlan = plan;
-        if (_pendingPlan.opPath.IsEmpty()) {
-            _pendingPlan.opPath = _paths.InterpOpPath();
-        }
-        _pendingVersionAtomic.store(_pendingVersion);
+    // An explicit enqueue is a request to try again, even of a version
+    // whose build failed.
+    _failedVersion.store(0);
+    // The worker builds from the newest published state, never the live
+    // model, so publish before the request becomes visible.
+    _model->PublishState();
+    auto request = usdGen::UsdGenMakeRef<_Lane::Request>();
+    request->version = _model->GetVersion();
+    request->plan = plan;
+    if (request->plan.opPath.IsEmpty()) {
+        request->plan.opPath = _paths.InterpOpPath();
     }
-    _wake.notify_one();
+    _pendingVersionAtomic.store(request->version);
+    _lane->pending.Publish(std::move(request));
+    _lane->Notify();
+}
+
+void
+PomadeCommitter::_ClearPartial()
+{
+    _partialSlots.clear();
+    _partialNext = 0;
+    _partialVersion = 0;
+    _lane->partial.Reset();
 }
 
 void
 PomadeCommitter::Detach()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _detached = true;
-    if (_ready && _readyVersion > _committedVersion.load()) {
+    // Published before the shelf is cleared: a build finishing now either
+    // sees the flag or has its layer cleared below (see _WorkerLoop).
+    _detached.store(true);
+    if (usdGen::UsdGenRef<_Lane::Built> const old =
+            _lane->ready.Exchange(usdGen::UsdGenRef<_Lane::Built>())) {
         // Built for the dead stage: never swappable, same accounting as
         // superseded-on-the-shelf.
-        _droppedCount.fetch_add(1);
+        if (old->version > _committedVersion.load() &&
+            old->Decide(_Lane::kDropped)) {
+            _droppedCount.fetch_add(1);
+        }
     }
-    _ready = SdfLayerRefPtr();
-    _readyVersion = 0;
-    _partialSlots.clear();
-    _partialNext = 0;
-    _partialVersion = 0;
+    _ClearPartial();
     // The pending enqueue (if any) carries the dead stage's fill-in plan;
     // drop it so only a post-Reattach enqueue can build.
-    _pendingVersion = 0;
-    _pendingPlan = PomadeFillPlan();
+    _lane->pending.Take();
     _pendingVersionAtomic.store(0);
 }
 
 void
 PomadeCommitter::Reattach()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _detached = false;
+    _detached.store(false);
     // Same guarantee as Detach: anything enqueued while detached targeted
     // the dead stage, so the tool must enqueue fresh for the new one.
-    _pendingVersion = 0;
-    _pendingPlan = PomadeFillPlan();
+    _lane->pending.Take();
     _pendingVersionAtomic.store(0);
     // A new live-layer lineage: the fresh live layer carries nothing yet,
     // whatever the old lineage committed.
     _committedVersion.store(0);
-    _wake.notify_one();
+    _lane->Notify();
 }
 
 bool
 PomadeCommitter::IsDetached() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _detached;
+    return _detached.load();
 }
 
 void
 PomadeCommitter::_WorkerLoop()
 {
     for (;;) {
-        uint64_t version = 0;
-        PomadeFillPlan plan;
-        PomadeCommitPaths paths;
-        {
-            std::unique_lock<std::mutex> lock(_mutex);
-            _wake.wait(lock, [&] {
-                return _stop ||
-                    (!_paused && !_detached &&
-                     _pendingVersion > _readyVersion &&
-                     _pendingVersion != _failedVersion && !_building);
-            });
-            if (_stop) {
-                return;
-            }
-            // Coalescing: take the latest enqueue, whatever woke us.
-            version = _pendingVersion;
-            plan = _pendingPlan;
-            paths = _paths;
-            _building = true;
+        uint32_t const seen = _lane->wake.load(std::memory_order_seq_cst);
+        if (_stop.load(std::memory_order_seq_cst)) {
+            return;
         }
-        // Snapshot the live model (its own mutex) and build with no stage.
+        usdGen::UsdGenRef<_Lane::Request> request;
+        if (!_paused.load(std::memory_order_seq_cst) && !_detached.load()) {
+            request = _lane->pending.Take();
+        }
+        if (!request) {
+            usdGen::UsdGenParkWhileEqual(_lane->wake, seen);
+            continue;
+        }
+        if (request->version <= _lane->ReadyVersion()) {
+            continue;  // the shelf already carries it (or newer)
+        }
+        // Coalescing: the mailbox holds only the latest enqueue.
+        uint64_t const version = request->version;
+        _building.store(true);
+        usdGen::UsdGenRef<_Lane::Paths const> const pathsRef =
+            _lane->paths.Load();
+        PomadeCommitPaths const &paths = pathsRef->paths;
+        // Build from the newest published model state, with no stage.
         // Everything from here to the handover is wrapped: a throw in the
         // snapshot or the layer build must leave the previous live layer,
         // the model and this thread alone (plan/17 §3.4).
@@ -3879,16 +3966,21 @@ PomadeCommitter::_WorkerLoop()
                 throw std::runtime_error(
                     "PomadeCommitter: injected build failure (test hook)");
             }
-            PomadeSnapshot snapshot = PomadeSnapshotFromModel(*_model);
+            PomadeModelStateRef const state = PomadeAcquireModelState(*_model);
+            if (!state) {
+                throw std::runtime_error(
+                    "PomadeCommitter: no published model state");
+            }
+            PomadeSnapshot snapshot = PomadeSnapshotFromState(*state);
             snapshot.scalpPath = paths.scalpPath;
             snapshot.scalpMeshPath = paths.scalpMeshPath;
             snapshot.version = snapshot.tubes.empty()
                                    ? version
                                    : snapshot.tubes[0].tube.version;
-            snapshot.createInterpOp = plan.createInterpOp;
-            snapshot.setInterpGuides = plan.setInterpGuides;
-            snapshot.setInterpRegion = plan.setInterpRegion;
-            snapshot.interpOpPath = plan.opPath;
+            snapshot.createInterpOp = request->plan.createInterpOp;
+            snapshot.setInterpGuides = request->plan.setInterpGuides;
+            snapshot.setInterpRegion = request->plan.setInterpRegion;
+            snapshot.interpOpPath = request->plan.opPath;
             builtVersion = snapshot.version;
             builtOk = PomadeBuildCommitLayer(snapshot, paths, &built, &err,
                                             &_guideCache, &_outputGuideCache);
@@ -3903,51 +3995,59 @@ PomadeCommitter::_WorkerLoop()
             built.Reset();
             err = "PomadeCommitter: worker threw an unknown exception";
         }
-        {
-            std::lock_guard<std::mutex> lock(_mutex);
-            _building = false;
-            if (!builtOk) {
-                _diagnostic = err;
-                // A bad snapshot (or a throw) keeps the previous live layer
-                // and the previous built layer; the model is unaffected
-                // (plan/17 §3.4). The version is parked so the worker does
-                // not re-run the same failing build in a tight loop.
-                _failedVersion = version;
-                continue;
-            }
-            _buildCount.fetch_add(1);
-            if (_detached) {
-                // Detached mid-build: the fill-in plan targets the dead
-                // stage, so this layer can never swap. Drop it like a
-                // superseded build; the tool re-enqueues after Reattach.
-                _droppedCount.fetch_add(1);
-                continue;
-            }
-            if (_pendingVersion > builtVersion) {
-                // Superseded mid-build: abandon this layer (cancellation)
-                // and rebuild the latest.
-                _droppedCount.fetch_add(1);
-                _wake.notify_one();
-                continue;
-            }
-            if (_ready && _readyVersion > _committedVersion.load()) {
-                // A built layer that never swapped: superseded on the shelf.
-                _droppedCount.fetch_add(1);
-            }
-            _ready = built;
-            _readyVersion = builtVersion;
+        _building.store(false);
+        if (!builtOk) {
+            // A bad snapshot (or a throw) keeps the previous live layer and
+            // the previous built layer; the model is unaffected (plan/17
+            // §3.4). The version is parked: the request is gone, so only a
+            // new enqueue builds again.
+            _lane->Diagnose(err);
+            _failedVersion.store(version);
+            continue;
         }
+        _buildCount.fetch_add(1);
+        if (_detached.load()) {
+            // Detached mid-build: the fill-in plan targets the dead stage,
+            // so this layer can never swap. Drop it like a superseded build;
+            // the tool re-enqueues after Reattach.
+            _droppedCount.fetch_add(1);
+            continue;
+        }
+        if (_pendingVersionAtomic.load() > builtVersion) {
+            // Superseded mid-build: abandon this layer (cancellation); the
+            // latest request is already in the mailbox.
+            _droppedCount.fetch_add(1);
+            continue;
+        }
+        usdGen::UsdGenRef<_Lane::Built> next =
+            usdGen::UsdGenMakeRef<_Lane::Built>();
+        next->layer = built;
+        next->version = builtVersion;
+        built.Reset();
+        if (usdGen::UsdGenRef<_Lane::Built> const old =
+                _lane->ready.Exchange(next)) {
+            // A built layer that never swapped: superseded on the shelf.
+            if (old->version > _committedVersion.load() &&
+                old->Decide(_Lane::kDropped)) {
+                _droppedCount.fetch_add(1);
+            }
+        }
+        if (_detached.load() &&
+            _lane->ready.CompareExchange(next, usdGen::UsdGenRef<_Lane::Built>()) &&
+            next->Decide(_Lane::kDropped)) {
+            // Detach ran between the check above and the store: take the
+            // layer back off the shelf (Detach clears what it can see).
+            _droppedCount.fetch_add(1);
+        }
+        usdGen::UsdGenEpochDrain();
     }
 }
 
 PomadeCommitter::SwapResult
 PomadeCommitter::SwapIfIdle(SdfLayerHandle const &live, bool gestureActive)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_detached) {
-            return Detached;
-        }
+    if (_detached.load()) {
+        return Detached;
     }
     if (!live) {
         return NothingPending;
@@ -3955,32 +4055,37 @@ PomadeCommitter::SwapIfIdle(SdfLayerHandle const &live, bool gestureActive)
     if (gestureActive) {
         return SkippedGesture;
     }
-    std::lock_guard<std::mutex> lock(_mutex);
-    if (_partialVersion != 0) {
-        if (_readyVersion > _partialVersion) {
-            // A newer layer landed mid-transfer: abandon the stale partial
-            // and start over below.
-            _partialSlots.clear();
-            _partialNext = 0;
-            _partialVersion = 0;
-        } else {
-            return _SwapPartialSlot(live, _ready, _partialVersion);
+    for (;;) {
+        usdGen::UsdGenRef<_Lane::Built> const ready = _lane->ready.Load();
+        uint64_t const readyVersion = ready ? ready->version : 0;
+        if (_partialVersion != 0) {
+            if (readyVersion > _partialVersion || ready != _lane->partial) {
+                // A newer layer landed mid-transfer: abandon the stale
+                // partial and start over below.
+                _ClearPartial();
+            } else {
+                return _SwapPartialSlot(live, ready->layer, _partialVersion);
+            }
         }
+        if (!ready || readyVersion <= _committedVersion.load()) {
+            return NothingPending;
+        }
+        if (_building.load() && _pendingVersionAtomic.load() > readyVersion) {
+            // A newer version is already being built; the worker will hand
+            // a newer layer soon, so this swap waits.
+            return SkippedStale;
+        }
+        if (_partialMode.load()) {
+            _BeginPartial(ready->layer);
+            _partialVersion = readyVersion;
+            _lane->partial = ready;
+            return _SwapPartialSlot(live, ready->layer, readyVersion);
+        }
+        if (!ready->Decide(_Lane::kClaimed)) {
+            continue;  // dropped by a newer build just now: take that one
+        }
+        return _SwapFull(live, ready->layer, readyVersion);
     }
-    if (!_ready || _readyVersion <= _committedVersion.load()) {
-        return NothingPending;
-    }
-    if (_building && _pendingVersion > _readyVersion) {
-        // A newer version is already being built; the worker will hand a
-        // newer layer soon, so this swap waits.
-        return SkippedStale;
-    }
-    if (_partialMode.load()) {
-        _BeginPartial(_ready);
-        _partialVersion = _readyVersion;
-        return _SwapPartialSlot(live, _ready, _readyVersion);
-    }
-    return _SwapFull(live, _ready, _readyVersion);
 }
 
 PomadeCommitter::SwapResult
@@ -3997,9 +4102,7 @@ PomadeCommitter::_SwapFull(SdfLayerHandle const &live,
         std::chrono::duration<double, std::milli>(t1 - t0).count();
     _lastSwapMs.store(ms);
     _committedVersion.store(version);
-    _partialSlots.clear();
-    _partialNext = 0;
-    _partialVersion = 0;
+    _ClearPartial();
     if (ms > _swapBudgetMs.load()) {
         // Over budget: subsequent swaps go one subtree per idle slot.
         _partialMode.store(true);
@@ -4248,6 +4351,13 @@ PomadeCommitter::_SwapPartialSlot(SdfLayerHandle const &live,
     // budget regression appears, the path distinguishes a large Guide
     // property from an unexpectedly costly ordinary tube copy without adding
     // a public test/debug API.
+    if (_partialNext + 1 >= _partialSlots.size() && _lane->partial &&
+        !_lane->partial->Decide(_Lane::kClaimed)) {
+        // A newer build dropped this layer before its last slot: abandon
+        // the transfer; the next idle slot starts the newer one.
+        _ClearPartial();
+        return PartialProgress;
+    }
     _PartialSlot const &slot = _partialSlots[_partialNext];
     SdfPath const slotPath = slot.path;
     bool const slotSelfOnly = slot.selfOnly;
@@ -4317,9 +4427,7 @@ PomadeCommitter::_SwapPartialSlot(SdfLayerHandle const &live,
     }
     if (_partialNext >= _partialSlots.size()) {
         _committedVersion.store(version);
-        _partialSlots.clear();
-        _partialNext = 0;
-        _partialVersion = 0;
+        _ClearPartial();
         return Swapped;
     }
     return PartialProgress;
@@ -4328,19 +4436,18 @@ PomadeCommitter::_SwapPartialSlot(SdfLayerHandle const &live,
 void
 PomadeCommitter::PauseWorker(bool pause)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        _paused = pause;
-    }
-    _wake.notify_all();
+    _paused.store(pause, std::memory_order_seq_cst);
+    _lane->Notify();
 }
 
 void
 PomadeCommitter::SetReadyForTest(SdfLayerRefPtr const &layer, uint64_t version)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    _ready = layer;
-    _readyVersion = version;
+    usdGen::UsdGenRef<_Lane::Built> next =
+        usdGen::UsdGenMakeRef<_Lane::Built>();
+    next->layer = layer;
+    next->version = version;
+    _lane->ready.Store(std::move(next));
 }
 
 void
@@ -4358,17 +4465,14 @@ PomadeCommitter::ThrowOnNextBuildsForTest(int count)
 std::string
 PomadeCommitter::TakeDiagnostic()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    std::string diagnostic = _diagnostic;
-    _diagnostic.clear();
-    return diagnostic;
+    usdGen::UsdGenRef<_Lane::Diagnostic> d = _lane->diagnostic.Take();
+    return d ? std::move(d->text) : std::string();
 }
 
 uint64_t
 PomadeCommitter::FailedVersion() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _failedVersion;
+    return _failedVersion.load();
 }
 
 } // namespace usdGenPomade

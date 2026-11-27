@@ -304,13 +304,13 @@ and scores the angular reconstruction against a rotated-bake reference over a
 hair shell on an opaque core.
 `checkC5.py` validates all three shader definitions and defaults through Sdr.
 
-`usdGenShaders/test/validate_fur.py` renders all three material variants, checks
+`libs/hosts/usdGenHydra/primitives/curves/shaders/test/validate_fur.py` renders all three material variants, checks
 that shadows darken actual pixels, and verifies direct-light relighting. It
 times 60 steady frames after 10 warmups with `glFinish`, excluding image export
 and the bake. Example:
 
 ```powershell
-python usdGenShaders/test/validate_fur.py build/fur_200k_shadowed.usda build/fur_validation_200k --usdrecord <usdrig-src>/usd-install/bin/usdrecord --width 1600
+python libs/hosts/usdGenHydra/primitives/curves/shaders/test/validate_fur.py build/fur_200k_shadowed.usda build/fur_validation_200k --usdrecord <usdrig-src>/usd-install/bin/usdrecord --width 1600
 ```
 
 On the RTX 4090 in this workspace, the 200,000-instance / 1.6-million-CV scene at
@@ -376,7 +376,7 @@ References: [the host vendor groom pipeline and performance](https://dev.epicgam
 
 ## Strand-hair shading
 
-`usdGenShaders/resources/shaders/usdGenHairStrands.glslfx` and
+`libs/hosts/usdGenHydra/primitives/curves/shaders/resources/shaders/usdGenHairStrands.glslfx` and
 `...Translucent.glslfx` share `usdGenHairStrandsBsdf.glslfx` and are registered
 as the fifth and sixth defs in `shaderDefs.usda`. They are outside the C5
 freeze, which covers the `inputs:` block of the three `UsdGenHairPreview*`
@@ -515,7 +515,7 @@ The file-level NVIDIA MIT permission notices are retained; see
 [third-party notices](../THIRD_PARTY.md#rtxcr-hair-evaluator).
 
 `testUsdGenHairStrandsDefs` checks discovery and the configured shader copy.
-`usdGenShaders/test/check_hair_strands_render.py --model rtxcr` checks both
+`libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_strands_render.py --model rtxcr` checks both
 material variants with differential renders, including IOR, tilt, split
 roughness, diffuse layering, baked visibility and local ambient occlusion.
 `testUsdGenHairRtxcrViewport` checks camera and dome lighting in usdview itself,
@@ -559,7 +559,7 @@ Karis lobes only.
 The multiple-scattering averages are, in the source, a 32 × 16 × 16
 half-float texture (`|sinθL|`, roughness, absorption) filled on the GPU by
 Monte Carlo. Storm cannot bind a texture to this material, so
-`usdGenShaders/test/tabulate_hair_marschner.py` recomputes it by quadrature
+`libs/hosts/usdGenHydra/primitives/curves/shaders/test/tabulate_hair_marschner.py` recomputes it by quadrature
 from a NumPy reference of the model. It resamples the result onto 12
 incidence nodes (uniform in angle) × 5 roughness nodes × the 16 absorption
 texels and prints the GLSL table. Against the full lattice, between nodes,
@@ -923,10 +923,10 @@ so they are that viewer's real output, not a reconstruction.
 
 ### Verification
 
-- `usdGenShaders/test/fit_hair_scattering.py` integrates the ported BSDF and
+- `libs/hosts/usdGenHydra/primitives/curves/shaders/test/fit_hair_scattering.py` integrates the ported BSDF and
   prints the `a_f`/`a_b` constants the shader carries. Re-run it rather than
   editing those constants.
-- `usdGenShaders/test/check_hair_energy.py` (`testUsdGenHairEnergy`, T1)
+- `libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_energy.py` (`testUsdGenHairEnergy`, T1)
   integrates the BSDF over the sphere and asserts it creates no energy: the
   white furnace is 1.00074 cos-weighted over incidence and 0.9999 at normal
   incidence, and falls monotonically with roughness. Karis' model is **not**
@@ -934,10 +934,10 @@ so they are that viewer's real output, not a reconstruction.
   normalised separately and R then takes near-total grazing Fresnel — so the
   per-direction peak reaches 1.15 near 78 degrees at the lowest roughness; the
   script asserts that headroom explicitly rather than hiding it.
-- `usdGenShaders/test/check_hair_strands_defs.py` (`testUsdGenHairStrandsDefs`,
+- `libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_strands_defs.py` (`testUsdGenHairStrandsDefs`,
   T1) is the C5 check's counterpart for the two new defs, and asserts the three
   frozen defs are still discovered.
-- `usdGenShaders/test/check_hair_strands_render.py`
+- `libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_hair_strands_render.py`
   (`testUsdGenHairStrandsRender`, T2) draws through Storm and requires the
   pixels to move when `baseColor` changes (a failed glslfx compile falls back
   silently, so every check is differential), when the key light rotates, when
@@ -1354,7 +1354,7 @@ reuse path. (Note that the vertical strands the rest of that file uses have
 *zero* projected area against a ray straight up -- which is the first assertion
 in the file -- so the cap test combs them over.)
 
-`usdGenShaders/test/check_scalp_shadow.py` validates the Sdr def and then, on a
+`libs/hosts/usdGenHydra/primitives/curves/shaders/test/check_scalp_shadow.py` validates the Sdr def and then, on a
 real GL context, renders a grey plane with the cap over it, dense hair on one
 half and none on the other:
 

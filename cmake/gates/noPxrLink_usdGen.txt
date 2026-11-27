@@ -1,0 +1,1 @@
+# pxr libraries usdGen may link. Only shrinks; the target is an empty list.

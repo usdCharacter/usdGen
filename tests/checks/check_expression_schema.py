@@ -5,7 +5,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-RES = os.path.join(ROOT, "plugin", "usdGenSchema", "resources")
+RES = os.path.join(ROOT, "libs", "hosts", "usdGenUsd", "schema", "resources")
 entries = [e for e in os.environ.get("PXR_PLUGINPATH_NAME", "").split(os.pathsep)
            if e and "usdGenSchema" not in e]
 os.environ["PXR_PLUGINPATH_NAME"] = os.pathsep.join([RES] + entries)
@@ -56,7 +56,7 @@ numeric_names = (
     "Quath", "Quatf", "Quatd",
 )
 numeric_types = [getattr(Sdf.ValueTypeNames, name).type for name in numeric_names]
-source_layer = Sdf.Layer.FindOrOpen(os.path.join(ROOT, "libs", "usdGenSchema", "schema.usda"))
+source_layer = Sdf.Layer.FindOrOpen(os.path.join(ROOT, "libs", "hosts", "usdGenUsd", "schema", "schema.usda"))
 if source_layer is None:
     raise SystemExit("FAIL [metadata] source schema cannot be opened")
 checked = 0

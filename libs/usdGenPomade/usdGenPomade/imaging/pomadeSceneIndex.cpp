@@ -1,9 +1,12 @@
 // usdGenPomade imaging — Pomade scene index implementation (plan/18 §2.1-§2.2).
 #include "usdGenPomade/imaging/pomadeSceneIndex.h"
+#include "usdGenUsd/convert/math.h"
 #include "usdGenPomade/pomadeModel.h"
 #include "usdGenPomade/pomadePublish.h"
 #include "usdGenPomade/pomadeRegistry.h"
 #include "usdGenPomade/pomadeTransport.h"
+
+#include "usdGen/api/epoch.h"
 
 #include "pxr/base/tf/envSetting.h"
 #include "pxr/base/tf/registryManager.h"
@@ -104,6 +107,8 @@ TfToken const _tokHandleId("handleId");
 TfToken const _tokActive("active");
 TfToken const _tokUnlit("unlit");
 TfToken const _tokOpacity("opacity");
+TfToken const _tokSurface("surface");
+TfToken const _tokRenderScope("__usdGenRender");
 TfToken const _tokMaterialBindings("materialBindings");
 TfToken const _tokConstant("constant");
 TfToken const _tokUniform("uniform");
@@ -122,6 +127,7 @@ template <class T>
 HdSampledDataSourceHandle
 _Samp(T const &v)
 {
+    static_assert(!usdGenUsd::kIsEngineMath<T>, "convert engine math with usdGenUsd::ToHost");
     return HdRetainedTypedSampledDataSource<T>::New(v);
 }
 
@@ -184,13 +190,11 @@ _Visible(bool visible)
 
 // A one-entry container that forces `visibility = false`. Overlaid on a
 // tile prim it hides it without disturbing anything else the groom scene
-// index published for it (plan/17 §3.2).
+// index published for it (plan/17 §3.2). Each index makes one.
 HdContainerDataSourceHandle
-_HiddenOverlay()
+_MakeHiddenOverlay()
 {
-    static HdContainerDataSourceHandle const hidden =
-        HdRetainedContainerDataSource::New(_tokVisibility, _Visible(false));
-    return hidden;
+    return HdRetainedContainerDataSource::New(_tokVisibility, _Visible(false));
 }
 
 HdDataSourceBaseHandle
@@ -253,7 +257,7 @@ _SurfaceMaterial(TfToken const &identifier,
                  std::vector<TfToken> const &paramNames,
                  std::vector<HdSampledDataSourceHandle> const &paramValues)
 {
-    static TfToken const surface("surface");
+    TfToken const &surface = _tokSurface;
     std::vector<TfToken> names;
     std::vector<HdDataSourceBaseHandle> values;
     for (size_t i = 0; i < paramNames.size() && i < paramValues.size(); ++i) {
@@ -1142,60 +1146,73 @@ SdfPath _LevelPath(SdfPath const &scope, int level)
 
 // -- paths --------------------------------------------------------------------
 
+namespace {
+// The fixed namespace, built at load (no function-local statics).
+SdfPath const _kRootPath("/__usdGenPomade");
+SdfPath const _kTestTubePath("/__usdGenPomade/testTube");
+SdfPath const _kTubesScopePath("/__usdGenPomade/tubes");
+SdfPath const _kCentersScopePath("/__usdGenPomade/centers");
+SdfPath const _kCenterCVsScopePath("/__usdGenPomade/centerCVs");
+SdfPath const _kRingsScopePath("/__usdGenPomade/rings");
+SdfPath const _kRingCVsScopePath("/__usdGenPomade/ringCVs");
+SdfPath const _kGuidesScopePath("/__usdGenPomade/guides");
+SdfPath const _kGraphNodesPath("/__usdGenPomade/graphNodes");
+SdfPath const _kGraphEdgesPath("/__usdGenPomade/graphEdges");
+SdfPath const _kGraphRegionsPath("/__usdGenPomade/graphRegions");
+SdfPath const _kGizmoPath("/__usdGenPomade/gizmo");
+SdfPath const _kBrushRingPath("/__usdGenPomade/brushRing");
+SdfPath const _kTubeMaterialPath("/__usdGenPomade/material_tube");
+SdfPath const _kTubeXrayMaterialPath("/__usdGenPomade/material_tubeXray");
+SdfPath const _kHairMaterialPath("/__usdGenPomade/material_hairPreview");
+SdfPath const _kOverlayMaterialPath("/__usdGenPomade/material_overlay");
+}  // namespace
+
 SdfPath const &
 UsdGenPomadeSceneIndex::RootPath()
 {
-    static SdfPath const root("/__usdGenPomade");
-    return root;
+    return _kRootPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::TestTubePath()
 {
-    static SdfPath const tube("/__usdGenPomade/testTube");
-    return tube;
+    return _kTestTubePath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::TubesScopePath()
 {
-    static SdfPath const p("/__usdGenPomade/tubes");
-    return p;
+    return _kTubesScopePath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::CentersScopePath()
 {
-    static SdfPath const p("/__usdGenPomade/centers");
-    return p;
+    return _kCentersScopePath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::CenterCVsScopePath()
 {
-    static SdfPath const p("/__usdGenPomade/centerCVs");
-    return p;
+    return _kCenterCVsScopePath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::RingsScopePath()
 {
-    static SdfPath const p("/__usdGenPomade/rings");
-    return p;
+    return _kRingsScopePath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::RingCVsScopePath()
 {
-    static SdfPath const p("/__usdGenPomade/ringCVs");
-    return p;
+    return _kRingCVsScopePath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::GuidesScopePath()
 {
-    static SdfPath const p("/__usdGenPomade/guides");
-    return p;
+    return _kGuidesScopePath;
 }
 
 SdfPath UsdGenPomadeSceneIndex::TubesPath(int level)
@@ -1231,65 +1248,98 @@ SdfPath UsdGenPomadeSceneIndex::GuidesPath(int level)
 SdfPath const &
 UsdGenPomadeSceneIndex::GraphNodesPath()
 {
-    static SdfPath const nodes("/__usdGenPomade/graphNodes");
-    return nodes;
+    return _kGraphNodesPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::GraphEdgesPath()
 {
-    static SdfPath const edges("/__usdGenPomade/graphEdges");
-    return edges;
+    return _kGraphEdgesPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::GraphRegionsPath()
 {
-    static SdfPath const regions("/__usdGenPomade/graphRegions");
-    return regions;
+    return _kGraphRegionsPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::GizmoPath()
 {
-    static SdfPath const gizmo("/__usdGenPomade/gizmo");
-    return gizmo;
+    return _kGizmoPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::BrushRingPath()
 {
-    static SdfPath const brush("/__usdGenPomade/brushRing");
-    return brush;
+    return _kBrushRingPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::TubeMaterialPath()
 {
-    static SdfPath const material("/__usdGenPomade/material_tube");
-    return material;
+    return _kTubeMaterialPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::TubeXrayMaterialPath()
 {
-    static SdfPath const material("/__usdGenPomade/material_tubeXray");
-    return material;
+    return _kTubeXrayMaterialPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::HairMaterialPath()
 {
-    static SdfPath const material("/__usdGenPomade/material_hairPreview");
-    return material;
+    return _kHairMaterialPath;
 }
 
 SdfPath const &
 UsdGenPomadeSceneIndex::OverlayMaterialPath()
 {
-    static SdfPath const material("/__usdGenPomade/material_overlay");
-    return material;
+    return _kOverlayMaterialPath;
 }
+
+// -- shared state -------------------------------------------------------------
+
+struct UsdGenPomadeSceneIndex::_Shared {
+    // One published view. Immutable once stored.
+    struct View : usdGen::UsdGenRefCounted {
+        std::map<SdfPath, _Prim> prims;
+        SdfPath hiddenGuides;  // the committed guides hidden while active
+        // Face / point / tube census per published level.
+        std::map<int, std::array<int, 3>> levels;
+        int restagedTubeCount = 0;
+        bool testTube = false;
+    };
+    struct Tiles : usdGen::UsdGenRefCounted {
+        std::set<SdfPath> paths;
+    };
+    usdGen::UsdGenAtomicRef<View> view;
+    usdGen::UsdGenAtomicRef<Tiles> tiles;
+    // Frontend thread: the census PublishModel stages for the next _Commit.
+    std::map<int, std::array<int, 3>> nextLevels;
+    int nextRestaged = 0;
+
+    // Frontend thread: publish a copy of the current view after `edit`.
+    template <class Edit>
+    void EditView(Edit &&edit)
+    {
+        usdGen::UsdGenRef<View> const current = view.Load();
+        usdGen::UsdGenRef<View> next = current
+            ? usdGen::UsdGenMakeRef<View>(*current)
+            : usdGen::UsdGenMakeRef<View>();
+        edit(*next);
+        view.Store(std::move(next));
+    }
+    // Any thread: copy-on-write with a CAS retry; `edit` returns false to
+    // leave the set alone.
+    template <class Edit>
+    void EditTiles(Edit &&edit)
+    {
+        (void)usdGen::UsdGenCowUpdateIf(
+            tiles, [&](Tiles &t) { return edit(t.paths); });
+    }
+};
 
 // -- lifetime -----------------------------------------------------------------
 
@@ -1304,10 +1354,15 @@ UsdGenPomadeSceneIndex::UsdGenPomadeSceneIndex(
     : HdSingleInputFilteringSceneIndexBase(inputScene)
     , _publisher(new usdGenPomade::PomadePublisher())
     , _published(new usdGenPomade::PomadeStagedModel())
+    , _shared(new _Shared())
+    , _hiddenOverlay(_MakeHiddenOverlay())
 {
     // The root scope always exists, so GetChildPrimPaths can be a single
     // walk of the prim table.
-    _prims[RootPath()] = _Prim{_scopeType, HdRetainedContainerDataSource::New()};
+    _shared->EditView([](_Shared::View &v) {
+        v.prims[RootPath()] =
+            _Prim{_scopeType, HdRetainedContainerDataSource::New()};
+    });
     usdGenPomade::PomadeRegistry::Get().AttachIndex(this);
     // Publish whatever is already active (usually nothing, and then the
     // test tube unless a headless record opted out).
@@ -1326,12 +1381,13 @@ UsdGenPomadeSceneIndex::GetPrim(SdfPath const &primPath) const
 {
     SdfPath hiddenGuides;
     {
-        std::lock_guard<std::mutex> lock(_mutex);
-        auto it = _prims.find(primPath);
-        if (it != _prims.end()) {
+        usdGen::UsdGenEpochGuard guard;
+        _Shared::View const *view = _shared->view.Peek();
+        auto it = view->prims.find(primPath);
+        if (it != view->prims.end()) {
             return {it->second.primType, it->second.dataSource};
         }
-        hiddenGuides = _hiddenGuidesPath;
+        hiddenGuides = view->hiddenGuides;
     }
     if (primPath.HasPrefix(RootPath())) {
         // Our namespace, nothing published there: never fall through to the
@@ -1351,7 +1407,7 @@ UsdGenPomadeSceneIndex::GetPrim(SdfPath const &primPath) const
     if (prim.dataSource && !_amplifiedTilesVisible.load() &&
         _IsAmplifiedTilePath(primPath)) {
         prim.dataSource = HdOverlayContainerDataSource::New(
-            _HiddenOverlay(), prim.dataSource);
+            _hiddenOverlay, prim.dataSource);
     }
     // plan/18 §2.4a: while a model is live, the committed <groom>/Guides
     // prim is the PREVIOUS commit's curves. It is an ordinary BasisCurves
@@ -1364,7 +1420,7 @@ UsdGenPomadeSceneIndex::GetPrim(SdfPath const &primPath) const
     if (prim.dataSource && !hiddenGuides.IsEmpty() &&
         primPath.HasPrefix(hiddenGuides)) {
         prim.dataSource = HdOverlayContainerDataSource::New(
-            _HiddenOverlay(), prim.dataSource);
+            _hiddenOverlay, prim.dataSource);
     }
     return prim;
 }
@@ -1372,10 +1428,9 @@ UsdGenPomadeSceneIndex::GetPrim(SdfPath const &primPath) const
 bool
 UsdGenPomadeSceneIndex::_IsAmplifiedTilePath(SdfPath const &path)
 {
-    static TfToken const renderScope("__usdGenRender");
     for (SdfPath p = path; !p.IsEmpty() && p != SdfPath::AbsoluteRootPath();
          p = p.GetParentPath()) {
-        if (p.GetNameToken() == renderScope) {
+        if (p.GetNameToken() == _tokRenderScope) {
             return true;
         }
     }
@@ -1393,8 +1448,8 @@ UsdGenPomadeSceneIndex::GetChildPrimPaths(SdfPath const &path) const
             children = input->GetChildPrimPaths(path);
         }
     }
-    std::lock_guard<std::mutex> lock(_mutex);
-    for (auto const &kv : _prims) {
+    usdGen::UsdGenRef<_Shared::View> const view = _shared->view.Load();
+    for (auto const &kv : view->prims) {
         if (kv.first.GetParentPath() == path) {
             children.push_back(kv.first);
         }
@@ -1405,9 +1460,9 @@ UsdGenPomadeSceneIndex::GetChildPrimPaths(SdfPath const &path) const
 std::vector<int>
 UsdGenPomadeSceneIndex::PublishedLevels() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
+    usdGen::UsdGenRef<_Shared::View> const view = _shared->view.Load();
     std::vector<int> levels;
-    for (auto const &kv : _published->levels) {
+    for (auto const &kv : view->levels) {
         levels.push_back(kv.first);
     }
     return levels;
@@ -1418,19 +1473,19 @@ UsdGenPomadeSceneIndex::PublishedLevelInfo(int level, int *outFaceCount,
                                           int *outPointCount,
                                           int *outTubeCount) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    auto it = _published->levels.find(level);
-    if (it == _published->levels.end()) {
+    usdGen::UsdGenRef<_Shared::View> const view = _shared->view.Load();
+    auto it = view->levels.find(level);
+    if (it == view->levels.end()) {
         return false;
     }
     if (outFaceCount) {
-        *outFaceCount = int(it->second.subdivision.faceVertexCounts.size());
+        *outFaceCount = it->second[0];
     }
     if (outPointCount) {
-        *outPointCount = int(it->second.subdivision.points.size());
+        *outPointCount = it->second[1];
     }
     if (outTubeCount) {
-        *outTubeCount = int(it->second.tubes.size());
+        *outTubeCount = it->second[2];
     }
     return true;
 }
@@ -1447,15 +1502,13 @@ UsdGenPomadeSceneIndex::QueryPublishedLevel(int level, int *outFaceCount,
 int
 UsdGenPomadeSceneIndex::LastRestagedTubeCount() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _lastRestagedTubeCount;
+    return _shared->view.Load()->restagedTubeCount;
 }
 
 bool
 UsdGenPomadeSceneIndex::HasTestTube() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _testTubePublished;
+    return _shared->view.Load()->testTube;
 }
 
 // -- notices ------------------------------------------------------------------
@@ -2280,20 +2333,29 @@ UsdGenPomadeSceneIndex::_Commit(
     HdSceneIndexObserver::AddedPrimEntries added;
     HdSceneIndexObserver::RemovedPrimEntries removed;
     {
-        std::lock_guard<std::mutex> lock(_mutex);
-        for (auto const &kv : _prims) {
+        usdGen::UsdGenRef<_Shared::View> const current = _shared->view.Load();
+        for (auto const &kv : current->prims) {
             if (!prims.count(kv.first)) {
                 removed.push_back({kv.first});
             }
         }
         for (auto const &kv : prims) {
-            auto it = _prims.find(kv.first);
-            if (it == _prims.end() ||
+            auto it = current->prims.find(kv.first);
+            if (it == current->prims.end() ||
                 it->second.primType != kv.second.primType) {
                 added.push_back({kv.first, kv.second.primType});
             }
         }
-        _prims = std::move(prims);
+        // One store publishes the table with the census PublishModel
+        // staged; GetPrim sees either the old view or the new one.
+        usdGen::UsdGenRef<_Shared::View> next =
+            usdGen::UsdGenMakeRef<_Shared::View>();
+        next->prims = std::move(prims);
+        next->hiddenGuides = current->hiddenGuides;
+        next->levels = std::move(_shared->nextLevels);
+        next->restagedTubeCount = _shared->nextRestaged;
+        next->testTube = next->prims.count(TestTubePath()) != 0;
+        _shared->view.Store(std::move(next));
     }
     if (!removed.empty()) {
         _SendPrimsRemoved(removed);
@@ -2382,11 +2444,11 @@ UsdGenPomadeSceneIndex::PublishModel(usdGenPomade::PomadeModel *model,
     _CollectLevelDirties(*_published, staged, modelDirty, &dirtied);
     // The graph overlay restages wholesale; its notices stay as they were.
     HdDataSourceLocatorSet const graph = GraphNoticesFor(modelDirty);
+    usdGen::UsdGenRef<_Shared::View> const shown = _shared->view.Load();
     if (!graph.IsEmpty()) {
-        std::lock_guard<std::mutex> lock(_mutex);
         for (SdfPath const &path : {GraphNodesPath(), GraphEdgesPath(),
                                     GraphRegionsPath()}) {
-            if (_prims.count(path) && prims.count(path)) {
+            if (shown->prims.count(path) && prims.count(path)) {
                 dirtied.push_back({path, graph});
             }
         }
@@ -2396,29 +2458,31 @@ UsdGenPomadeSceneIndex::PublishModel(usdGenPomade::PomadeModel *model,
     // dirty a leaf of the gizmo. A record that appeared or vanished is an
     // add/remove, which _Commit sends instead.
     {
-        std::lock_guard<std::mutex> lock(_mutex);
         HdDataSourceLocatorSet const gizmoSet = OverlayNoticesFor(
             overlayDirty.gizmo | (modelDirty & usdGenPomade::PomadeDirty_Gizmo),
             overlayDirty.gizmoCountChanged);
-        if (!gizmoSet.IsEmpty() && _prims.count(GizmoPath()) &&
+        if (!gizmoSet.IsEmpty() && shown->prims.count(GizmoPath()) &&
             prims.count(GizmoPath())) {
             dirtied.push_back({GizmoPath(), gizmoSet});
         }
         HdDataSourceLocatorSet const brushSet = OverlayNoticesFor(
             overlayDirty.brush | (modelDirty & usdGenPomade::PomadeDirty_Brush),
             overlayDirty.brushCountChanged);
-        if (!brushSet.IsEmpty() && _prims.count(BrushRingPath()) &&
+        if (!brushSet.IsEmpty() && shown->prims.count(BrushRingPath()) &&
             prims.count(BrushRingPath())) {
             dirtied.push_back({BrushRingPath(), brushSet});
         }
     }
 
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        *_published = std::move(staged);
-        _lastRestagedTubeCount = restaged;
-        _testTubePublished = prims.count(TestTubePath()) != 0;
+    _shared->nextLevels.clear();
+    for (auto const &kv : staged.levels) {
+        _shared->nextLevels[kv.first] = {
+            int(kv.second.subdivision.faceVertexCounts.size()),
+            int(kv.second.subdivision.points.size()),
+            int(kv.second.tubes.size())};
     }
+    _shared->nextRestaged = restaged;
+    *_published = std::move(staged);
     _Commit(std::move(prims), dirtied);
     return anything;
 }
@@ -2438,8 +2502,8 @@ UsdGenPomadeSceneIndex::AmplifiedTilesVisible() const
 size_t
 UsdGenPomadeSceneIndex::AmplifiedTileCount() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _tilePaths.size();
+    usdGen::UsdGenRef<_Shared::Tiles> const tiles = _shared->tiles.Load();
+    return tiles ? tiles->paths.size() : 0;
 }
 
 bool
@@ -2450,11 +2514,11 @@ UsdGenPomadeSceneIndex::_SetAmplifiedTilesVisible(bool visible)
     }
     _amplifiedTilesVisible.store(visible);
     HdSceneIndexObserver::DirtiedPrimEntries dirtied;
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
+    if (usdGen::UsdGenRef<_Shared::Tiles> const tiles =
+            _shared->tiles.Load()) {
         HdDataSourceLocatorSet const locators{
             HdDataSourceLocator(_tokVisibility)};
-        for (SdfPath const &path : _tilePaths) {
+        for (SdfPath const &path : tiles->paths) {
             dirtied.push_back({path, locators});
         }
     }
@@ -2467,8 +2531,7 @@ UsdGenPomadeSceneIndex::_SetAmplifiedTilesVisible(bool visible)
 SdfPath
 UsdGenPomadeSceneIndex::HiddenGuidesPath() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
-    return _hiddenGuidesPath;
+    return _shared->view.Load()->hiddenGuides;
 }
 
 SdfPath
@@ -2489,8 +2552,9 @@ UsdGenPomadeSceneIndex::_SetHiddenGuidesPath(SdfPath const &path)
 {
     HdSceneIndexObserver::DirtiedPrimEntries dirtied;
     {
-        std::lock_guard<std::mutex> lock(_mutex);
-        if (_hiddenGuidesPath == path) {
+        // Frontend thread: the only writer of the view.
+        SdfPath const previous = _shared->view.Load()->hiddenGuides;
+        if (previous == path) {
             return false;
         }
         HdDataSourceLocatorSet const locators{
@@ -2498,13 +2562,13 @@ UsdGenPomadeSceneIndex::_SetHiddenGuidesPath(SdfPath const &path)
         // Both ends: the prim that stops being hidden and the one that
         // starts. Either may be absent from the input, and a dirty on a
         // path no observer knows is harmless.
-        if (!_hiddenGuidesPath.IsEmpty()) {
-            dirtied.push_back({_hiddenGuidesPath, locators});
+        if (!previous.IsEmpty()) {
+            dirtied.push_back({previous, locators});
         }
         if (!path.IsEmpty()) {
             dirtied.push_back({path, locators});
         }
-        _hiddenGuidesPath = path;
+        _shared->EditView([&](_Shared::View &v) { v.hiddenGuides = path; });
     }
     if (!dirtied.empty()) {
         _SendPrimsDirtied(dirtied);
@@ -2522,13 +2586,17 @@ UsdGenPomadeSceneIndex::_PrimsAdded(
     // Input prims pass through; the input never announces pomade paths.
     // The amplified tiles are remembered so a "show amplified hair" flip
     // can dirty exactly their visibility (plan/17 §3.2).
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        for (auto const &entry : entries) {
-            if (_IsAmplifiedTilePath(entry.primPath)) {
-                _tilePaths.insert(entry.primPath);
-            }
+    std::vector<SdfPath> tiles;
+    for (auto const &entry : entries) {
+        if (_IsAmplifiedTilePath(entry.primPath)) {
+            tiles.push_back(entry.primPath);
         }
+    }
+    if (!tiles.empty()) {
+        _shared->EditTiles([&](std::set<SdfPath> &paths) {
+            paths.insert(tiles.begin(), tiles.end());
+            return true;
+        });
     }
     _SendPrimsAdded(entries);
 }
@@ -2538,13 +2606,30 @@ UsdGenPomadeSceneIndex::_PrimsRemoved(
     HdSceneIndexBase const &,
     HdSceneIndexObserver::RemovedPrimEntries const &entries)
 {
-    {
-        std::lock_guard<std::mutex> lock(_mutex);
-        for (auto const &entry : entries) {
-            auto it = _tilePaths.lower_bound(entry.primPath);
-            while (it != _tilePaths.end() && it->HasPrefix(entry.primPath)) {
-                it = _tilePaths.erase(it);
+    if (usdGen::UsdGenRef<_Shared::Tiles> const shown =
+            _shared->tiles.Load()) {
+        auto touches = [&](std::set<SdfPath> const &paths) {
+            for (auto const &entry : entries) {
+                auto it = paths.lower_bound(entry.primPath);
+                if (it != paths.end() && it->HasPrefix(entry.primPath)) {
+                    return true;
+                }
             }
+            return false;
+        };
+        if (touches(shown->paths)) {
+            _shared->EditTiles([&](std::set<SdfPath> &paths) {
+                bool changed = false;
+                for (auto const &entry : entries) {
+                    auto it = paths.lower_bound(entry.primPath);
+                    while (it != paths.end() &&
+                           it->HasPrefix(entry.primPath)) {
+                        it = paths.erase(it);
+                        changed = true;
+                    }
+                }
+                return changed;
+            });
         }
     }
     _SendPrimsRemoved(entries);

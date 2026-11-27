@@ -13,10 +13,10 @@ set(_fixture_root "/tmp/usdgen-unpatched-openusd-${_timestamp}-${_nonce}")
 function(_write_empty_fixture root)
     file(MAKE_DIRECTORY "${root}/patches/openusd"
         "${root}/plugin/usdGenImaging/resources"
-        "${root}/libs/usdGenImaging/usdGenImaging")
+        "${root}/libs/hosts/usdGenHydra/usdGenImaging")
     file(WRITE "${root}/CMakeLists.txt" "")
     file(WRITE "${root}/plugin/usdGenImaging/resources/plugInfo.json.in" "")
-    file(WRITE "${root}/libs/usdGenImaging/usdGenImaging/probe.cpp" "")
+    file(WRITE "${root}/libs/hosts/usdGenHydra/usdGenImaging/probe.cpp" "")
 endfunction()
 
 function(_run_guard root result output)

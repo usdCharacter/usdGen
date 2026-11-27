@@ -1,0 +1,105 @@
+// usdGen engine — scheduler: private worker pool + commit driver (03 §5.3/§5.4).
+//
+// I8: every parallel region runs in a PRIVATE worker pool sized at
+// max(8, fast-core count) on heterogeneous Linux (the measured 8-thread
+// knee of EV-001/EV-008 is the floor; all-fast-core width wins
+// compute-bound passes while pinning holds), never the process-default
+// 20-worker arena. USDGEN_THREAD_LIMIT (env) pins it explicitly;
+// otherwise one-time calibration (03 §5.3) picks the smallest
+// concurrency within 5 % of best.
+// All loops run over the scheduler's worker pool — never pxr work::
+// (WorkHasConcurrency() reads the process-global PXR_WORK_THREAD_LIMIT and would
+// serialise under PXR_WORK_THREAD_LIMIT=1, 03 §5.3 caveat).
+#ifndef USDGEN_SCHEDULER_H
+#define USDGEN_SCHEDULER_H
+
+#include "usdGen/api/export.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/types.h"
+#include "usdGen/exec/workerPool.h"
+#include "usdGen/api/ext/workDispatcher.h"
+
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <vector>
+namespace usdGen {
+
+/// Per-node timing/counters for one Run (03 §9.2; feeds UsdGenNodeStats).
+struct UsdGenNodeRunStats
+{
+    UsdGenNodeId id = 0;
+    double captureMs = 0.0;
+    double evalMs = 0.0;
+    uint64_t chunksEvaluated = 0;
+};
+
+struct UsdGenRunResult
+{
+    UsdGenElementSet const *terminalOutput = nullptr;   // owned by the graph
+    UsdGenSpan<const UsdGenChunkGroup> groups;   // the terminal's publication groups
+    bool superseded = false;   // a newer request arrived; the published generation is unchanged
+    bool topologyChanged = false; // re-partition happened; every tile re-interleaves
+    UsdGenDiagnostics diagnostics; // node diagnostics for this run
+    /// One entry per node with work. Points into the scheduler; valid until
+    /// its next Run.
+    UsdGenSpan<const UsdGenNodeRunStats> nodeStats;
+};
+
+struct UsdGenRunScratch;
+
+class USDGEN_INTERNAL_API UsdGenScheduler
+{
+public:
+    using TileCompleted = std::function<void(UsdGenChunkGroup const&,
+                                             UsdGenElementSet const&)>;
+    /// threadLimit: 0 == env USDGEN_THREAD_LIMIT, else one-shot calibration.
+    explicit UsdGenScheduler(int threadLimit = 0);
+    ~UsdGenScheduler();
+
+    UsdGenScheduler(const UsdGenScheduler &) = delete;
+    UsdGenScheduler &operator=(const UsdGenScheduler &) = delete;
+
+    int ThreadLimit() const noexcept;
+    UsdGenWorkDispatcher MakeWorkDispatcher() const;
+
+    /// The 8-step commit of 03 §5.4 (steps 1-6 engine-side; step 7 diff and
+    /// step 8 notices are the session/imaging side). Evaluates every node in
+    /// topological order with its dirty chunks, runs the reference lane first,
+    /// interleaves dirty tiles, and checks for supersession between nodes.
+    /// `superseded`, when set, is polled before each dependency frontier;
+    /// a true answer stops the run with result.superseded (cooperative
+    /// cancel). The graph is then partially evaluated and must not be
+    /// published.
+    using Superseded = std::function<bool()>;
+    UsdGenRunResult Run(UsdGenGraph &graph, UsdGenEvalContext const &evalCtx,
+                        uint64_t generationRequested,
+                        TileCompleted tileCompleted = {},
+                        Superseded const &superseded = {});
+
+private:
+    UsdGenRunResult _Run(UsdGenGraph &graph, UsdGenEvalContext const &evalCtx,
+                         TileCompleted const &tileCompleted,
+                         Superseded const &superseded);
+
+    // Per-run working memory, kept across runs so a warm cook reuses it.
+    // Run is not reentrant on one scheduler.
+    std::unique_ptr<UsdGenRunScratch> _scratch;
+    int _threadLimit;
+    // Persistent fork/join pool behind MakeWorkDispatcher (workerPool.h):
+    // workers parked on a generation counter and pinned to fast cores where
+    // the topology qualifies (fastCores.h FastCoreList).
+    UsdGenWorkerPool _pool;
+};
+
+/// One-shot process calibration (03 §5.3): sweeps concurrencies {2,4,8,16,
+/// min(20,physical)} over a fixed synthetic styler pass (64 chunks ≈ 2 MB)
+/// and returns the smallest concurrency within 5 % of best, clamped [2,physical].
+int CalibrateThreads();
+
+}  // namespace usdGen
+
+#endif  // USDGEN_SCHEDULER_H

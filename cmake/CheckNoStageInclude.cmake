@@ -5,7 +5,7 @@
 #   SOURCE_DIR - repo root
 #   FORBIDDEN  - regex matching forbidden include paths
 #
-# The protected source set is fixed (libs/usdGenMath, libs/usdGen,
+# The protected source set is fixed (libs/base/usdGenMath, libs/core,
 # testutils/usdGenTestUtils). Scanning ZERO files is a false pass and is
 # therefore a hard error: every protected dir must exist and contribute at
 # least one file.
@@ -18,8 +18,8 @@ if(NOT DEFINED FORBIDDEN OR FORBIDDEN STREQUAL "")
 endif()
 
 set(_search_dirs
-    "${SOURCE_DIR}/libs/usdGenMath"
-    "${SOURCE_DIR}/libs/usdGen"
+    "${SOURCE_DIR}/libs/base/usdGenMath"
+    "${SOURCE_DIR}/libs/core"
     "${SOURCE_DIR}/testutils/usdGenTestUtils"
 )
 

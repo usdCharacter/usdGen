@@ -18,8 +18,10 @@
 //             per-frame tally of the notices sent to Hydra
 //
 // bin/trace_playback.ps1 sets up the plugin environment and runs this.
-#include "usdGen/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
+#include "usdGenHydraCurves/register.h"
 
 #include "pxr/base/tf/debug.h"
 #include "pxr/base/trace/collector.h"
@@ -149,6 +151,8 @@ void Usage()
 
 int main(int argc, char **argv)
 {
+    // The curve publisher registers before the first compile.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
     std::string scene, chrome, report;
     double first = 0.0, last = -1.0;
     int loops = 2;
@@ -176,7 +180,6 @@ int main(int argc, char **argv)
     if (scene.empty()) { Usage(); return 2; }
 
     if (!quiet) TfDebug::SetDebugSymbolsByName("USDGEN_*", true);
-    usdGen::usdGenRegisterM1Operators();
 
     auto const openStart = Clock::now();
     UsdStageRefPtr const stage = UsdStage::Open(scene, UsdStage::LoadAll);

@@ -1,16 +1,14 @@
 // usdGenPomade — the private context layouts behind the C ABI handles.
 //
-// pomadeApi.cpp defines these in its own anonymous namespace (it predates the
-// split into several ABI translation units). This header carries the SAME
-// layouts so a second ABI TU — pomadeApiStage.cpp — can reinterpret the same
-// opaque handles without editing that file. The two definitions must stay in
-// lockstep: a field added there has to be added here, in the same order.
+// The one definition shared by every ABI translation unit (pomadeApi.cpp,
+// pomadeApiStage.cpp). Each opaque handle is exactly one of these.
 #ifndef USDGEN_POMADE_API_IMPL_H
 #define USDGEN_POMADE_API_IMPL_H
 
 #include "usdGenPomade/pomadeBake.h"
 #include "usdGenPomade/pomadeCommit.h"
 #include "usdGenPomade/pomadeModel.h"
+#include "usdGenPomade/pomadeRegistry.h"
 #include "usdGenPomade/pomadeTransport.h"
 
 #include <memory>
@@ -22,6 +20,15 @@ struct PomadeModelContextImpl {
     PomadeModel model;
     PomadePinnedStaging positions;
     PomadePinnedStaging normals;
+    // The registry id this model was created under (plan/18 §2.1). The
+    // scene indices find the model through it; without it a tool's edits
+    // never reach the viewport.
+    int modelId = 0;
+
+    PomadeModelContextImpl() { modelId = PomadeRegistry::Get().Register(&model); }
+    ~PomadeModelContextImpl() { PomadeRegistry::Get().Unregister(modelId); }
+    PomadeModelContextImpl(PomadeModelContextImpl const &) = delete;
+    PomadeModelContextImpl &operator=(PomadeModelContextImpl const &) = delete;
 };
 
 struct PomadeCommitterContextImpl {

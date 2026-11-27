@@ -84,7 +84,7 @@ out/
 .DS_Store
 *.swp
 __pycache__/
-usdGenShaders/test/build-*/
+libs/hosts/usdGenHydra/primitives/curves/shaders/test/build-*/
 
 # Test scene fixtures (regenerate with tests/scenes/make_*.py)
 tests/scenes/*.usda
@@ -96,6 +96,6 @@ bin/launch_env/__pycache__/
 # Regenerable scene outputs (the generator beside each file is the source of
 # truth; the outputs are not committed)
 renders/fur/*.usda
-usdGenShaders/test/scenes/*.usda
+libs/hosts/usdGenHydra/primitives/curves/shaders/test/scenes/*.usda
 plan/prototypes/storm-hair-look/hair_scene.usda
 plan/prototypes/storm-hair-look/hair_scene_preview.usda

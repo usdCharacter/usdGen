@@ -3,12 +3,13 @@
 // Native, source-grounded operator fixtures for the reference manual.
 // The values below are authored inputs; all displayed output planes come from
 // the usdGen compiler and CPU scheduler, including Part's partId channel.
-#include "usdGen/compiler.h"
-#include "usdGen/curveBuffer.h"
-#include "usdGen/graph.h"
-#include "usdGen/graphDesc.h"
-#include "usdGen/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/compile/graph.h"
+#include "usdGenUsd/lower.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/basisCurves.h"
@@ -46,7 +47,7 @@ UsdGenCurveSetDesc Strands(SdfPath path, int nx, int ny, float spacing,
                            float step, float width) {
     UsdGenCurveSetDesc set;
     set.path = path;
-    set.role = UsdGenRole::Curves;
+    set.role = UsdGenLane::Chunked;
     set.curveRole = TfToken("hair");
     int const n = nx * ny, cvs = 6;
     set.curveVertexCounts.assign(n, cvs);
@@ -75,14 +76,14 @@ UsdGenCurveSetDesc Strands(SdfPath path, int nx, int ny, float spacing,
 
 UsdGenCurveBuffer Cook(UsdGenGraphDesc const &desc, UsdGenGraph *graph) {
     UsdGenCompiler compiler;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, graph);
     if (!compiled.ok) {
         for (auto const &e : compiled.errors) std::fprintf(stderr, "compile: %s\n", e.c_str());
         throw std::runtime_error("native fixture graph did not compile");
     }
     UsdGenScheduler scheduler(4);
     UsdGenEvalContext context;
-    context.desc = &graph->Desc();
+    context.desc = &graph->Spec();
     UsdGenRunResult const run = scheduler.Run(*graph, context, 1);
     if (run.diagnostics.HasErrors()) {
         for (auto const &e : run.diagnostics.errors) std::fprintf(stderr, "cook: %s\n", e.c_str());
@@ -153,8 +154,8 @@ void ExportWidthBlend(UsdStageRefPtr const &stage) {
     desc.nodes = {blend, b, source, a}; // authored out of topological order on purpose
     UsdGenGraph graph;
     UsdGenCurveBuffer const merged = Cook(desc, &graph);
-    UsdGenCurveBuffer const left = graph.Node(graph.NodeIdForPath(a.path)).buffer;
-    UsdGenCurveBuffer const right = graph.Node(graph.NodeIdForPath(b.path)).buffer;
+    UsdGenCurveBuffer const left = graph.Node(usdGenUsd::NodeIdForPath(graph, a.path)).buffer;
+    UsdGenCurveBuffer const right = graph.Node(usdGenUsd::NodeIdForPath(graph, b.path)).buffer;
     Require(left.width.size() == merged.totalCvs &&
             right.width.size() == merged.totalCvs &&
             merged.width.size() == merged.totalCvs,
@@ -180,7 +181,7 @@ void ExportPart(UsdStageRefPtr const &stage) {
                                     41, 25, .006f, .033f, .0018f));
     UsdGenCurveSetDesc parting;
     parting.path = SdfPath("/PartGraph/PartingCurve");
-    parting.role = UsdGenRole::Reference;
+    parting.role = UsdGenLane::Reference;
     parting.curveRole = TfToken("guide");
     parting.curveVertexCounts = {3};
     parting.points = {GfVec3f(-.16f, 0, 0), GfVec3f(0, 0, 0),
@@ -207,7 +208,7 @@ void ExportPart(UsdStageRefPtr const &stage) {
             ids->interpolation == TfToken("uniform") &&
             ids->i.size() == output.totalCurves,
             "Part did not publish a uniform int partId per strand");
-    UsdGenCurveBuffer const &upstream = graph.Node(graph.NodeIdForPath(source.path)).buffer;
+    UsdGenCurveBuffer const &upstream = graph.Node(usdGenUsd::NodeIdForPath(graph, source.path)).buffer;
     Require(output.px == upstream.px && output.py == upstream.py &&
             output.pz == upstream.pz, "Part unexpectedly moved strand points");
     WriteCurves(stage, SdfPath("/World/Part_ID_Diagnostic"), output,
@@ -254,15 +255,15 @@ void ExportFreeze(UsdStageRefPtr const &stage) {
     desc.terminal = freeze.path;
     UsdGenCompiler compiler;
     UsdGenGraph graph;
-    UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+    UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     Require(compiled.ok, "Freeze fixture did not compile");
     UsdGenScheduler scheduler(4);
     UsdGenEvalContext context;
-    context.desc = &graph.Desc();
+    context.desc = &graph.Spec();
     UsdGenRunResult const run1 = scheduler.Run(graph, context, 1);
     Require(!run1.diagnostics.HasErrors(), "Freeze first cook failed");
-    UsdGenNodeId const sourceId = graph.NodeIdForPath(source.path);
-    UsdGenNodeId const freezeId = graph.NodeIdForPath(freeze.path);
+    UsdGenNodeId const sourceId = usdGenUsd::NodeIdForPath(graph, source.path);
+    UsdGenNodeId const freezeId = usdGenUsd::NodeIdForPath(graph, freeze.path);
     Require(sourceId != UsdGenGraph::InvalidNode &&
             freezeId != UsdGenGraph::InvalidNode, "Freeze nodes did not resolve");
     UsdGenCompiledNode &upstreamNode = graph.Node(sourceId);
@@ -303,7 +304,6 @@ int main(int argc, char **argv) try {
                      "usage: usdGenUtilityFixtures width-blend|part|freeze output.usda\n");
         return 2;
     }
-    usdGenRegisterM1Operators();
     UsdStageRefPtr const stage = UsdStage::CreateNew(argv[2]);
     Require(bool(stage), "cannot create output stage");
     UsdGeomXform::Define(stage, SdfPath("/World"));

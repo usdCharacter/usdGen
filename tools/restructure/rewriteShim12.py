@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+# Copyright (c) 2026 Nick Burkard
+# SPDX-License-Identifier: MIT
+"""Step 12.1: rewrite the retired include-shim spellings to their real paths.
+
+usage: python tools/restructure/rewriteShim12.py [--check] [dir ...]
+Default dirs: libs tests testutils plugin tools. Re-run after a merge that
+brings in old spellings. --check lists hits and exits 1 without writing.
+Bytes in, bytes out: line endings and encodings are kept.
+"""
+import os
+import re
+import sys
+
+# Former cmake/includeShim.txt: (old spelling, new spelling).
+SHIM = [
+    ("usdGen/allocCounter.h", "usdGen/exec/allocCounter.h"),
+    ("usdGen/authoredNamedChannels.h", "usdGenCurves/types/authoredNamedChannels.h"),
+    ("usdGen/clumpMotion.h", "usdGenCurves/clumpMotion.h"),
+    ("usdGen/compiler.h", "usdGen/compile/compiler.h"),
+    ("usdGen/concaveMaterialRemap.h", "usdGenSurface/concaveMaterialRemap.h"),
+    ("usdGen/cpuParameters.h", "usdGenExpr/cpuParameters.h"),
+    ("usdGen/cudaExecution.h", "usdGenCurves/cuda/cudaExecution.h"),
+    ("usdGen/cudaParameters.h", "usdGenCurves/cuda/cudaParameters.h"),
+    ("usdGen/cudaScatterInput.h", "usdGenCurves/cuda/cudaScatterInput.h"),
+    ("usdGen/cudaSourceInput.h", "usdGenCurves/cuda/cudaSourceInput.h"),
+    ("usdGen/cudaStages.h", "usdGenCurves/cuda/cudaStages.h"),
+    ("usdGen/cudaSurfaceInput.h", "usdGenCurves/cuda/cudaSurfaceInput.h"),
+    ("usdGen/curveBuffer.h", "usdGenCurves/types/curveBuffer.h"),
+    ("usdGen/curveLoader.h", "usdGenCurves/curveLoader.h"),
+    ("usdGen/curveRootCapture.h", "usdGenCurves/curveRootCapture.h"),
+    ("usdGen/deviceGeneration.h", "usdGen/exec/device/deviceGeneration.h"),
+    ("usdGen/digest.h", "usdGen/compile/digest.h"),
+    ("usdGen/epoch.h", "usdGen/exec/epoch.h"),
+    ("usdGen/executionBackend.h", "usdGen/exec/device/executionBackend.h"),
+    ("usdGen/executionCache.h", "usdGen/exec/executionCache.h"),
+    ("usdGen/executionPipeline.h", "usdGen/exec/executionPipeline.h"),
+    ("usdGen/executionPlan.h", "usdGen/exec/device/executionPlan.h"),
+    ("usdGen/executionResources.h", "usdGen/exec/device/executionResources.h"),
+    ("usdGen/executionRetirement.h", "usdGen/exec/device/executionRetirement.h"),
+    ("usdGen/executionRuntimeInternal.h", "usdGen/exec/executionRuntimeInternal.h"),
+    ("usdGen/executionSequenceWindow.h", "usdGen/exec/executionSequenceWindow.h"),
+    ("usdGen/executionTaskGraph.h", "usdGen/exec/executionTaskGraph.h"),
+    ("usdGen/executionValueRevisions.h", "usdGen/exec/executionValueRevisions.h"),
+    ("usdGen/export.h", "usdGen/api/export.h"),
+    ("usdGen/expressions/context.h", "usdGenExpr/expressions/context.h"),
+    ("usdGen/expressions/cpuEvaluator.h", "usdGenExpr/expressions/cpuEvaluator.h"),
+    ("usdGen/expressions/exprMath.h", "usdGenExpr/expressions/exprMath.h"),
+    ("usdGen/expressions/exprNoiseTables.h", "usdGenExpr/expressions/exprNoiseTables.h"),
+    ("usdGen/expressions/frontend.h", "usdGenExpr/expressions/frontend.h"),
+    ("usdGen/expressions/ir.h", "usdGenExpr/expressions/ir.h"),
+    ("usdGen/expressions/irExec.h", "usdGenExpr/expressions/irExec.h"),
+    ("usdGen/expressions/samplers.h", "usdGenExpr/expressions/samplers.h"),
+    ("usdGen/expressions/valueShape.h", "usdGenExpr/expressions/valueShape.h"),
+    ("usdGen/fastCores.h", "usdGen/exec/fastCores.h"),
+    ("usdGen/generationStore.h", "usdGen/exec/generationStore.h"),
+    ("usdGen/gpu/cudaCompat.h", "usdGenCuda/gpu/cudaCompat.h"),
+    ("usdGen/gpu/cudaCompletionLane.h", "usdGenCuda/gpu/cudaCompletionLane.h"),
+    ("usdGen/gpu/cudaRetirement.h", "usdGenCuda/gpu/cudaRetirement.h"),
+    ("usdGen/gpu/curveCompaction.h", "usdGenCurves/cuda/curveCompaction.h"),
+    ("usdGen/gpu/curveGeometry.h", "usdGenCurves/cuda/curveGeometry.h"),
+    ("usdGen/gpu/curveGrow.h", "usdGenCurves/cuda/curveGrow.h"),
+    ("usdGen/gpu/curveResample.h", "usdGenCurves/cuda/curveResample.h"),
+    ("usdGen/gpu/curveSource.h", "usdGenCurves/cuda/curveSource.h"),
+    ("usdGen/gpu/curveTileBounds.h", "usdGenCurves/cuda/curveTileBounds.h"),
+    ("usdGen/gpu/curveTiles.h", "usdGenCurves/cuda/curveTiles.h"),
+    ("usdGen/gpu/deformCurves.h", "usdGenCurves/cuda/deformCurves.h"),
+    ("usdGen/gpu/deviceBuffer.h", "usdGenCuda/gpu/deviceBuffer.h"),
+    ("usdGen/gpu/deviceResources.h", "usdGenCuda/gpu/deviceResources.h"),
+    ("usdGen/gpu/expression.h", "usdGenExpr/cuda/expression.h"),
+    ("usdGen/gpu/expressionContext.h", "usdGenExpr/cuda/expressionContext.h"),
+    ("usdGen/gpu/generation.h", "usdGenCurves/cuda/generation.h"),
+    ("usdGen/gpu/imageSampler.h", "usdGenSurface/cuda/imageSampler.h"),
+    ("usdGen/gpu/length.h", "usdGenCurves/cuda/length.h"),
+    ("usdGen/gpu/namedChannelTopology.h", "usdGenCurves/cuda/namedChannelTopology.h"),
+    ("usdGen/gpu/noise.h", "usdGenCurves/cuda/noise.h"),
+    ("usdGen/gpu/nonWidthCompare.h", "usdGenCurves/cuda/nonWidthCompare.h"),
+    ("usdGen/gpu/picking.h", "usdGenCurves/cuda/picking.h"),
+    ("usdGen/gpu/pointOverride.h", "usdGenCurves/cuda/pointOverride.h"),
+    ("usdGen/gpu/rbf.h", "usdGenCurves/cuda/rbf.h"),
+    ("usdGen/gpu/rootFrameGather.h", "usdGenSurface/cuda/rootFrameGather.h"),
+    ("usdGen/gpu/rootFrames.h", "usdGenSurface/cuda/rootFrames.h"),
+    ("usdGen/gpu/scatterGrow.h", "usdGenCurves/cuda/scatterGrow.h"),
+    ("usdGen/gpu/seexprNoise.cuh", "usdGenExpr/cuda/seexprNoise.cuh"),
+    ("usdGen/gpu/styleOps.h", "usdGenCurves/cuda/styleOps.h"),
+    ("usdGen/gpu/surfaceBinding.h", "usdGenSurface/cuda/surfaceBinding.h"),
+    ("usdGen/gpu/tools.h", "usdGenCurves/cuda/tools.h"),
+    ("usdGen/gpu/topology.h", "usdGenCurves/cuda/topology.h"),
+    ("usdGen/gpu/width.h", "usdGenCurves/cuda/width.h"),
+    ("usdGen/gpu/widthBlend.h", "usdGenCurves/cuda/widthBlend.h"),
+    ("usdGen/gpu/widthOverlapWitness.h", "usdGenCurves/cuda/widthOverlapWitness.h"),
+    ("usdGen/graph.h", "usdGen/compile/graph.h"),
+    ("usdGen/imagePayload.h", "usdGenSurface/imagePayload.h"),
+    ("usdGen/limitSurface.h", "usdGenSurface/limitSurface.h"),
+    ("usdGen/maps/attributeBake.h", "usdGenSurface/maps/attributeBake.h"),
+    ("usdGen/maps/attributeInstance.h", "usdGenSurface/maps/attributeInstance.h"),
+    ("usdGen/maps/attributeMap.h", "usdGenSurface/maps/attributeMap.h"),
+    ("usdGen/maps/ptexMap.h", "usdGenSurface/maps/ptexMap.h"),
+    ("usdGen/op.h", "usdGen/registries/op.h"),
+    ("usdGen/ops/bend.h", "usdGenCurves/ops/bend.h"),
+    ("usdGen/ops/braid.h", "usdGenCurves/ops/braid.h"),
+    ("usdGen/ops/cardGeometry.h", "usdGenCurves/ops/cardGeometry.h"),
+    ("usdGen/ops/cardSource.h", "usdGenCurves/ops/cardSource.h"),
+    ("usdGen/ops/clump.h", "usdGenCurves/ops/clump.h"),
+    ("usdGen/ops/clumpModes.h", "usdGenCurves/ops/clumpModes.h"),
+    ("usdGen/ops/collide.h", "usdGenCurves/ops/collide.h"),
+    ("usdGen/ops/collideBvh.h", "usdGenCurves/ops/collideBvh.h"),
+    ("usdGen/ops/curl.h", "usdGenCurves/ops/curl.h"),
+    ("usdGen/ops/curveSource.h", "usdGenCurves/ops/curveSource.h"),
+    ("usdGen/ops/curveWrap.h", "usdGenCurves/ops/curveWrap.h"),
+    ("usdGen/ops/deform.h", "usdGenCurves/ops/deform.h"),
+    ("usdGen/ops/direction.h", "usdGenCurves/ops/direction.h"),
+    ("usdGen/ops/displace.h", "usdGenCurves/ops/displace.h"),
+    ("usdGen/ops/exprOp.h", "usdGenExpr/ops/exprOp.h"),
+    ("usdGen/ops/freeze.h", "usdGenCurves/ops/freeze.h"),
+    ("usdGen/ops/frizz.h", "usdGenCurves/ops/frizz.h"),
+    ("usdGen/ops/grow.h", "usdGenCurves/ops/grow.h"),
+    ("usdGen/ops/guideBlend.h", "usdGenCurves/ops/guideBlend.h"),
+    ("usdGen/ops/guideInterpolate.h", "usdGenCurves/ops/guideInterpolate.h"),
+    ("usdGen/ops/length.h", "usdGenCurves/ops/length.h"),
+    ("usdGen/ops/lengthRange.h", "usdGenCurves/ops/lengthRange.h"),
+    ("usdGen/ops/noise.h", "usdGenCurves/ops/noise.h"),
+    ("usdGen/ops/noise_tables_gen.cuh", "usdGenCurves/ops/noise_tables_gen.cuh"),
+    ("usdGen/ops/opUtil.h", "usdGenCurves/ops/opUtil.h"),
+    ("usdGen/ops/part.h", "usdGenCurves/ops/part.h"),
+    ("usdGen/ops/rbfField.h", "usdGenMath/rbf.h"),
+    ("usdGen/ops/recordedOp.h", "usdGenCurves/ops/recordedOp.h"),
+    ("usdGen/ops/referenceSource.h", "usdGenCurves/ops/referenceSource.h"),
+    ("usdGen/ops/regionMap.h", "usdGenCurves/ops/regionMap.h"),
+    ("usdGen/ops/resample.h", "usdGenCurves/ops/resample.h"),
+    ("usdGen/ops/scale.h", "usdGenCurves/ops/scale.h"),
+    ("usdGen/ops/scatter.h", "usdGenSurface/ops/scatter.h"),
+    ("usdGen/ops/scatterModes.h", "usdGenSurface/ops/scatterModes.h"),
+    ("usdGen/ops/sculptLayer.h", "usdGenCurves/ops/sculptLayer.h"),
+    ("usdGen/ops/smooth.h", "usdGenCurves/ops/smooth.h"),
+    ("usdGen/ops/straighten.h", "usdGenCurves/ops/straighten.h"),
+    ("usdGen/ops/strandUtil.h", "usdGenCurves/ops/strandUtil.h"),
+    ("usdGen/ops/stylerParams.h", "usdGenCurves/ops/stylerParams.h"),
+    ("usdGen/ops/tieClump.h", "usdGenCurves/ops/tieClump.h"),
+    ("usdGen/ops/trim.h", "usdGenCurves/ops/trim.h"),
+    ("usdGen/ops/twist.h", "usdGenCurves/ops/twist.h"),
+    ("usdGen/ops/wave.h", "usdGenCurves/ops/wave.h"),
+    ("usdGen/ops/wholeStrand.h", "usdGenCurves/ops/wholeStrand.h"),
+    ("usdGen/ops/width.h", "usdGenCurves/ops/width.h"),
+    ("usdGen/ops/widthBlend.h", "usdGenCurves/ops/widthBlend.h"),
+    ("usdGen/ops/wind.h", "usdGenCurves/ops/wind.h"),
+    ("usdGen/parkingWord.h", "usdGen/exec/parkingWord.h"),
+    ("usdGen/pool.h", "usdGen/exec/pool.h"),
+    ("usdGen/scheduler.h", "usdGen/exec/scheduler.h"),
+    ("usdGen/scratch.h", "usdGen/exec/scratch.h"),
+    ("usdGen/session.h", "usdGen/exec/session.h"),
+    ("usdGen/sessionBackendExecutor.h", "usdGen/exec/sessionBackendExecutor.h"),
+    ("usdGen/sessionCooker.h", "usdGen/exec/sessionCooker.h"),
+    ("usdGen/sessionDeviceIntegration.h", "usdGen/exec/sessionDeviceIntegration.h"),
+    ("usdGen/sessionDeviceProvider.h", "usdGen/exec/sessionDeviceProvider.h"),
+    ("usdGen/sharedCell.h", "usdGen/exec/sharedCell.h"),
+    ("usdGen/stats.h", "usdGen/exec/stats.h"),
+    ("usdGen/surfaceCageInterpolate.h", "usdGenSurface/surfaceCageInterpolate.h"),
+    ("usdGen/surfaceCageSource.h", "usdGenSurface/surfaceCageSource.h"),
+    ("usdGen/surfaceRootBindings.h", "usdGenSurface/surfaceRootBindings.h"),
+    ("usdGen/surfaceRootFrames.h", "usdGenSurface/surfaceRootFrames.h"),
+    ("usdGen/taskScheduler.h", "usdGen/exec/taskScheduler.h"),
+    ("usdGen/types.h", "usdGen/compile/types.h"),
+    ("usdGen/usdGen.h", "usdGen/api/usdGen.h"),
+    ("usdGen/vulkan/chargedBuffer.h", "usdGenVulkan/vulkan/chargedBuffer.h"),
+    ("usdGen/vulkan/completionService.h", "usdGenVulkan/vulkan/completionService.h"),
+    ("usdGen/vulkan/csourceVkAdmission.h", "usdGenCurves/vulkan/csourceVkAdmission.h"),
+    ("usdGen/vulkan/csourceVkCapture.h", "usdGenCurves/vulkan/csourceVkCapture.h"),
+    ("usdGen/vulkan/curveGrowPipeline.h", "usdGenCurves/vulkan/curveGrowPipeline.h"),
+    ("usdGen/vulkan/defaultProvider.h", "usdGenVulkan/vulkan/defaultProvider.h"),
+    ("usdGen/vulkan/defaultResources.h", "usdGenVulkan/vulkan/defaultResources.h"),
+    ("usdGen/vulkan/deformEvaluateCpu.h", "usdGenCurves/vulkan/deformEvaluateCpu.h"),
+    ("usdGen/vulkan/deformPipeline.h", "usdGenCurves/vulkan/deformPipeline.h"),
+    ("usdGen/vulkan/deformRbfHost.h", "usdGenCurves/vulkan/deformRbfHost.h"),
+    ("usdGen/vulkan/deviceContext.h", "usdGenVulkan/vulkan/deviceContext.h"),
+    ("usdGen/vulkan/deviceFactory.h", "usdGenVulkan/vulkan/deviceFactory.h"),
+    ("usdGen/vulkan/deviceGenerationAdapter.h", "usdGenCurves/vulkan/deviceGenerationAdapter.h"),
+    ("usdGen/vulkan/errors.h", "usdGenVulkan/vulkan/errors.h"),
+    ("usdGen/vulkan/executionPlan.h", "usdGenCurves/vulkan/executionPlan.h"),
+    ("usdGen/vulkan/exprVkApply.h", "usdGenExpr/vulkan/exprVkApply.h"),
+    ("usdGen/vulkan/exprVkContext.h", "usdGenExpr/vulkan/exprVkContext.h"),
+    ("usdGen/vulkan/exprVkEvaluate.h", "usdGenExpr/vulkan/exprVkEvaluate.h"),
+    ("usdGen/vulkan/exprVkPack.h", "usdGenExpr/vulkan/exprVkPack.h"),
+    ("usdGen/vulkan/exprVkParameters.h", "usdGenExpr/vulkan/exprVkParameters.h"),
+    ("usdGen/vulkan/exprVkPlan.h", "usdGenExpr/vulkan/exprVkPlan.h"),
+    ("usdGen/vulkan/exprVkProgram.h", "usdGenExpr/vulkan/exprVkProgram.h"),
+    ("usdGen/vulkan/exprVkRun.h", "usdGenExpr/vulkan/exprVkRun.h"),
+    ("usdGen/vulkan/exprVkStructural.h", "usdGenExpr/vulkan/exprVkStructural.h"),
+    ("usdGen/vulkan/externalRetirement.h", "usdGenVulkan/vulkan/externalRetirement.h"),
+    ("usdGen/vulkan/growVkPipeline.h", "usdGenCurves/vulkan/growVkPipeline.h"),
+    ("usdGen/vulkan/growVkPlan.h", "usdGenCurves/vulkan/growVkPlan.h"),
+    ("usdGen/vulkan/lengthCompactionPipeline.h", "usdGenCurves/vulkan/lengthCompactionPipeline.h"),
+    ("usdGen/vulkan/lengthEnvelope.h", "usdGenCurves/vulkan/lengthEnvelope.h"),
+    ("usdGen/vulkan/lengthScalePipeline.h", "usdGenCurves/vulkan/lengthScalePipeline.h"),
+    ("usdGen/vulkan/mapVkImage.h", "usdGenSurface/vulkan/mapVkImage.h"),
+    ("usdGen/vulkan/memoryPool.h", "usdGenVulkan/vulkan/memoryPool.h"),
+    ("usdGen/vulkan/noisePipeline.h", "usdGenCurves/vulkan/noisePipeline.h"),
+    ("usdGen/vulkan/nonWidthComparePipeline.h", "usdGenCurves/vulkan/nonWidthComparePipeline.h"),
+    ("usdGen/vulkan/nonWidthMetadata.h", "usdGenCurves/vulkan/nonWidthMetadata.h"),
+    ("usdGen/vulkan/picktileVk.h", "usdGenCurves/vulkan/picktileVk.h"),
+    ("usdGen/vulkan/planExecutor.h", "usdGenCurves/vulkan/planExecutor.h"),
+    ("usdGen/vulkan/pointOverridePipeline.h", "usdGenCurves/vulkan/pointOverridePipeline.h"),
+    ("usdGen/vulkan/publicationJob.h", "usdGenCurves/vulkan/publicationJob.h"),
+    ("usdGen/vulkan/queueTimeline.h", "usdGenVulkan/vulkan/queueTimeline.h"),
+    ("usdGen/vulkan/rbfVkBinding.h", "usdGenCurves/vulkan/rbfVkBinding.h"),
+    ("usdGen/vulkan/rbfVkDeformPipeline.h", "usdGenCurves/vulkan/rbfVkDeformPipeline.h"),
+    ("usdGen/vulkan/rbfVkPlan.h", "usdGenCurves/vulkan/rbfVkPlan.h"),
+    ("usdGen/vulkan/resampleVkPipeline.h", "usdGenCurves/vulkan/resampleVkPipeline.h"),
+    ("usdGen/vulkan/rootFrameGatherPipeline.h", "usdGenSurface/vulkan/rootFrameGatherPipeline.h"),
+    ("usdGen/vulkan/rootFramesPipeline.h", "usdGenSurface/vulkan/rootFramesPipeline.h"),
+    ("usdGen/vulkan/scatterGrowPipeline.h", "usdGenCurves/vulkan/scatterGrowPipeline.h"),
+    ("usdGen/vulkan/sessionProvider.h", "usdGenCurves/vulkan/sessionProvider.h"),
+    ("usdGen/vulkan/sourceGeneration.h", "usdGenCurves/vulkan/sourceGeneration.h"),
+    ("usdGen/vulkan/sourceValidation.h", "usdGenCurves/vulkan/sourceValidation.h"),
+    ("usdGen/vulkan/sourceWidthJob.h", "usdGenCurves/vulkan/sourceWidthJob.h"),
+    ("usdGen/vulkan/styleVkPipeline.h", "usdGenCurves/vulkan/styleVkPipeline.h"),
+    ("usdGen/vulkan/surfaceVk.h", "usdGenSurface/vulkan/surfaceVk.h"),
+    ("usdGen/vulkan/topologyPipeline.h", "usdGenCurves/vulkan/topologyPipeline.h"),
+    ("usdGen/vulkan/vkStages.h", "usdGenCurves/vulkan/vkStages.h"),
+    ("usdGen/vulkan/widthBlendPipeline.h", "usdGenCurves/vulkan/widthBlendPipeline.h"),
+    ("usdGen/vulkan/widthOverlapWitness.h", "usdGenCurves/vulkan/widthOverlapWitness.h"),
+    ("usdGen/vulkan/widthPipeline.h", "usdGenCurves/vulkan/widthPipeline.h"),
+    ("usdGen/workerPool.h", "usdGen/exec/workerPool.h"),
+]
+
+EXTS = (".h", ".hpp", ".cpp", ".cu", ".cuh", ".inl", ".c", ".cc", ".mm")
+_MAP = {o.encode(): n.encode() for o, n in SHIM}
+_RE = re.compile(
+    rb'^([ \t]*#[ \t]*include[ \t]*[<"])(' +
+    b"|".join(re.escape(o) for o in sorted(_MAP, key=len, reverse=True)) +
+    rb')([>"])', re.M)
+
+
+def rewrite(data):
+    return _RE.subn(lambda m: m.group(1) + _MAP[m.group(2)] + m.group(3), data)
+
+
+def main(argv):
+    check = "--check" in argv
+    dirs = [a for a in argv if not a.startswith("--")] or [
+        "libs", "tests", "testutils", "plugin", "tools"]
+    files = hits = 0
+    for top in dirs:
+        for root, subdirs, names in os.walk(top):
+            subdirs[:] = sorted(d for d in subdirs if d not in (".git", "build"))
+            for name in sorted(names):
+                if not name.endswith(EXTS):
+                    continue
+                path = os.path.join(root, name)
+                with open(path, "rb") as f:
+                    data = f.read()
+                out, n = rewrite(data)
+                if not n:
+                    continue
+                files += 1
+                hits += n
+                print("%s %d" % (path.replace(os.sep, "/"), n))
+                if not check:
+                    with open(path, "wb") as f:
+                        f.write(out)
+    print("%d includes in %d files%s" % (hits, files, " (check)" if check else ""))
+    return 1 if check and hits else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -37,11 +37,9 @@
 #include "usdGenPomade/pomadeTube.h"
 
 #include <atomic>
-#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -174,38 +172,38 @@ private:
     bool _Bake(uint64_t mapVersion, PomadeBakeInput const &input,
                std::string *outPath, std::string *err, void *bakeStream);
     // Delete versioned files older than the newest completion that the live
-    // layer no longer references. Runs after a completed bake AND on the
-    // NoteSwapped wake, which is what makes the last-but-one file go away
-    // when no further bake follows.
+    // layer no longer references and the UI cannot still be swapping to.
+    // Runs after a completed bake AND on the NoteSwapped wake, which is what
+    // makes the last-but-one file go away when no further bake follows.
     void _SweepStale(std::string const &outDir, std::string const &baseName);
 
-    std::thread _worker;
-    mutable std::mutex _mutex;
-    std::condition_variable _wake;
-    bool _stop = false;
-    bool _paused = false;
-    bool _baking = false;
-    uint64_t _pendingVersion = 0;
-    PomadeBakeInput _pendingInput;
-    bool _hasPending = false;
-    // Latest completion (version + final path), consumed by TakeCompleted.
-    // Only the latest is kept: the UI swaps the newest file, never a queue.
-    uint64_t _completedVersion = 0;
-    std::string _completedPath;
-    bool _hasCompleted = false;
+    // The bake lane: one dedicated thread fed by newest-wins handoffs and
+    // parked on a wake word (usdGen/epoch.h and usdGen/parkingWord.h, behind
+    // this pointer so the header needs no usdGen include). No locks.
+    struct _Lane;
+    std::unique_ptr<_Lane> _lane;
+    std::atomic<bool> _stop{false};
+    std::atomic<bool> _paused{false};
     // Incremental state, worker-thread-only: per-face ids from the last
     // finished bake (the dirty set is the diff) and the per-ptex-face texel
     // cache. `_cacheDir` also holds the private classifier-cache identity.
     std::vector<int> _cachedFaceRegion;
     std::vector<std::vector<float>> _texelCache;
     std::string _cacheDir;
+    // Worker-thread-only, all kept by sweeps: the file the live layer
+    // references (from the latest NoteSwapped), the latest completion, and
+    // the completion before it once the UI has taken it (it may not have
+    // swapped to it yet).
     uint64_t _swappedVersion = 0;
     std::string _swappedPath;
-    // Set by NoteSwapped, consumed by the worker: a swap can free an older
-    // versioned file even when no bake follows.
-    bool _sweepRequested = false;
+    uint64_t _completedVersion = 0;
+    std::string _completedPath;
+    uint64_t _takenVersion = 0;
+    std::string _takenPath;
     std::string _lastOutDir;
     std::string _lastBaseName;
+    // Started in the constructor body, once every member is live.
+    std::thread _worker;
 
     std::atomic<uint64_t> _pendingVersionAtomic{0};
     std::atomic<uint64_t> _completedVersionAtomic{0};
@@ -215,7 +213,6 @@ private:
     std::atomic<size_t> _sweepCount{0};
     std::atomic<size_t> _workerThrowCount{0};
     std::atomic<int> _throwBakes{0};
-    std::string _diagnostic;
 };
 
 }  // namespace usdGenPomade

@@ -1,0 +1,59 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+// Extension registration. Every library that adds ops, types or kernels
+// exports
+//
+//     extern "C" void usdGenRegister(usdGen::UsdGenRegistrar &);
+//
+// (and usdGenRegister_<lib> for a static link). Registries freeze on the
+// first compile; after that every lookup reads immutable state.
+#pragma once
+#include "usdGen/api/export.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/backendRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/paramEvaluator.h"
+#include "usdGen/api/ext/publisher.h"
+#include "usdGen/api/ext/typeRegistry.h"
+#include <string>
+
+namespace usdGen {
+
+class UsdGenRegistrar;
+USDGEN_API bool UsdGenRegisterStatic(void (*fn)(UsdGenRegistrar &));
+
+class USDGEN_API UsdGenRegistrar {
+public:
+    /// Invalid on a duplicate name, a missing create, more than
+    /// kUsdGenMaxParamsPerOp params, a duplicate param or enumerant, or after freeze.
+    UsdGenOpId RegisterOp(UsdGenOpDef const &);
+    UsdGenTypeId RegisterType(UsdGenTypeDef const &);
+    bool RegisterKernel(UsdGenOpId, UsdGenBackendId, UsdGenKernelDef const &);
+    /// Invalid on a duplicate name, a null createProvider, every handle
+    /// already used, or after freeze. Handles are dense from 1.
+    UsdGenBackendId RegisterBackend(UsdGenBackendDef const &);
+    /// One per (backend, primitive type); false on a duplicate, an unknown
+    /// handle or type, or after freeze. The pointer must outlive the registry.
+    bool RegisterDeviceProgram(UsdGenBackendId, UsdGenTypeId, void const *programDef);
+    /// One per engine; false on a second one, a missing create, or after freeze.
+    bool RegisterParamEvaluator(UsdGenParamEvaluatorDef const &);
+    /// One per primitive type; false on a second one for the type, an
+    /// unregistered type, a missing build, or after freeze.
+    bool RegisterPublisher(UsdGenPublisherDef const &);
+private:
+    friend bool ::usdGen::UsdGenRegisterStatic(void (*)(UsdGenRegistrar &));
+    friend class UsdGenOpRegistry;
+    explicit UsdGenRegistrar(UsdGenOpRegistry &ops) noexcept : _ops(&ops) {}
+    UsdGenOpRegistry *_ops;
+};
+
+using UsdGenRegisterFn = void (*)(UsdGenRegistrar &);
+USDGEN_API bool UsdGenLoadExtension(std::string const &path, std::string *error);
+USDGEN_API bool UsdGenRegisterStatic(UsdGenRegisterFn fn);
+USDGEN_API void UsdGenFreezeRegistries();   // idempotent; the first Compile calls it
+
+// UsdGenEngine::Create (api/engine.h) builds the registries from the
+// extension manifest. Freezing stays with the first compile, so extensions
+// and tests can register after it.
+
+}  // namespace usdGen

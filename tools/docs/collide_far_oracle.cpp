@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Sample the authored quad Catmull-Clark Shield with OpenSubdiv Far patches.
 // This docs proof path is independent of Collide's Bfr evaluator and proxy.
-#include "usdGen/limitSurface.h"
+#include "usdGenSurface/limitSurface.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/mesh.h"
 #include "pxr/usd/usdGeom/imageable.h"

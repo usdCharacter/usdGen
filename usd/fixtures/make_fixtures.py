@@ -26,7 +26,7 @@ Grow uses usdGen:segments = 8, i.e. 8 CVs per curve (EV-008's ladder:
 G1 = 32k CVs, G3 = 800k CVs).
 
 Only C1-registered properties are authored (docs/freezes/C1.md section 2
-/ libs/usdGenSchema/schema.usda); every value is inside the kernel
+/ libs/hosts/usdGenUsd/schema/schema.usda); every value is inside the kernel
 Bind() ranges (segments in [2,64], octaves in [1,6], lacunarity > 1,
 gain in [0,1], taper/taperStart in [0,1]).
 

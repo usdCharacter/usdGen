@@ -1,6 +1,7 @@
 // Offline density bake for native PointInstancer strand prototypes. The
 // viewport stays instanced: four float3 instance primvars are added.
-#include "usdGen/furOcclusion.h"
+#include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenHydraCurves/register.h"
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usd/primRange.h"
 #include "pxr/usd/usdGeom/basisCurves.h"
@@ -13,6 +14,7 @@
 #include <stdexcept>
 PXR_NAMESPACE_USING_DIRECTIVE
 int main(int argc,char** argv) try {
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
     if(argc<3) {std::fprintf(stderr,"Usage: usdGenBakeFur input.usd output.usda [resolution]\n"
         "  resolution: voxels per axis; omit to derive an anisotropic grid at ~0.3 world units\n");return 2;}
     auto stage=UsdStage::Open(argv[1]);
@@ -86,7 +88,7 @@ int main(int argc,char** argv) try {
                 root.push_back(GfVec3f(plane.f[i.root*3],plane.f[i.root*3+1],plane.f[i.root*3+2]));
                 tip.push_back(GfVec3f(plane.f[i.tip*3],plane.f[i.tip*3+1],plane.f[i.tip*3+2]));
             }
-            pv.CreatePrimvar(plane.name,SdfValueTypeNames->Float3Array,UsdGeomTokens->varying).Set(root);
+            pv.CreatePrimvar(TfToken(plane.name.GetString()),SdfValueTypeNames->Float3Array,UsdGeomTokens->varying).Set(root);
             std::string tipName=plane.name.GetString();tipName.insert(3,"Tip");
             pv.CreatePrimvar(TfToken(tipName),SdfValueTypeNames->Float3Array,UsdGeomTokens->varying).Set(tip);
         }

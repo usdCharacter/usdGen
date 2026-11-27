@@ -59,8 +59,8 @@
         "Subdivision levels above zero need a suitable quad mesh and run on CPU."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/scatter.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatter.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -165,8 +165,8 @@
         "Segments changes CV topology; add enough CVs for later bends without overbuilding."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/grow.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/grow.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -299,8 +299,8 @@
         "GuideInterpolate reads authored or baked C3 guide CurveSets. A live Clump operator is not a guide-curve target; bake or commit its result as BasisCurves before using it as guides."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/guideInterpolate.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/guideInterpolate.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/guide-interpolate-plane.usda",
@@ -359,8 +359,8 @@
         "Exactly one reference target is required."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/referenceSource.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/referenceSource.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -498,8 +498,8 @@
         "surfaceCage uses a categorical Ptex map and generation guard."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/curveSource.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/cuda-length-network.usda",
@@ -661,8 +661,8 @@
         "A clump ID alone records membership, not how strongly a strand follows the group. Preserve the native center and weight planes when baking or moving curves between stacks."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/clump.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/clump.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -787,8 +787,8 @@
         "Clump-aware Noise that uses effective cohesion runs on CPU. CUDA and Vulkan reject a reachable Noise fed imported clumpWeight_<n> planes; legacy ID-only or unclumped input may still qualify under each backend's other admission rules."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/noise.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/noise.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -903,8 +903,8 @@
         "cutExtend and rebuild are declared controls but do not change the current radial scaling method."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/length.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/length.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/cuda-length-network.usda",
@@ -991,8 +991,8 @@
         "Widths are in scene units; look at a render at intended camera distance."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/width.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/width.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/clump-ptex-plane.usda",
@@ -1041,7 +1041,7 @@
         "The graph descriptor requires enabled=true and accepts only widthBlend:weight as a parameter; there is no seed or mask control."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/widthBlend.cpp",
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.cpp",
         "libs/usdGen/usdGen/opRegistry.cpp",
         "tools/docs/utility_fixtures.cpp"
       ],
@@ -1180,8 +1180,8 @@
         "The direction:source map relationship is declared but this kernel refuses map-driven direction."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/direction.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1273,8 +1273,8 @@
         "High strength or many iterations can flatten intended detail."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/smooth.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/smooth.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1348,8 +1348,8 @@
         "Changing CV count invalidates CV-indexed sculpt deltas and other topology-dependent data."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/resample.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/resample.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1437,8 +1437,8 @@
         "Random range is per curve; large ranges can disrupt a carefully matched guide silhouette."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/scale.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/scale.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1556,8 +1556,8 @@
         "Curl needs enough CVs to describe the turns."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/curl.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/felt/felt_sphere.usda",
@@ -1662,8 +1662,8 @@
         "This is a CPU reference operator."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/bend.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/bend.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1727,8 +1727,8 @@
         "Full straightening removes designed curvature."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/straighten.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/straighten.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1822,8 +1822,8 @@
         "Every CV, including the root, can move."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/displace.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/displace.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1901,8 +1901,8 @@
         "Zero amplitudes leave geometry unchanged."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/wave.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/wave.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -1975,8 +1975,8 @@
         "Roots beyond radius × strength receive partId -1."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/part.cpp",
-        "libs/usdGenSchema/schema.usda",
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda",
         "tools/docs/utility_fixtures.cpp"
       ],
       "examples": [
@@ -2067,8 +2067,8 @@
         "The schema lists color as a return type, but the kernel accepts displacement or width only."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/exprOp.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenExpr/usdGenExpr/ops/exprOp.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -2180,8 +2180,8 @@
         "Rebase metadata is validated but does not itself move curves."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/sculptLayer.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/sculptLayer.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",
@@ -2275,8 +2275,8 @@
         "Multi-center wrapping requires a categorical region map with valid IDs."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/deform.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/cuda-rbf-network.usda",
@@ -2409,8 +2409,8 @@
         "A GeomSubset with no faces is an error."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/collide.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/collide.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/docs/operators/collide.usda"
@@ -2551,8 +2551,8 @@
         "Billows are coherent waves over rest position and cook time. Gusts start from deterministic per-strand noise, then share clump-anchored motion where effective cohesion survives. A clump ID without weight does not imply shared motion; playback is needed to judge the result."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/wind.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [
         "examples/docs/operators/wind-clumped.usda",
@@ -2635,8 +2635,8 @@
         "A frozen snapshot needs valid, nonempty curve topology."
       ],
       "source": [
-        "libs/usdGen/usdGen/ops/freeze.cpp",
-        "libs/usdGenSchema/schema.usda",
+        "libs/core/primitives/usdGenCurves/usdGenCurves/ops/freeze.cpp",
+        "libs/hosts/usdGenUsd/schema/schema.usda",
         "tools/docs/utility_fixtures.cpp"
       ],
       "examples": [
@@ -2787,9 +2787,9 @@
         "Unavailable: there is no registered UsdGenInstance kernel."
       ],
       "source": [
-        "libs/usdGenSchema/schema.usda",
+        "libs/hosts/usdGenUsd/schema/schema.usda",
         "libs/usdGen/usdGen/opRegistry.cpp",
-        "libs/usdGenSchema/schema.usda"
+        "libs/hosts/usdGenUsd/schema/schema.usda"
       ],
       "examples": [],
       "authoringGuide": "docs/reference/operator-authoring.md",

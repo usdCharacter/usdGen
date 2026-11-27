@@ -39,6 +39,7 @@
 #ifndef USDGEN_POMADE_SCENE_INDEX_PLUGIN_H
 #define USDGEN_POMADE_SCENE_INDEX_PLUGIN_H
 
+#include "usdGenPomade/api.h"
 #include "usdGenPomade/pomadeGizmo.h"
 #include "usdGenPomade/pomadeRegistry.h"
 
@@ -53,7 +54,6 @@
 #include <cstdint>
 #include <map>
 #include <memory>
-#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -66,7 +66,7 @@ struct PomadeStagedModel;
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class UsdGenPomadeSceneIndex final
+class USDGENPOMADE_API UsdGenPomadeSceneIndex final
     : public HdSingleInputFilteringSceneIndexBase
     , public usdGenPomade::PomadePublishTarget
 {
@@ -243,10 +243,15 @@ private:
     usdGenPomade::PomadeModel *_stagedModel = nullptr;
     // The published snapshot the dirty comparison runs against.
     std::unique_ptr<usdGenPomade::PomadeStagedModel> _published;
-    // The published prim table. Written by Refresh, read by GetPrim; the
-    // mutex keeps Storm's parallel GetPrim race-free (the SI-4 discipline).
-    mutable std::mutex _mutex;
-    std::map<SdfPath, _Prim> _prims;
+    // What GetPrim and the queries read, copy-on-write by atomic pointer
+    // (pomadeSceneIndex.cpp): the published view (prim table, hidden-guides
+    // path, level census), written only by the frontend thread, and the
+    // amplified-tile set, written by input notices with a CAS loop. Storm's
+    // parallel GetPrim pins an epoch and never waits (the SI-4 discipline).
+    struct _Shared;
+    std::unique_ptr<_Shared> _shared;
+    // The visibility=false overlay for hidden tiles and guides; made once.
+    HdContainerDataSourceHandle _hiddenOverlay;
     // What the last publish drew for the overlays, so a re-set of the same
     // gizmo dirties nothing and a real move dirties exactly its leaves.
     usdGenPomade::PomadeGizmoRecord _publishedGizmo;
@@ -255,17 +260,10 @@ private:
     int _publishedBrushCurves = 0;
     // Sticky: the test tube never comes back once a model has been active.
     bool _testTubeRetired = false;
-    bool _testTubePublished = false;
-    int _lastRestagedTubeCount = 0;
     // The amplified-tile override (plan/17 §3.2). Atomic because GetPrim
     // runs on Storm's worker threads while Refresh writes it on the UI
-    // thread; `_tilePaths` is the set the input has announced, guarded by
-    // _mutex like the prim table.
+    // thread; the set the input has announced lives in _Shared.
     std::atomic<bool> _amplifiedTilesVisible{true};
-    std::set<SdfPath> _tilePaths;
-    // The committed guides prim hidden while a model is active; guarded
-    // by _mutex, because GetPrim reads it on Storm's worker threads.
-    SdfPath _hiddenGuidesPath;
 };
 
 class UsdGenPomadeSceneIndexPlugin final : public HdSceneIndexPlugin

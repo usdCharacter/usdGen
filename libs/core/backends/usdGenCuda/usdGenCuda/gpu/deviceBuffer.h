@@ -1,0 +1,102 @@
+// Small ownership primitives for buffers which never acquire a host mirror.
+#ifndef USDGEN_GPU_DEVICE_BUFFER_H
+#define USDGEN_GPU_DEVICE_BUFFER_H
+
+#include <cuda_runtime.h>
+#include "deviceResources.h"
+#include "usdGenCuda/export.h"
+
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <utility>
+
+namespace usdGen { namespace gpu {
+
+template <class T> struct DeviceView {
+    T* data = nullptr;
+    size_t size = 0;
+    constexpr explicit operator bool() const { return data != nullptr || size == 0; }
+};
+
+// Diagnostic gauge for tests: idle device bytes currently retained by the
+// DeviceBuffer reuse cache process-wide, counted as the bytes their last
+// owners requested (blocks are allocated in size classes). Cached storage is uncharged (its
+// permit released at insert), so pool accounting reads as if freed; this
+// gauge is the only window into the retained physical bytes.
+USDGEN_CUDA_INTERNAL_API size_t UsdGenGpuDeviceBufferCacheBytes() noexcept;
+
+// A move-only allocation.  The event is deliberately owned by the allocation:
+// a published generation records its last producer use, and a consumer can put
+// a wait on its own stream before dereferencing view().
+template <class T> class USDGEN_CUDA_TEMPLATE_CLASS_API DeviceBuffer {
+public:
+    DeviceBuffer() = default;
+    ~DeviceBuffer() { release(); }
+    DeviceBuffer(const DeviceBuffer&) = delete;
+    DeviceBuffer& operator=(const DeviceBuffer&) = delete;
+    DeviceBuffer(DeviceBuffer&& other) noexcept { moveFrom(other); }
+    DeviceBuffer& operator=(DeviceBuffer&& other) noexcept {
+        if (this != &other) { release(); moveFrom(other); }
+        return *this;
+    }
+
+    // A non-null reservation is consumed only when this call changes the
+    // size; same-size reuse retains its existing permit unchanged. A size in
+    // the same class keeps the block and recharges only the permit.
+    cudaError_t reset(size_t count,
+                      UsdGenExecutionMemoryReservation* reservation = nullptr,
+                      UsdGenExecutionResourceKind kind =
+                          UsdGenExecutionResourceKind::Active);
+    // Host-only accounting transition for storage which has become part of an
+    // immutable published generation.  It deliberately does not touch the
+    // CUDA allocation, event, or device selection.
+    void Reclassify(UsdGenExecutionResourceKind kind) noexcept {
+        permit_.Reclassify(kind);
+    }
+    void release() noexcept;
+    // Only for a lost device or unprovable completion: abandon handles rather
+    // than free storage still potentially in use. Context teardown reclaims
+    // these intentionally quarantined allocations/events.
+    void quarantine() noexcept { permit_.Abandon(); data_ = nullptr; size_ = 0; ready_ = nullptr; device_ = -1; capacity_ = 0; }
+    DeviceView<T> view() { return {data_, size_}; }
+    DeviceView<const T> view() const { return {data_, size_}; }
+    size_t size() const { return size_; }
+    size_t bytes() const noexcept { return size_ * sizeof(T); }
+    T* data() { return data_; }
+    const T* data() const { return data_; }
+    cudaError_t recordUse(cudaStream_t stream);
+    cudaError_t waitOn(cudaStream_t stream) const;
+    // Poll the last-use event without synchronizing the host.  A caller may
+    // reclaim the allocation only after this reports cudaSuccess.
+    cudaError_t queryUse() const;
+    // Establish a final completion proof for destruction of paired host
+    // sources. Selects the allocation's device for the event wait.
+    cudaError_t synchronizeUse() const;
+
+private:
+    void moveFrom(DeviceBuffer& other) noexcept;
+    T* data_ = nullptr;
+    size_t size_ = 0;
+    cudaEvent_t ready_ = nullptr;
+    int device_ = -1;
+    size_t capacity_ = 0;  // size class allocated, >= bytes()
+    UsdGenExecutionResourcePermit permit_;
+};
+
+// The element types usdGenCuda instantiates (gpu/deviceBuffer.cu) are exported;
+// a module that needs another element type instantiates it itself from
+// deviceBufferImpl.h (the block cache stays shared, in usdGenCuda).
+#if !defined(usdGenCuda_EXPORTS)  // the defining DSO has the definitions (C4910)
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<double>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<int>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<unsigned char>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<uint32_t>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<uint64_t>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float3>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float2>;
+#endif
+
+}} // namespace usdGen::gpu
+#endif

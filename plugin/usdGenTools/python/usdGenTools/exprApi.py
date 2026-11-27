@@ -1,5 +1,5 @@
 # The editor's link to the engine: a ctypes binding to the usdGenImaging C ABI
-# (libs/usdGenImaging/usdGenImaging/usdGenToolsApi.h), plus the pure-text
+# (libs/hosts/usdGenHydra/usdGenImaging/usdGenToolsApi.h), plus the pure-text
 # helpers the editor needs for literal controls and error marking.
 #
 # No Qt is imported here on purpose: everything in this module is testable in a

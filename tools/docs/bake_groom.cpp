@@ -3,12 +3,14 @@
 // Bake the stage's usdGen operator graph to ordinary USD BasisCurves for
 // offline renderers. The compiler and scheduler are the same CPU cook tested
 // by testUsdGenGroomExamples; this tool never synthesizes strand geometry.
-#include "usdGen/compiler.h"
-#include "usdGen/curveBuffer.h"
-#include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
-#include "usdGen/scheduler.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGenUsd/lower.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/basisCurves.h"
@@ -102,7 +104,6 @@ int main(int argc, char **argv) try {
         std::fprintf(stderr, "usage: usdGenBakeGroom input.usd description-path output.usd [material-path|-] [time-code]\n");
         return 2;
     }
-    usdGen::usdGenRegisterM1Operators();
     UsdStageRefPtr stage = UsdStage::Open(argv[1], UsdStage::LoadAll);
     if (!stage) throw std::runtime_error("cannot open input stage");
     SdfPath const description(argv[2]);
@@ -118,7 +119,7 @@ int main(int argc, char **argv) try {
         std::fprintf(stderr, "validation: %s\n", warning.c_str());
     usdGen::UsdGenCompiler compiler;
     usdGen::UsdGenGraph graph;
-    auto const compiled = compiler.Compile(desc, &graph);
+    auto const compiled = usdGenUsd::Compile(compiler, desc, &graph);
     if (!compiled.ok) {
         for (auto const &error : compiled.errors) std::fprintf(stderr, "compile: %s\n", error.c_str());
         return 1;

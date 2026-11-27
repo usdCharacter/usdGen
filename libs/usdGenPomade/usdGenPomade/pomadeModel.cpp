@@ -3,11 +3,12 @@
 #include "usdGenPomade/pomadeModel.h"
 
 #include "usdGenPomade/pomadeCheck.h"
-#include "usdGen/concaveMaterialRemap.h"
+#include "usdGenPomade/pomadeModelState.h"
+#include "usdGenSurface/concaveMaterialRemap.h"
 
 #ifdef USDGEN_POMADE_HAS_CUDA
 #include "usdGenPomade/pomadeKernels.h"
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include <cuda_runtime.h>
 #endif
 
@@ -18,7 +19,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <mutex>
 #include <queue>
 #include <set>
 
@@ -62,7 +62,13 @@ struct PomadeModel::_Device {
 #endif
 };
 
-PomadeModel::PomadeModel() : _device(new _Device())
+struct PomadeModel::_Published {
+    usdGen::UsdGenAtomicRef<PomadeModelState const> cell;
+};
+
+PomadeModel::PomadeModel()
+    : _device(new _Device())
+    , _published(new _Published())
 {
 #ifdef USDGEN_POMADE_HAS_CUDA
     if (cudaStreamCreate(&_device->stream) == cudaSuccess) {
@@ -73,6 +79,7 @@ PomadeModel::PomadeModel() : _device(new _Device())
 
 PomadeModel::~PomadeModel()
 {
+    _published.reset();  // retires the published state through the epochs
 #ifdef USDGEN_POMADE_HAS_CUDA
     if (_device && _device->streamOwned && _device->stream) {
         cudaStreamDestroy(_device->stream);
@@ -729,7 +736,6 @@ bool _RigidBetweenRegionSupports(_RegionSupport const &from,
 bool
 PomadeModel::BuildTestTube(PomadeTubeShape shape)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (shape.rings < 2 || shape.ringVerts < 3 ||
         shape.radius <= 0.0f || shape.length <= 0.0f) {
         _diagnostic = "PomadeModel::BuildTestTube: shape out of range "
@@ -778,7 +784,6 @@ PomadeModel::BuildTestTube(PomadeTubeShape shape)
 bool
 PomadeModel::MoveCenterRing(int ring, float dx, float dz)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= _shape.rings ||
         _host.centerX.size() != size_t(_shape.rings)) {
         _diagnostic = "PomadeModel::MoveCenterRing: ring index out of range";
@@ -820,14 +825,12 @@ PomadeModel::HasCudaMirror() const
 bool
 PomadeModel::DeviceFallback() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _deviceFallback;
 }
 
 char const *
 PomadeModel::DeviceFallbackReason() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _deviceFallbackReason.c_str();
 }
 
@@ -920,7 +923,6 @@ PomadeModel::CopyDeviceToHost(float *posOut, float *nrmOut,
 uint32_t
 PomadeModel::TakeDirty()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     uint32_t dirty = _dirty;
     _dirty = PomadeDirty_Clean;
     return dirty;
@@ -929,7 +931,6 @@ PomadeModel::TakeDirty()
 bool
 PomadeModel::SetFillParams(FillParams params)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!(params.density >= 0.0f) || params.cvCount < 2 ||
         params.cvCount > 64) {
         _diagnostic = "PomadeModel::SetFillParams: density must be finite "
@@ -953,14 +954,12 @@ PomadeModel::SetFillParams(FillParams params)
 PomadeModel::FillParams
 PomadeModel::GetFillParams() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _fill;
 }
 
 bool
 PomadeModel::SetOutputSettings(OutputSettings settings)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!std::isfinite(settings.densityMultiplier) ||
         !(settings.densityMultiplier > 0.0f) ||
         !std::isfinite(settings.width) || !(settings.width >= 0.0f) ||
@@ -986,14 +985,12 @@ PomadeModel::SetOutputSettings(OutputSettings settings)
 PomadeModel::OutputSettings
 PomadeModel::GetOutputSettings() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _output;
 }
 
 bool
 PomadeModel::SetOutputPtexResolution(int resOverride)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (resOverride < -1 || resOverride > 12) {
         _diagnostic = "PomadeModel::SetOutputPtexResolution: resolution must "
                       "be -1 or in [0, 12]";
@@ -1012,7 +1009,6 @@ PomadeModel::SetOutputPtexResolution(int resOverride)
 bool
 PomadeModel::SetSubdivideParams(SubdivideParams params)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (params.count < 2 || params.count > 8 ||
         (params.splitMode != "kmeans" && params.splitMode != "edge")) {
         _diagnostic = "PomadeModel::SetSubdivideParams: count in [2, 8], "
@@ -1027,14 +1023,12 @@ PomadeModel::SetSubdivideParams(SubdivideParams params)
 PomadeModel::SubdivideParams
 PomadeModel::GetSubdivideParams() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _subdivide;
 }
 
 void
 PomadeModel::SetLockFlags(bool locked, bool lockParents, bool lockChildren)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _locked = locked;
     _lockParents = lockParents;
     _lockChildren = lockChildren;
@@ -1045,7 +1039,6 @@ void
 PomadeModel::GetLockFlags(bool *locked, bool *lockParents,
                          bool *lockChildren) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (locked) {
         *locked = _locked;
     }
@@ -1057,10 +1050,54 @@ PomadeModel::GetLockFlags(bool *locked, bool *lockParents,
     }
 }
 
+PomadeModelState const *
+PomadeModel::CaptureState() const
+{
+    usdGen::UsdGenRef<PomadeModelState> state =
+        usdGen::UsdGenMakeRef<PomadeModelState>();
+    state->version = GetVersion();
+    state->tube = Snapshot();
+    state->generatedCurvesSuppressed = GeneratedCurvesSuppressed();
+    state->output = GetOutputSettings();
+    state->tubeRegionId = GetTubeRegionId();
+    state->l1TubeIds = L1TubeIds();
+    state->tubeIds = TubeIds();
+    auto capture = [&](int id) {
+        if (id == 0 || state->records.count(id)) {
+            return;
+        }
+        TubeRecord record;
+        if (GetTubeRecord(id, &record)) {
+            state->records.emplace(id, std::move(record));
+        }
+    };
+    for (int id : state->l1TubeIds) {
+        capture(id);
+    }
+    for (int id : state->tubeIds) {
+        capture(id);
+    }
+    state->graph = SnapshotGraph();
+    state->scalp = GetScalp();
+    return state.Detach();
+}
+
+void
+PomadeModel::PublishState()
+{
+    _published->cell.Store(
+        usdGen::UsdGenRef<PomadeModelState const>::Adopt(CaptureState()));
+}
+
+PomadeModelState const *
+PomadeModel::AcquireState() const
+{
+    return _published->cell.Load().Detach();
+}
+
 PomadeModel::TubeSnapshot
 PomadeModel::Snapshot() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     TubeSnapshot snapshot;
     snapshot.shape = _shape;
     snapshot.centerX = _host.centerX;
@@ -1085,7 +1122,6 @@ PomadeModel::Snapshot() const
 bool
 PomadeModel::Restore(TubeSnapshot const &snapshot)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!snapshot.hasTube || snapshot.shape.rings < 2 ||
         snapshot.shape.ringVerts < 3 || snapshot.shape.radius <= 0.0f ||
         snapshot.shape.length <= 0.0f ||
@@ -1486,7 +1522,6 @@ PomadeModel::BindScalp(std::vector<float> const &points,
                       std::vector<int> const &faceVertexIndices,
                       std::vector<int> const &activeFaces)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::shared_ptr<PomadeScalpMesh> scalp(new PomadeScalpMesh());
     scalp->points = points;
     scalp->faceVertexCounts = faceVertexCounts;
@@ -1517,21 +1552,18 @@ PomadeModel::BindScalp(std::vector<float> const &points,
 bool
 PomadeModel::HasScalp() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return bool(_scalp) && _scalp->finalized;
 }
 
 std::shared_ptr<PomadeScalpMesh const>
 PomadeModel::GetScalp() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _scalp;
 }
 
 PomadeHit
 PomadeModel::Raycast(float const origin[3], float const dir[3]) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized || !_bvh.valid) {
         return PomadeHit();
     }
@@ -1541,7 +1573,6 @@ PomadeModel::Raycast(float const origin[3], float const dir[3]) const
 PomadeHit
 PomadeModel::ClosestPoint(float const p[3]) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized || !p) {
         return PomadeHit();
     }
@@ -1567,7 +1598,6 @@ void _MaybeMirror(PomadeScalpMesh const &scalp, PomadeScalpGraph *graph,
 int
 PomadeModel::GraphAddNode(PomadeHit const &hit)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphAddNode: no scalp bound";
@@ -1593,7 +1623,6 @@ int
 PomadeModel::GraphCreateRegion(std::vector<int> const &nodeIds,
                               std::vector<PomadeHit> const &hits)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized) {
         _diagnostic = "PomadeModel::GraphCreateRegion: no scalp bound";
         return -1;
@@ -1696,7 +1725,6 @@ PomadeModel::GraphCreateRegion(std::vector<int> const &nodeIds,
 bool
 PomadeModel::GraphMoveNode(int nodeId, PomadeHit const &hit)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     // Place has historically allowed a single-node drag to change graph
     // topology (for example a deliberate collapse before weld).  For the
     // ordinary existing-region drag, however, the attached tube hierarchy
@@ -1773,7 +1801,6 @@ bool
 PomadeModel::GraphMoveNodes(std::vector<int> const &nodeIds,
                            std::vector<PomadeHit> const &hits)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     HierarchyRollback const before = _SnapshotHierarchyLocked();
     uint32_t const dirtyBefore = _dirty;
     uint64_t const versionBefore = _version.load();
@@ -1868,7 +1895,6 @@ PomadeModel::GraphMoveNodes(std::vector<int> const &nodeIds,
 int
 PomadeModel::GraphConnect(int a, int b)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphConnect: no scalp bound";
@@ -1889,7 +1915,6 @@ PomadeModel::GraphConnect(int a, int b)
 int
 PomadeModel::GraphSplitEdge(int edgeId, PomadeHit const &hit)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphSplitEdge: no scalp bound";
@@ -1913,7 +1938,6 @@ PomadeModel::GraphSplitEdge(int edgeId, PomadeHit const &hit)
 bool
 PomadeModel::GraphWeld(int keep, int drop)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphWeld: no scalp bound";
@@ -1933,7 +1957,6 @@ PomadeModel::GraphWeld(int keep, int drop)
 int
 PomadeModel::GraphWeldAll(float radius)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphWeldAll: no scalp bound";
@@ -1952,7 +1975,6 @@ PomadeModel::GraphWeldAll(float radius)
 std::vector<int>
 PomadeModel::GraphUnweld(int nodeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     std::vector<int> created;
     if (!_scalp) {
@@ -1972,7 +1994,6 @@ PomadeModel::GraphUnweld(int nodeId)
 bool
 PomadeModel::GraphDeleteEdge(int edgeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphDeleteEdge: no scalp bound";
@@ -1992,7 +2013,6 @@ PomadeModel::GraphDeleteEdge(int edgeId)
 bool
 PomadeModel::GraphDeleteNode(int nodeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_scalp) {
         _diagnostic = "PomadeModel::GraphDeleteNode: no scalp bound";
@@ -2012,21 +2032,18 @@ PomadeModel::GraphDeleteNode(int nodeId)
 int
 PomadeModel::GraphSnapNode(float const p[3], float radius) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _graph.SnapNode(p, radius);
 }
 
 int
 PomadeModel::GraphSnapEdge(float const p[3], float radius) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _graph.SnapEdge(p, radius);
 }
 
 bool
 PomadeModel::GraphGetNode(int nodeId, PomadeGraphNode *out) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     PomadeGraphNode const *node = _graph.FindNode(nodeId);
     if (!node || !out) {
         return false;
@@ -2038,7 +2055,6 @@ PomadeModel::GraphGetNode(int nodeId, PomadeGraphNode *out) const
 bool
 PomadeModel::GraphGetEdge(int edgeId, int outNodeIds[2]) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     PomadeGraphEdge const *edge = _graph.FindEdge(edgeId);
     if (!edge || !outNodeIds) {
         return false;
@@ -2108,7 +2124,6 @@ PomadeGraphDisplaySurfacePosition(float const canonicalP[3],
 bool
 PomadeModel::GraphGetNodeDisplayPosition(int nodeId, float outP[3]) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     PomadeGraphNode const *node = _graph.FindNode(nodeId);
     if (!node || !outP) {
         return false;
@@ -2120,7 +2135,6 @@ PomadeModel::GraphGetNodeDisplayPosition(int nodeId, float outP[3]) const
 bool
 PomadeModel::GraphLinkRegions(int r0, int r1)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_graph.LinkRegions(r0, r1)) {
         _diagnostic = _graph.GetDiagnostic();
@@ -2136,7 +2150,6 @@ PomadeModel::GraphLinkRegions(int r0, int r1)
 bool
 PomadeModel::GraphUnlinkRegions(int r0, int r1)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     if (!_graph.UnlinkRegions(r0, r1)) {
         _diagnostic = "PomadeModel::GraphUnlinkRegions: no such link";
@@ -2153,7 +2166,6 @@ PomadeStrokeResult
 PomadeModel::GraphStroke(std::vector<PomadeHit> const &samples, float snapRadius,
                         float simplifyEps)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     PomadeStrokeResult empty;
     if (!_scalp) {
@@ -2174,7 +2186,6 @@ PomadeModel::GraphStroke(std::vector<PomadeHit> const &samples, float snapRadius
 std::vector<std::pair<int, int>>
 PomadeModel::GraphMirrorX()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const graphBefore = _GraphUndoStateLocked();
     std::vector<std::pair<int, int>> mapping;
     if (!_scalp) {
@@ -2194,42 +2205,36 @@ PomadeModel::GraphMirrorX()
 void
 PomadeModel::SetSnapRadius(float radius)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _snapRadius = radius;
 }
 
 float
 PomadeModel::GetSnapRadius() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _snapRadius;
 }
 
 void
 PomadeModel::SetMirrorX(bool on)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _mirrorX = on;
 }
 
 bool
 PomadeModel::GetMirrorX() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _mirrorX;
 }
 
 uint64_t
 PomadeModel::GetMapVersion() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _mapVersion;
 }
 
 bool
 PomadeModel::Rasterise()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp) {
         _diagnostic = "PomadeModel::Rasterise: no scalp bound";
         return false;
@@ -2258,7 +2263,6 @@ PomadeModel::Rasterise()
 int
 PomadeModel::RegionAtSurface(int faceId, float u, float v) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized ||
         !PomadeScalpFaceActive(*_scalp, faceId)) {
         return -1;  // a face outside a bound subset is off the scalp
@@ -2332,7 +2336,6 @@ PomadeModel::RegionAtSurface(int faceId, float u, float v) const
 void
 PomadeModel::NoteBakedMapFile(uint64_t mapVersion, std::string const &path)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _bakedMapVersion = mapVersion;
     _bakedMapFile = path;
 }
@@ -2340,7 +2343,6 @@ PomadeModel::NoteBakedMapFile(uint64_t mapVersion, std::string const &path)
 PomadeModel::GraphSnapshot
 PomadeModel::SnapshotGraph() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     GraphSnapshot snapshot;
     snapshot.snapRadius = _snapRadius;
     snapshot.mapVersion = _mapVersion;
@@ -2386,7 +2388,6 @@ PomadeModel::SnapshotGraph() const
 bool
 PomadeModel::RestoreGraph(GraphSnapshot const &snapshot)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp) {
         _diagnostic = "PomadeModel::RestoreGraph: no scalp bound";
         return false;
@@ -3040,7 +3041,6 @@ PomadeModel::_RegionTubeDescLocked(int regionId, int centerCount,
 bool
 PomadeModel::PinRegionRootFrames()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized) {
         _diagnostic = "PomadeModel::PinRegionRootFrames: no scalp bound";
         return false;
@@ -3192,7 +3192,6 @@ bool
 PomadeModel::BuildTubeFromRegion(int regionId, int centerCount, int ringVerts,
                                 float length)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ringVerts != 0 && (ringVerts < 3 || ringVerts > 32)) {
         _diagnostic = "PomadeModel::BuildTubeFromRegion: ring CV count is "
                       "0 (match authored region corners) or 3..32";
@@ -3264,7 +3263,6 @@ PomadeModel::BuildTubeFromRegion(int regionId, int centerCount, int ringVerts,
 int
 PomadeModel::TubeForRegion(int regionId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto const it = _regionTube.find(regionId);
     if (it != _regionTube.end()) {
         return it->second;
@@ -3278,7 +3276,6 @@ PomadeModel::TubeForRegion(int regionId) const
 int
 PomadeModel::RegionForTube(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     PomadeTubeDesc desc;
     if (!_TubeDescLocked(tubeId, &desc)) {
         return -1;
@@ -3289,7 +3286,6 @@ PomadeModel::RegionForTube(int tubeId) const
 std::vector<int>
 PomadeModel::L1TubeIds() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _L1TubeIdsLocked();
 }
 
@@ -3594,14 +3590,12 @@ bool
 PomadeModel::SyncRegionTubes(std::vector<int> *outRebuilt,
                             std::vector<int> *outRemoved)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _SyncRegionTubesLocked(outRebuilt, outRemoved);
 }
 
 bool
 PomadeModel::InstallL1Tube(int tubeId, TubeRecord const &record)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId <= 0 || (tubeId % 16) != 0) {
         _diagnostic = "PomadeModel::InstallL1Tube: an L1 root id is a "
                       "positive multiple of 16";
@@ -3646,7 +3640,6 @@ PomadeModel::InstallL1Tube(int tubeId, TubeRecord const &record)
 bool
 PomadeModel::MoveCenterCV(int cv, float dx, float dy, float dz)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int const n = int(_host.centerX.size());
     if (cv < 0 || cv >= n || n < 2) {
         _diagnostic = "PomadeModel::MoveCenterCV: CV index out of range";
@@ -3676,7 +3669,6 @@ PomadeModel::MoveCenterCV(int cv, float dx, float dy, float dz)
 bool
 PomadeModel::InsertCenterCV(int atIndex)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int const n = int(_host.centerX.size());
     if (atIndex < 0 || atIndex > n || n < 2) {
         _diagnostic = "PomadeModel::InsertCenterCV: index out of range";
@@ -3714,7 +3706,6 @@ PomadeModel::InsertCenterCV(int atIndex)
 bool
 PomadeModel::DeleteCenterCV(int index)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int const n = int(_host.centerX.size());
     if (index < 0 || index >= n || n <= 2) {
         _diagnostic = "PomadeModel::DeleteCenterCV: need >= 2 CVs left";
@@ -3736,7 +3727,6 @@ PomadeModel::DeleteCenterCV(int index)
 bool
 PomadeModel::SetTubeLength(float length)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int const n = int(_host.centerX.size());
     if (!(length > 0.0f) || n < 2) {
         _diagnostic = "PomadeModel::SetTubeLength: need a tube + length > 0";
@@ -3787,7 +3777,6 @@ PomadeModel::SetTubeLength(float length)
 bool
 PomadeModel::MatchSurface()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized || _host.centerX.empty()) {
         _diagnostic = "PomadeModel::MatchSurface: need a bound scalp + tube";
         return false;
@@ -3813,14 +3802,12 @@ PomadeModel::MatchSurface()
 int
 PomadeModel::GetCenterCVCount() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return int(_host.centerX.size());
 }
 
 bool
 PomadeModel::GetCenterCV(int cv, float *x, float *y, float *z) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (cv < 0 || cv >= int(_host.centerX.size()) || !x || !y || !z) {
         return false;
     }
@@ -3833,14 +3820,12 @@ PomadeModel::GetCenterCV(int cv, float *x, float *y, float *z) const
 int
 PomadeModel::GetSectionCount() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return int(_sections.size());
 }
 
 bool
 PomadeModel::GetSection(int ring, PomadeTubeSection *section) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= int(_sections.size()) || !section) {
         return false;
     }
@@ -3851,7 +3836,6 @@ PomadeModel::GetSection(int ring, PomadeTubeSection *section) const
 bool
 PomadeModel::MoveSectionRing(int ring, float du, float dv)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= int(_sections.size())) {
         _diagnostic = "PomadeModel::MoveSectionRing: ring out of range";
         return false;
@@ -3874,7 +3858,6 @@ PomadeModel::MoveSectionRing(int ring, float du, float dv)
 bool
 PomadeModel::ScaleSectionRing(int ring, float scale)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= int(_sections.size()) || !(scale > 0.0f)) {
         _diagnostic = "PomadeModel::ScaleSectionRing: bad ring or scale";
         return false;
@@ -3893,7 +3876,6 @@ PomadeModel::ScaleSectionRing(int ring, float scale)
 bool
 PomadeModel::TwistSectionRing(int ring, float radians)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= int(_sections.size())) {
         _diagnostic = "PomadeModel::TwistSectionRing: ring out of range";
         return false;
@@ -3912,7 +3894,6 @@ PomadeModel::TwistSectionRing(int ring, float radians)
 bool
 PomadeModel::MoveSectionCV(int ring, int slot, float du, float dv)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= int(_sections.size()) || slot < 0 ||
         slot >= int(_sections[size_t(ring)].u.size())) {
         _diagnostic = "PomadeModel::MoveSectionCV: ring/slot out of range";
@@ -3934,7 +3915,6 @@ PomadeModel::MoveSectionCV(int ring, int slot, float du, float dv)
 bool
 PomadeModel::AddSectionRing(float t)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int const nSec = int(_sections.size());
     if (nSec < 2) {
         _diagnostic = "PomadeModel::AddSectionRing: no tube";
@@ -3979,7 +3959,6 @@ PomadeModel::AddSectionRing(float t)
 bool
 PomadeModel::RemoveSectionRing(int ring)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (ring < 0 || ring >= int(_sections.size()) ||
         _sections.size() <= 2) {
         _diagnostic = "PomadeModel::RemoveSectionRing: need >= 2 rings left";
@@ -3999,7 +3978,6 @@ PomadeModel::RemoveSectionRing(int ring)
 bool
 PomadeModel::CopySectionRing(int src, int dst)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (src < 0 || src >= int(_sections.size()) || dst < 0 ||
         dst >= int(_sections.size())) {
         _diagnostic = "PomadeModel::CopySectionRing: ring out of range";
@@ -4021,7 +3999,6 @@ PomadeModel::CopySectionRing(int src, int dst)
 bool
 PomadeModel::SetSoftSelection(float center, float radius)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!(radius >= 0.0f)) {
         _diagnostic = "PomadeModel::SetSoftSelection: radius must be >= 0";
         return false;
@@ -4035,7 +4012,6 @@ PomadeModel::SetSoftSelection(float center, float radius)
 void
 PomadeModel::GetSoftSelection(float *center, float *radius) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (center) {
         *center = _softCenter;
     }
@@ -4047,7 +4023,6 @@ PomadeModel::GetSoftSelection(float *center, float *radius) const
 bool
 PomadeModel::RelaxCenter(float strength, int iterations)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int const n = int(_host.centerX.size());
     if (!(strength >= 0.0f) || !(strength <= 1.0f) || iterations < 1 ||
         n < 3) {
@@ -4102,7 +4077,6 @@ PomadeModel::RelaxCenter(float strength, int iterations)
 bool
 PomadeModel::SnapRootToScalp()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_scalp || !_scalp->finalized || _host.centerX.empty()) {
         _diagnostic = "PomadeModel::SnapRootToScalp: need a bound scalp + "
                       "tube";
@@ -4134,7 +4108,6 @@ PomadeModel::SnapRootToScalp()
 bool
 PomadeModel::SetDisplaySegments(int segments)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (segments < 1 || segments > 16) {
         _diagnostic = "PomadeModel::SetDisplaySegments: segments in [1, 16]";
         return false;
@@ -4154,14 +4127,12 @@ PomadeModel::SetDisplaySegments(int segments)
 int
 PomadeModel::GetDisplaySegments() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _segmentsPerSpan;
 }
 
 void
 PomadeModel::SetTubeRegionId(int regionId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _tubeRegionId = regionId;
     ++_version;
 }
@@ -4169,14 +4140,12 @@ PomadeModel::SetTubeRegionId(int regionId)
 int
 PomadeModel::GetTubeRegionId() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _tubeRegionId;
 }
 
 std::vector<int>
 PomadeModel::TubeRegionFaces() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<int> faces;
     if (!_scalp || _tubeRegionId < 0 ||
         _tubeRegionId >= _graph.RegionCount()) {
@@ -4194,7 +4163,6 @@ PomadeModel::TubeRegionFaces() const
 PomadeTubeDesc
 PomadeModel::BuildTubeDesc() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _BuildTubeDescLocked();
 }
 
@@ -4277,7 +4245,6 @@ void PomadeModel::_AttachTubeRootLocked(PomadeTubeDesc *desc) const
 std::vector<PomadeFrame>
 PomadeModel::GetFrames() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _frames;
 }
 
@@ -4286,7 +4253,6 @@ PomadeModel::GetFrames() const
 bool
 PomadeModel::SetPreviewFraction(float fraction)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!(fraction >= 0.0f) || !(fraction <= 1.0f)) {
         _diagnostic = "PomadeModel::SetPreviewFraction: fraction in [0, 1]";
         return false;
@@ -4299,14 +4265,12 @@ PomadeModel::SetPreviewFraction(float fraction)
 float
 PomadeModel::GetPreviewFraction() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _previewFraction;
 }
 
 void
 PomadeModel::SetFreezeRoots(bool freeze)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _freezeRoots = freeze;
     ++_version;
 }
@@ -4314,14 +4278,12 @@ PomadeModel::SetFreezeRoots(bool freeze)
 bool
 PomadeModel::GetFreezeRoots() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _freezeRoots;
 }
 
 bool
 PomadeModel::RefillGuides(float fraction)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_generatedCurvesSuppressed) {
         return true;
     }
@@ -4331,7 +4293,6 @@ PomadeModel::RefillGuides(float fraction)
 bool
 PomadeModel::GenerateGuides(float fraction)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!_generatedCurvesSuppressed) {
         return _RefillGuidesLocked(fraction);
     }
@@ -4348,7 +4309,6 @@ PomadeModel::GenerateGuides(float fraction)
 bool
 PomadeModel::ClearGeneratedCurves()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_generatedCurvesSuppressed && _guides.guideCount == 0) {
         return true;
     }
@@ -4368,7 +4328,6 @@ PomadeModel::ClearGeneratedCurves()
 bool
 PomadeModel::SetGeneratedCurvesVisible(bool visible)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_generatedCurvesVisible == visible) {
         return true;
     }
@@ -4381,21 +4340,18 @@ PomadeModel::SetGeneratedCurvesVisible(bool visible)
 bool
 PomadeModel::GetGeneratedCurvesVisible() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _generatedCurvesVisible;
 }
 
 bool
 PomadeModel::GeneratedCurvesSuppressed() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _generatedCurvesSuppressed;
 }
 
 void
 PomadeModel::SetGeneratedCurvesSuppressed(bool suppressed)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _generatedCurvesSuppressed = suppressed;
     if (suppressed) {
         _roots.clear();
@@ -4834,7 +4790,6 @@ PomadeModel::GetGuidePreview() const
     // leaves the preview-density set here, RefillGuides(1.0) on release
     // leaves the full set (the release frame always shows full fidelity,
     // §7). No second fraction applies here.
-    std::lock_guard<std::mutex> lock(_mutex);
     GuidePreview preview;
     if (!_generatedCurvesVisible) {
         return preview;
@@ -4856,7 +4811,6 @@ PomadeModel::GetGuides() const
 std::vector<std::pair<int, std::string>>
 PomadeModel::RefillDrops() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _refillDrops;
 }
 
@@ -5376,7 +5330,6 @@ PomadeModel::Pick(float const viewProj[16], int w, int h, float x, float y,
     // nearest projected candidate position.  Pomade_Pick is used to verify
     // CPU/GPU projection parity, so it cannot synthesize a face hit with a
     // representative vertex index and a zero distance.
-    std::lock_guard<std::mutex> lock(_mutex);
     _PickScratch scratch;
     PomadePickSets const sets = _BuildPickSetsLocked(&scratch);
     PomadePickHit const extra = PomadePickExtraKindsCpu(
@@ -5412,7 +5365,6 @@ PomadePickHit
 PomadeModel::PickItem(float const viewProj[16], int w, int h, float x,
                      float y, float radiusPx, uint32_t kindMask) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _PickScratch scratch;
     // Pomade_Pick remains a raw K11 projection query.  Selection acts on
     // the visible graph dots, whose normal lift keeps them above the scalp.
@@ -5771,7 +5723,6 @@ PomadeModel::_ItemFromCandidateLocked(_PickScratch const &scratch,
 PomadeSelectionItem
 PomadeModel::SelectionItemFromHit(PomadePickHit const &hit) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!hit.hit) {
         return PomadeSelectionItem();
     }
@@ -5784,7 +5735,6 @@ PomadeModel::SelectionItemFromHit(PomadePickHit const &hit) const
 void
 PomadeModel::SelectionClear(uint32_t kindMask)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     uint64_t const before = _selection.Generation();
     _selection.Clear(kindMask);
     if (_selection.Generation() != before) {
@@ -5797,7 +5747,6 @@ void
 PomadeModel::SelectionApply(PomadeSelectMode mode,
                            std::vector<PomadeSelectionItem> const &items)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     uint64_t const before = _selection.Generation();
     _selection.Apply(mode, items);
     if (_selection.Generation() != before) {
@@ -5809,7 +5758,6 @@ PomadeModel::SelectionApply(PomadeSelectMode mode,
 void
 PomadeModel::SelectionSetHover(PomadeSelectionItem const &item)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     uint64_t const before = _selection.Generation();
     _selection.SetHover(item);
     if (_selection.Generation() != before) {
@@ -5821,7 +5769,6 @@ PomadeModel::SelectionSetHover(PomadeSelectionItem const &item)
 PomadeSelectionItem
 PomadeModel::SelectionHover() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _selection.PruneTubes(_LiveTubeIdsLocked());
     return _selection.Hover();
 }
@@ -5829,7 +5776,6 @@ PomadeModel::SelectionHover() const
 std::vector<PomadeSelectionItem>
 PomadeModel::SelectionItems(uint32_t kindMask) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _selection.PruneTubes(_LiveTubeIdsLocked());
     return _selection.Items(kindMask);
 }
@@ -5837,7 +5783,6 @@ PomadeModel::SelectionItems(uint32_t kindMask) const
 size_t
 PomadeModel::SelectionCount(uint32_t kindMask) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _selection.PruneTubes(_LiveTubeIdsLocked());
     return _selection.Count(kindMask);
 }
@@ -5845,7 +5790,6 @@ PomadeModel::SelectionCount(uint32_t kindMask) const
 uint64_t
 PomadeModel::SelectionGeneration() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _selection.PruneTubes(_LiveTubeIdsLocked());
     return _selection.Generation();
 }
@@ -6038,7 +5982,6 @@ PomadeModel::_ItemPositionLocked(PomadeSelectionItem const &item,
 bool
 PomadeModel::SelectionBounds(float outMin[3], float outMax[3]) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!outMin || !outMax) {
         return false;
     }
@@ -6237,7 +6180,6 @@ PomadeModel::SelectRect(float const viewProj[16], int w, int h, float x0,
                        float y0, float x1, float y1, uint32_t kindMask,
                        PomadeSelectMode mode)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!viewProj || w <= 0 || h <= 0) {
         _diagnostic = "PomadeModel::SelectRect: bad viewport";
         return false;
@@ -6270,7 +6212,6 @@ PomadeModel::SelectPolygon(float const viewProj[16], int w, int h,
                           float const *xy, int pointCount, uint32_t kindMask,
                           PomadeSelectMode mode)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!viewProj || w <= 0 || h <= 0 || !xy || pointCount < 3) {
         _diagnostic = "PomadeModel::SelectPolygon: a lasso needs >= 3 points";
         return false;
@@ -6303,7 +6244,6 @@ PomadeModel::SelectPolygon(float const viewProj[16], int w, int h,
 bool
 PomadeModel::SetGizmo(PomadeGizmoRecord const &record)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (record.kind < PomadeGizmo_None ||
         record.kind > PomadeGizmo_Scale) {
         _diagnostic = "PomadeModel::SetGizmo: unknown gizmo kind";
@@ -6321,14 +6261,12 @@ PomadeModel::SetGizmo(PomadeGizmoRecord const &record)
 PomadeGizmoRecord
 PomadeModel::GetGizmo() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _gizmo;
 }
 
 bool
 PomadeModel::SetBrushRing(PomadeBrushRingRecord const &record)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_brush == record) {
         return true;
     }
@@ -6341,7 +6279,6 @@ PomadeModel::SetBrushRing(PomadeBrushRingRecord const &record)
 PomadeBrushRingRecord
 PomadeModel::GetBrushRing() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _brush;
 }
 
@@ -6418,7 +6355,7 @@ bool _ValidateChildMaterialRings(PomadeTubeDesc const &tube, int cvCount,
         stations.push_back(t0 + span * (float(c) / float(cvCount - 1)));
     }
     std::vector<float> ring;
-    std::vector<PXR_NS::GfVec2f> chart(static_cast<size_t>(rv));
+    std::vector<usdGen::UsdGenVec2f> chart(static_cast<size_t>(rv));
     std::vector<std::array<int, 3>> triangles;
     for (float const t : stations) {
         PomadeFrame frame;
@@ -6438,7 +6375,7 @@ bool _ValidateChildMaterialRings(PomadeTubeDesc const &tube, int cvCount,
             float const dz = ring[at + 2] - center[2];
             float const u = dx * frame.nx + dy * frame.ny + dz * frame.nz;
             float const v = dx * frame.bx + dy * frame.by + dz * frame.bz;
-            chart[size_t(slot)] = PXR_NS::GfVec2f(u, v);
+            chart[size_t(slot)] = usdGen::UsdGenVec2f(u, v);
             maxRadius2 = std::max(maxRadius2, u * u + v * v);
             float const du = u - chart[0][0];
             float const dv = v - chart[0][1];
@@ -7241,7 +7178,6 @@ bool PomadeModel::SubdivideTube(int tubeId, int count, const char *splitMode,
                                int seed, float edgeA, float edgeB,
                                float edgeC, std::vector<int> *outChildren)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!outChildren) {
         _diagnostic = "PomadeModel::SubdivideTube: null output";
         return false;
@@ -7344,7 +7280,6 @@ bool PomadeModel::SubdivideTube(int tubeId, int count, const char *splitMode,
 
 bool PomadeModel::MergeChildren(int tubeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<int> kids;
     for (auto const &kv : _tubes) {
         if (kv.second.actual.parentTubeId == tubeId) {
@@ -7451,7 +7386,6 @@ bool PomadeModel::MergeChildren(int tubeId)
 
 bool PomadeModel::MergeSelected(std::vector<int> const &tubeIds, int *outKept)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!outKept || tubeIds.empty()) {
         _diagnostic = "PomadeModel::MergeSelected: want tube ids + outKept";
         return false;
@@ -7518,7 +7452,6 @@ bool PomadeModel::MergeSelected(std::vector<int> const &tubeIds, int *outKept)
 
 bool PomadeModel::RemoveTubes(std::vector<int> const &tubeIds, int *outRemoved)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (outRemoved) {
         *outRemoved = 0;
     }
@@ -7583,7 +7516,6 @@ bool PomadeModel::RemoveTubes(std::vector<int> const &tubeIds, int *outRemoved)
 
 int PomadeModel::GetTubeCount() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int n = int(_tubes.size());
     if (_host.centerX.size() >= 2) {
         ++n;
@@ -7593,7 +7525,6 @@ int PomadeModel::GetTubeCount() const
 
 int PomadeModel::GetTubeLevel(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId == 0) {
         return _host.centerX.size() >= 2 ? 1 : -1;
     }
@@ -7603,7 +7534,6 @@ int PomadeModel::GetTubeLevel(int tubeId) const
 
 std::vector<int> PomadeModel::GetTubeChildren(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<int> kids;
     for (auto const &kv : _tubes) {
         if (kv.second.actual.parentTubeId == tubeId) {
@@ -7615,7 +7545,6 @@ std::vector<int> PomadeModel::GetTubeChildren(int tubeId) const
 
 int PomadeModel::GetTubeCenterCount(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId == 0) {
         return _host.centerX.size() >= 2 ? int(_host.centerX.size()) : -1;
     }
@@ -7626,7 +7555,6 @@ int PomadeModel::GetTubeCenterCount(int tubeId) const
 bool PomadeModel::GetTubeCenterCV(int tubeId, int cv, float *x, float *y,
                                  float *z) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!x || !y || !z) {
         return false;
     }
@@ -7658,7 +7586,6 @@ bool
 PomadeModel::GetTubeCenterHandle(int tubeId, int cv, float *x, float *y,
                                 float *z) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!x || !y || !z) {
         return false;
     }
@@ -8261,7 +8188,6 @@ void PomadeModel::_PushGraphUndoLocked(
 
 bool PomadeModel::Undo(uint32_t *outDirty)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (outDirty) {
         *outDirty = PomadeDirty_Clean;
     }
@@ -8306,7 +8232,6 @@ bool PomadeModel::Undo(uint32_t *outDirty)
 
 bool PomadeModel::Redo(uint32_t *outDirty)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (outDirty) {
         *outDirty = PomadeDirty_Clean;
     }
@@ -8343,13 +8268,11 @@ bool PomadeModel::Redo(uint32_t *outDirty)
 
 int PomadeModel::GetRedoDepth() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return int(_redoStack.size());
 }
 
 bool PomadeModel::GetUndoLabel(int depth, std::string *out) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!out) {
         return false;
     }
@@ -8372,7 +8295,6 @@ bool PomadeModel::GetUndoLabel(int depth, std::string *out) const
 
 bool PomadeModel::BeginGesture(char const *label)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_gestureDepth > 0) {
         _diagnostic = "PomadeModel::BeginGesture: a gesture is already open";
         return false;
@@ -8386,7 +8308,6 @@ bool PomadeModel::BeginGesture(char const *label)
 
 bool PomadeModel::EndGesture()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_gestureDepth <= 0) {
         _diagnostic = "PomadeModel::EndGesture: no gesture is open";
         return false;
@@ -8403,7 +8324,6 @@ bool PomadeModel::EndGesture()
 
 bool PomadeModel::CancelGesture(uint32_t *outDirty)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (outDirty) {
         *outDirty = PomadeDirty_Clean;
     }
@@ -8434,25 +8354,21 @@ bool PomadeModel::CancelGesture(uint32_t *outDirty)
 
 int PomadeModel::GetGestureDepth() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _gestureDepth;
 }
 
 int PomadeModel::GetUndoDepth() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return int(_undoStack.size());
 }
 
 uint64_t PomadeModel::GetUndoBytes() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _undoBytes;
 }
 
 bool PomadeModel::SetUndoBudget(int maxDepth, uint64_t maxBytes)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (maxDepth < 0) {
         _diagnostic = "PomadeModel::SetUndoBudget: depth must be >= 0";
         return false;
@@ -8472,14 +8388,12 @@ void PomadeModel::_ClearUndoLocked()
 
 void PomadeModel::ClearUndo()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _ClearUndoLocked();
 }
 
 bool PomadeModel::MoveTubeCenterCV(int tubeId, int cv, float dx, float dy,
                                   float dz)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     HierarchyRollback const snap = _SnapshotHierarchyLocked();
     auto const rollback = [&](bool ok) {
         if (!ok) {
@@ -8571,7 +8485,6 @@ bool PomadeModel::MoveTubeCenterCV(int tubeId, int cv, float dx, float dy,
 bool
 PomadeModel::TranslateTube(int tubeId, float dx, float dy, float dz)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     HierarchyRollback const snap = _SnapshotHierarchyLocked();
     auto const rollback = [&](bool ok) {
         if (!ok) {
@@ -8629,7 +8542,6 @@ PomadeModel::TranslateTube(int tubeId, float dx, float dy, float dz)
 
 std::vector<float> PomadeModel::ReadTubeDeltas(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<float> flat;
     if (tubeId == 0) {
         flat.assign(_host.centerX.size() * 3, 0.0f);
@@ -8651,7 +8563,6 @@ std::vector<float> PomadeModel::ReadTubeDeltas(int tubeId) const
 
 void PomadeModel::SetTubeLockParents(int tubeId, bool on)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId < 0) {
         _globalLockParents = on;
         return;
@@ -8668,7 +8579,6 @@ void PomadeModel::SetTubeLockParents(int tubeId, bool on)
 
 void PomadeModel::SetTubeLockChildren(int tubeId, bool on)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId < 0) {
         _globalLockChildren = on;
         return;
@@ -8686,7 +8596,6 @@ void PomadeModel::SetTubeLockChildren(int tubeId, bool on)
 bool PomadeModel::GroupTubes(std::vector<int> const &tubeIds,
                             bool transientParent, int *outParent)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!outParent || tubeIds.empty()) {
         _diagnostic = "PomadeModel::GroupTubes: want tube ids + outParent";
         return false;
@@ -8726,7 +8635,6 @@ bool PomadeModel::GroupTubes(std::vector<int> const &tubeIds,
 
 bool PomadeModel::MakeTubePersistent(int tubeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _tubes.find(tubeId);
     if (it == _tubes.end()) {
         _diagnostic = "PomadeModel::MakeTubePersistent: unknown tube";
@@ -8967,7 +8875,6 @@ bool PomadeModel::SculptStroke(int tubeId, const char *brush, int const *cvIds,
                               float const *deltas, int cvCount,
                               bool preserveLength, bool mirrorX)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::string const b = brush ? brush : "";
     if (!_PomadeIsSculptBrush(b)) {
         _diagnostic = "PomadeModel::SculptStroke: unknown brush";
@@ -9132,7 +9039,6 @@ PomadeModel::SculptStrokeShaped(int tubeId, const char *brush,
                                bool preserveLength, bool mirrorX,
                                int *outTouched)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (outTouched) {
         *outTouched = 0;
     }
@@ -9156,7 +9062,7 @@ PomadeModel::SculptStrokeShaped(int tubeId, const char *brush,
         preserveLength && b != "lengthen" && b != "shorten";
     // The shaping happened here, so the apply must take the deltas RAW:
     // no second smooth pass, no dx negation.
-    static std::string const kRaw("grab");
+    std::string const kRaw("grab");
 
     PomadeTubeDesc desc;
     if (!_TubeDescLocked(tubeId, &desc)) {
@@ -9371,7 +9277,6 @@ PomadeModel::SubdivideTubeAlongEdge(int tubeId, float const *worldA,
 {
     float a = 1.0f, b = 0.0f, c = 0.0f;
     {
-        std::lock_guard<std::mutex> lock(_mutex);
         if (!worldA || !worldB) {
             _diagnostic = "PomadeModel::SubdivideTubeAlongEdge: want two "
                           "world points";
@@ -9428,7 +9333,6 @@ PomadeModel::SubdivideTubeAlongEdge(int tubeId, float const *worldA,
 std::vector<float>
 PomadeModel::SmoothnessScores() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<float> out;
     int const n = int(_host.centerX.size());
     if (n < 1) {
@@ -9447,7 +9351,6 @@ PomadeModel::SmoothnessScores() const
 bool
 PomadeModel::CheckRootIntersections()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<int> ids;
     std::vector<PomadeTubeDesc> descs;
     if (_host.centerX.size() >= 2) {
@@ -9476,7 +9379,6 @@ PomadeModel::CheckRootIntersections()
 std::vector<int>
 PomadeModel::IntersectedTubes() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<int> out;
     for (auto const &kv : _intersectFlags) {
         if (kv.second) {
@@ -9489,7 +9391,6 @@ PomadeModel::IntersectedTubes() const
 std::vector<int>
 PomadeModel::TubeIds() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<int> out;
     if (_host.centerX.size() >= 2) {
         out.push_back(0);
@@ -9506,7 +9407,6 @@ PomadeModel::ImportLockedTube(int parentId, float const *cx, float const *cy,
                              float const *secU, float const *secV, int nSec,
                              int ringVerts, int *outTubeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _ImportLockedTubeLocked(parentId, cx, cy, cz, nCv, secT, secU,
                                    secV, nSec, ringVerts, outTubeId);
 }
@@ -9515,7 +9415,6 @@ bool
 PomadeModel::ImportSweptMesh(int parentId, float const *points, int ringCount,
                             int ringVerts, int *outTubeId)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!points || !outTubeId) {
         _diagnostic = "PomadeModel::ImportSweptMesh: null input or output";
         return false;
@@ -9685,7 +9584,6 @@ PomadeModel::_ImportLockedTubeLocked(int parentId, float const *cx,
 int
 PomadeModel::GetTubeSectionCount(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId == 0) {
         return int(_sections.size());
     }
@@ -9700,7 +9598,6 @@ bool
 PomadeModel::GetTubeSection(int tubeId, int ring,
                            PomadeTubeSection *section) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!section) {
         return false;
     }
@@ -9723,7 +9620,6 @@ PomadeModel::GetTubeSection(int tubeId, int ring,
 bool
 PomadeModel::IsTubeImported(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _tubes.find(tubeId);
     return it != _tubes.end() && it->second.imported;
 }
@@ -9733,14 +9629,12 @@ PomadeModel::IsTubeImported(int tubeId) const
 bool
 PomadeModel::GetTubeDesc(int tubeId, PomadeTubeDesc *out) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _TubeDescLocked(tubeId, out);
 }
 
 bool
 PomadeModel::GetTubeRecord(int tubeId, TubeRecord *out) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!out) {
         return false;
     }
@@ -9787,7 +9681,6 @@ PomadeModel::GetTubeRecord(int tubeId, TubeRecord *out) const
 void
 PomadeModel::ClearHierarchy()
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     _tubes.clear();
     _PruneActiveCutLocked();
     _intersectFlags.clear();
@@ -9803,7 +9696,6 @@ PomadeModel::ClearHierarchy()
 bool
 PomadeModel::RestoreTubeRecord(int tubeId, TubeRecord const &record)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId == 0) {
         _diagnostic = "PomadeModel::RestoreTubeRecord: tube 0 restores through "
                       "Restore()";
@@ -9880,7 +9772,6 @@ PomadeModel::SetTubeFillParams(int tubeId, FillParams params)
     if (tubeId == 0) {
         return SetFillParams(std::move(params));
     }
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _tubes.find(tubeId);
     if (it == _tubes.end()) {
         _diagnostic = "PomadeModel::SetTubeFillParams: unknown tube";
@@ -9909,7 +9800,6 @@ PomadeModel::GetTubeFillParams(int tubeId, FillParams *out) const
         *out = GetFillParams();
         return true;
     }
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _tubes.find(tubeId);
     if (it == _tubes.end()) {
         return false;
@@ -9921,7 +9811,6 @@ PomadeModel::GetTubeFillParams(int tubeId, FillParams *out) const
 bool
 PomadeModel::IsTubeFillSuspended(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (tubeId != 0 && _tubes.find(tubeId) == _tubes.end()) {
         return false;
     }
@@ -9988,7 +9877,6 @@ bool
 PomadeModel::_EditChildTube(int tubeId, bool layoutChanged, uint32_t dirtyBits,
                            std::function<bool(PomadeTubeDesc &)> const &edit)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _tubes.find(tubeId);
     if (it == _tubes.end()) {
         _diagnostic = "PomadeModel: unknown tube";
@@ -10394,7 +10282,6 @@ PomadeModel::CopyTubeSectionRing(int tubeId, int src, int dst)
 std::vector<PomadeModel::TubeView>
 PomadeModel::SnapshotTubes() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     std::vector<TubeView> out;
     out.reserve(_tubes.size() + 1);
     if (_host.centerX.size() >= 2) {
@@ -10419,7 +10306,6 @@ PomadeModel::SnapshotTubes() const
 int
 PomadeModel::GetMaxTubeLevel() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     int level = _host.centerX.size() >= 2 ? 1 : 0;
     for (auto const &kv : _tubes) {
         level = std::max(level, kv.second.actual.level);
@@ -10430,7 +10316,6 @@ PomadeModel::GetMaxTubeLevel() const
 bool
 PomadeModel::SetLevelDisplay(int level, bool visible, bool xray)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (level < 1) {
         _diagnostic = "PomadeModel::SetLevelDisplay: level must be >= 1";
         return false;
@@ -10467,7 +10352,6 @@ bool
 PomadeModel::SetLevelDrawMode(int level, bool visible, bool xray,
                              bool centersOnly)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (level < 1) {
         _diagnostic = "PomadeModel::SetLevelDrawMode: level must be >= 1";
         return false;
@@ -10500,7 +10384,6 @@ PomadeModel::SetLevelDrawMode(int level, bool visible, bool xray,
 bool
 PomadeModel::SetLevelDraw(int level, LevelDisplay const &draw)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (level < 1) {
         _diagnostic = "PomadeModel::SetLevelDraw: level must be >= 1";
         return false;
@@ -10543,7 +10426,6 @@ PomadeModel::SetLevelDraw(int level, LevelDisplay const &draw)
 bool
 PomadeModel::SetRingDisplay(int mode)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (mode < Rings_Off || mode > Rings_All) {
         _diagnostic = "PomadeModel::SetRingDisplay: mode is 0..2";
         return false;
@@ -10560,14 +10442,12 @@ PomadeModel::SetRingDisplay(int mode)
 int
 PomadeModel::GetRingDisplay() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _ringDisplay;
 }
 
 bool
 PomadeModel::SetAmplifiedHair(bool show)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_amplifiedHair == show) {
         return true;
     }
@@ -10580,14 +10460,12 @@ PomadeModel::SetAmplifiedHair(bool show)
 bool
 PomadeModel::GetAmplifiedHair() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _amplifiedHair;
 }
 
 void
 PomadeModel::ResolveHairDisplay(bool *tiles, bool *guides) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     bool const gesture = _gestureDepth > 0;
     if (tiles) {
         *tiles = _amplifiedHair && !gesture;
@@ -10601,7 +10479,6 @@ PomadeModel::ResolveHairDisplay(bool *tiles, bool *guides) const
 PomadeModel::LevelDisplay
 PomadeModel::GetLevelDisplay(int level) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     auto it = _levelDisplay.find(level);
     return it == _levelDisplay.end() ? LevelDisplay() : it->second;
 }
@@ -10609,7 +10486,6 @@ PomadeModel::GetLevelDisplay(int level) const
 bool
 PomadeModel::SetFocusLevel(int level)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (level < 0) {
         _diagnostic = "PomadeModel::SetFocusLevel: level must be >= 0";
         return false;
@@ -10626,14 +10502,12 @@ PomadeModel::SetFocusLevel(int level)
 int
 PomadeModel::GetFocusLevel() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _focusLevel;
 }
 
 bool
 PomadeModel::SetActiveCutEnabled(bool enabled)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_activeCutEnabled == enabled) {
         return true;
     }
@@ -10649,14 +10523,12 @@ PomadeModel::SetActiveCutEnabled(bool enabled)
 bool
 PomadeModel::GetActiveCutEnabled() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _activeCutEnabled;
 }
 
 bool
 PomadeModel::SetTubeExpanded(int tubeId, bool expanded)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     PomadeTubeDesc desc;
     if (!_TubeDescLocked(tubeId, &desc)) {
         _diagnostic = "PomadeModel::SetTubeExpanded: unknown tube";
@@ -10696,21 +10568,18 @@ PomadeModel::SetTubeExpanded(int tubeId, bool expanded)
 bool
 PomadeModel::GetTubeExpanded(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _expandedTubeIds.count(tubeId) != 0;
 }
 
 bool
 PomadeModel::IsTubeVisibleInActiveCut(int tubeId) const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _IsTubeVisibleInActiveCutLocked(tubeId);
 }
 
 bool
 PomadeModel::SetDisplayScale(float worldPerPixel)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (!(worldPerPixel >= 0.0f) || !(worldPerPixel < 1e30f)) {
         _diagnostic =
             "PomadeModel::SetDisplayScale: want a finite value >= 0";
@@ -10728,14 +10597,12 @@ PomadeModel::SetDisplayScale(float worldPerPixel)
 float
 PomadeModel::GetDisplayScale() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _displayScale;
 }
 
 bool
 PomadeModel::SetGroomPath(std::string const &path)
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     if (_groomPath == path) {
         return true;
     }
@@ -10748,7 +10615,6 @@ PomadeModel::SetGroomPath(std::string const &path)
 std::string
 PomadeModel::GetGroomPath() const
 {
-    std::lock_guard<std::mutex> lock(_mutex);
     return _groomPath;
 }
 

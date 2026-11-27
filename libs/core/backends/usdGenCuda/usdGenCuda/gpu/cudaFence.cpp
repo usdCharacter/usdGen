@@ -1,0 +1,60 @@
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+//
+// CudaFenceStream lives in usdGenGpu with the kernels that call it; it needs
+// only the parking word, not the scheduler (the lane is in usdGen).
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+
+#include "usdGen/api/parkingWord.h"
+
+#include <atomic>
+#include <cstdint>
+
+namespace usdGen::gpu {
+namespace {
+
+// Calls so far; constant-initialized.
+std::atomic<uint64_t> g_fenceCalls{0};
+
+struct Fence {
+    std::atomic<uint32_t> done{0};
+    cudaError_t status = cudaErrorUnknown;
+};
+
+void CUDART_CB FenceDone(cudaStream_t, cudaError_t status, void *data) noexcept
+{
+    auto *fence = static_cast<Fence *>(data);
+    fence->status = status;
+    // The store is the last touch of *fence; the wake is keyed by address.
+    std::atomic<uint32_t> *word = &fence->done;
+    word->store(1, std::memory_order_release);
+    UsdGenUnparkAll(*word);
+}
+
+}  // namespace
+
+// shutdown wait: the blocking primitive itself.
+cudaError_t CudaFenceStream(cudaStream_t stream) noexcept
+{
+    g_fenceCalls.fetch_add(1, std::memory_order_relaxed);
+    // Already idle (common after small work): no callback round trip.
+    cudaError_t const now = cudaStreamQuery(stream);
+    if (now != cudaErrorNotReady) return now;
+    Fence fence;
+    cudaError_t const added = cudaStreamAddCallback(stream, FenceDone, &fence, 0);
+    if (added != cudaSuccess) {
+        // Device loss or an invalid stream: report what the stream reports.
+        // shutdown wait: device-loss fallback of the primitive.
+        cudaError_t const e = cudaStreamSynchronize(stream);
+        return e != cudaSuccess ? e : added;
+    }
+    while (!fence.done.load(std::memory_order_acquire)) UsdGenParkWhileEqual(fence.done, 0);
+    return fence.status;
+}
+
+uint64_t CudaFenceStreamCallsForTesting() noexcept
+{
+    return g_fenceCalls.load(std::memory_order_relaxed);
+}
+
+}  // namespace usdGen::gpu

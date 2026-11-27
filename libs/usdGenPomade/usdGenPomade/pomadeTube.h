@@ -27,6 +27,7 @@
 #ifndef USDGEN_POMADE_TUBE_H
 #define USDGEN_POMADE_TUBE_H
 
+#include "usdGenPomade/api.h"
 #include <cmath>
 #include <array>
 #include <cstddef>
@@ -268,7 +269,7 @@ struct PomadeRootOwnershipCell {
 #ifndef __CUDA_ARCH__
 
 // -- K4: rotation-minimising center frames (double reflection) -------------
-bool PomadeCenterFramesCpu(float const *cx, float const *cy, float const *cz,
+USDGENPOMADE_API bool PomadeCenterFramesCpu(float const *cx, float const *cy, float const *cz,
                           int nCv, std::vector<PomadeFrame> *frames,
                           std::string *err);
 
@@ -277,7 +278,7 @@ bool PomadeCenterFramesCpu(float const *cx, float const *cy, float const *cz,
 // to world. A region-rooted descriptor still replaces frame zero with its
 // stored support-plane frame. All display, guide, pick and commit paths that
 // start from a PomadeTubeDesc must use this rather than raw K4 directly.
-bool PomadeTubeFramesCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeTubeFramesCpu(PomadeTubeDesc const &tube,
                         std::vector<PomadeFrame> *frames, std::string *err);
 
 // Transport one authored tube with a proper rigid world transform.  The
@@ -285,13 +286,13 @@ bool PomadeTubeFramesCpu(PomadeTubeDesc const &tube,
 // local frame reference composes with the transform, so all section UV,
 // scale and twist data stays authored and the complete K5 shape is rigid.
 // It preserves topology and supports `out == &source`.
-bool PomadeRigidTransformTubeCpu(PomadeTubeDesc const &source,
+USDGENPOMADE_API bool PomadeRigidTransformTubeCpu(PomadeTubeDesc const &source,
                                 PomadeRigidTransform const &transform,
                                 PomadeTubeDesc *out, std::string *err);
 
 // Evaluate the center curve (uniform Catmull-Rom, clamped ends) and its
 // frame (normalised-lerp of the K4 frames) at t in [0,1].
-bool PomadeSampleCenterCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeSampleCenterCpu(PomadeTubeDesc const &tube,
                           std::vector<PomadeFrame> const &frames, float t,
                           float *px, float *py, float *pz, PomadeFrame *frame,
                           std::string *err);
@@ -301,7 +302,7 @@ bool PomadeSampleCenterCpu(PomadeTubeDesc const &tube,
 // Guide material sampling and sparse output rails share this authoring chart.
 // Display tessellation additionally applies surface attachment and end holding
 // rows; those corrections do not change the stored chart or guide bindings.
-bool PomadeSampleTubeRingCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeSampleTubeRingCpu(PomadeTubeDesc const &tube,
                             std::vector<PomadeFrame> const &frames, float t,
                             std::vector<float> *positions,
                             std::string *err);
@@ -309,7 +310,7 @@ bool PomadeSampleTubeRingCpu(PomadeTubeDesc const &tube,
 // Deterministic nondegenerate ear triangulation in authored slot order. It
 // retains every boundary slot, including collinear edge splits, so sparse
 // rails and K9 material binds see the same section topology.
-bool PomadeTriangulateSectionSlotsCpu(
+USDGENPOMADE_API bool PomadeTriangulateSectionSlotsCpu(
     PomadeTubeSection const &section,
     std::vector<std::array<int, 3>> *triangles, std::string *err);
 
@@ -319,30 +320,30 @@ bool PomadeTriangulateSectionSlotsCpu(
 // truth for K4/K6; consumers use this handle only for display, picking and
 // manipulator placement so a clipped or asymmetric tube is controlled from
 // inside its visible core rather than from an outer cage edge.
-bool PomadeCenterHandlePointCpu(PomadeTubeDesc const &tube, int centerCV,
+USDGENPOMADE_API bool PomadeCenterHandlePointCpu(PomadeTubeDesc const &tube, int centerCV,
                                float *px, float *py, float *pz,
                                std::string *err);
 // Batch callers reuse frames from this exact descriptor instead of rebuilding
 // the complete transported frame column for every center handle.
-bool PomadeCenterHandlePointCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeCenterHandlePointCpu(PomadeTubeDesc const &tube,
                                std::vector<PomadeFrame> const &frames,
                                int centerCV, float *px, float *py, float *pz,
                                std::string *err);
 
 // Mean ring radius of one section (used to normalise root coordinates).
-float PomadeSectionMeanRadius(PomadeTubeSection const &section);
+USDGENPOMADE_API float PomadeSectionMeanRadius(PomadeTubeSection const &section);
 
 // -- K5: Hermite tube tessellation ------------------------------------------
 // Output grid: ((nSec - 1) * segmentsPerSpan + 1) rings x ringVerts verts,
 // ring-major. Sections interpolate along t by cubic Hermite of the section
 // CV vectors (central differences inside, one-sided at the ends — the
 // PomadeEvalCenter rule); scale and twist take the same path as scalars.
-bool PomadeTessellateCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeTessellateCpu(PomadeTubeDesc const &tube,
                         std::vector<PomadeFrame> const &frames,
                         int segmentsPerSpan, std::vector<float> *positions,
                         std::vector<float> *normals,
                         std::vector<float> *ringT, std::string *err);
-int PomadeTessellatedRingCount(PomadeTubeDesc const &tube, int segmentsPerSpan);
+USDGENPOMADE_API int PomadeTessellatedRingCount(PomadeTubeDesc const &tube, int segmentsPerSpan);
 
 // -- K8: blue-noise root sampling -------------------------------------------
 // Deterministic per (tubeId, seed). Disc roots scatter in the unit disc and
@@ -350,11 +351,11 @@ int PomadeTessellatedRingCount(PomadeTubeDesc const &tube, int segmentsPerSpan);
 // Mesh roots scatter per face with area-weighted counts. `frozen` roots are
 // kept verbatim (the Fill-mode "freeze roots" path); only the tail is
 // (re-)sampled, continuing the same dart-throwing stream.
-bool PomadeRootSampleDiscCpu(int tubeId, int seed, float radius,
+USDGENPOMADE_API bool PomadeRootSampleDiscCpu(int tubeId, int seed, float radius,
                             float const center[3], PomadeFrame const &frame,
                             int count, std::vector<PomadeGuideRoot> *roots,
                             int frozen, std::string *err);
-bool PomadeRootSampleMeshCpu(float const *points, int const *faceCounts,
+USDGENPOMADE_API bool PomadeRootSampleMeshCpu(float const *points, int const *faceCounts,
                             int const *faceIndices, int const *faceOffsets,
                             int faceCount, int const *regionFaces,
                             int regionFaceCount, float density, int tubeId,
@@ -366,12 +367,12 @@ bool PomadeRootSampleMeshCpu(float const *points, int const *faceCounts,
 // this tests every emitted root against the closed graph polygon, so two
 // disjoint regions on one coarse mesh face keep separate root support.  The
 // source region id (not its interpolation id) selects the loop.
-bool PomadeRootSampleRegionMeshCpu(
+USDGENPOMADE_API bool PomadeRootSampleRegionMeshCpu(
     PomadeScalpMesh const &scalp, PomadeRegionLoops const &loops,
     int sourceRegionId, float density, int tubeId, int seed,
     float const rootCenter[3], PomadeFrame const &rootFrame, float rootRadius,
     std::vector<PomadeGuideRoot> *roots, int frozen, std::string *err);
-void PomadeFilterGuideRootsByOwnershipCells(
+USDGENPOMADE_API void PomadeFilterGuideRootsByOwnershipCells(
     std::vector<PomadeRootOwnershipCell> const &cells,
     std::vector<PomadeGuideRoot> *roots);
 
@@ -381,11 +382,11 @@ void PomadeFilterGuideRootsByOwnershipCells(
 // interpolation, including each CV, scale and twist; edgeBias remaps that
 // point relative to the polygon's material anchor. Output is guideCount x
 // fill.cvCount x 3, guide-major.
-bool PomadeBuildGuideMaterialBindingsCpu(
+USDGENPOMADE_API bool PomadeBuildGuideMaterialBindingsCpu(
     PomadeTubeDesc const &tube, std::vector<PomadeFrame> const &frames,
     std::vector<PomadeGuideRoot> const &roots, PomadeFillDesc const &fill,
     std::vector<PomadeGuideMaterialBinding> *bindings, std::string *err);
-bool PomadeGuideFillCpu(PomadeTubeDesc const &tube,
+USDGENPOMADE_API bool PomadeGuideFillCpu(PomadeTubeDesc const &tube,
                        std::vector<PomadeFrame> const &frames,
                        std::vector<PomadeGuideRoot> const &roots,
                        PomadeFillDesc const &fill, std::vector<float> *points,
@@ -395,7 +396,7 @@ bool PomadeGuideFillCpu(PomadeTubeDesc const &tube,
 // Resamples every guide to `cvCount` CVs; emits one UsdGenCurveAPI root
 // frame per guide (16 doubles, row-major: rows 0/1/2 are the tube root
 // N/B/T directions, row 3 is the root position).
-bool PomadeGuideResampleCpu(float const *points, int const *counts,
+USDGENPOMADE_API bool PomadeGuideResampleCpu(float const *points, int const *counts,
                            int guideCount, int cvCount,
                            float const rootDirs[9], std::vector<float> *out,
                            std::vector<int> *outCounts,
@@ -548,7 +549,7 @@ struct PomadePickCandidate {
     int subIndex = -1;
 };
 
-PomadePickHit PomadePickCpu(PomadePickSets const &sets, uint32_t kindMask,
+USDGENPOMADE_API PomadePickHit PomadePickCpu(PomadePickSets const &sets, uint32_t kindMask,
                           float const viewProj[16], int w, int h, float x,
                           float y, float radiusPx);
 

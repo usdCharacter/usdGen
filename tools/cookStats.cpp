@@ -12,12 +12,18 @@
 //   usdGenCookStats scene.usda [--only <substring>] [--bake out.usda] [--threads N] [--hash]
 // --hash prints the reference groomer's output hash (FNV-1a over points, counts,
 // lengths, clump ids in generation order) for comparison with its build log.
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
-#include "usdGen/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGenTestUtils/hydraPublishers.h"
+#include "usdGenUsd/convert/array.h"
+#include "usdGenUsd/lower.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/types/curveSet.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
-#include "usdGenImaging/usdGenGraphDescBuilderStage.h"
+#include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 #include "pxr/usdImaging/usdImaging/sceneIndices.h"
 #include "pxr/usdImaging/usdImaging/stageSceneIndex.h"
 
@@ -113,6 +119,7 @@ uint64_t ReferenceHash(UsdGenCurveBuffer const &b, std::vector<int> const &count
 
 int main(int argc, char **argv)
 {
+    usdGenTest::EnsureHydraPublishers();
     if (argc < 2) {
         std::fprintf(stderr, "usage: usdGenCookStats scene.usda [--only <substring>] [--bake out.usda] [--threads N]\n");
         return 2;
@@ -138,7 +145,6 @@ int main(int argc, char **argv)
         std::fprintf(stderr, "cannot open %s\n", scene.c_str());
         return 2;
     }
-    usdGenRegisterM1Operators();
 
     UsdStageRefPtr out;
     if (!bake.empty()) {
@@ -174,7 +180,7 @@ int main(int argc, char **argv)
         if (dumpSets) {
             for (auto const &cs : desc.curveSets) {
                 std::printf("  curveSet %s role=%s curves=%zu planes=%zu", cs.path.GetText(),
-                            cs.role == UsdGenRole::Reference ? "reference" : "curves",
+                            cs.role == UsdGenLane::Reference ? "reference" : "curves",
                             cs.curveVertexCounts.size(), cs.authoredPlanes.size());
                 size_t shown = 0;
                 for (auto const &pl : cs.authoredPlanes)
@@ -184,7 +190,7 @@ int main(int argc, char **argv)
         }
         UsdGenCompiler compiler;
         UsdGenGraph graph;
-        UsdGenCompileResult const compiled = compiler.Compile(desc, &graph);
+        UsdGenCompileResult const compiled = usdGenUsd::Compile(compiler, desc, &graph);
         if (!compiled.ok) {
             ++failures;
             std::printf("%s: COMPILE FAILED\n", path.c_str());
@@ -193,7 +199,7 @@ int main(int argc, char **argv)
         }
         UsdGenScheduler scheduler = UsdGenScheduler(threads);
         UsdGenEvalContext ctx;
-        ctx.desc = &graph.Desc();
+        ctx.desc = &graph.Spec();
         UsdGenRunResult const run = scheduler.Run(graph, ctx, 1);
         double const ms = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - t0).count();
@@ -204,7 +210,7 @@ int main(int argc, char **argv)
             for (auto const &e : run.diagnostics.errors) std::printf("  %s\n", e.c_str());
             continue;
         }
-        UsdGenCurveBuffer const &b = graph.Output();
+        UsdGenCurveBuffer const b = UsdGenCurveBufferFromSet(graph.Output());
         uint32_t minCv = 0, maxCv = 0;
         std::vector<int> counts(b.totalCurves, 0);
         for (uint32_t c = 0; c < b.totalCurves; ++c) {
@@ -241,7 +247,7 @@ int main(int argc, char **argv)
             curves.CreatePointsAttr(VtValue(points));
             curves.CreateCurveVertexCountsAttr(VtValue(VtIntArray(counts.begin(), counts.end())));
             if (b.width.size() == b.totalCvs) {
-                curves.CreateWidthsAttr(VtValue(b.width));
+                curves.CreateWidthsAttr(VtValue(usdGenUsd::ToVt(b.width)));
                 curves.SetWidthsInterpolation(UsdGeomTokens->vertex);
             } else {
                 curves.CreateWidthsAttr(VtValue(VtFloatArray(1, desc.defaultWidth)));
@@ -250,7 +256,7 @@ int main(int argc, char **argv)
             if (clump && clump->type == TfToken("int") && clump->i.size() == b.totalCurves)
                 UsdGeomPrimvarsAPI(curves.GetPrim()).CreatePrimvar(
                     TfToken("clumpId"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform)
-                    .Set(clump->i);
+                    .Set(usdGenUsd::ToVt(clump->i));
         }
     }
     std::printf("total: strands=%zu cvs=%zu failures=%d\n", totalStrands, totalCvs, failures);

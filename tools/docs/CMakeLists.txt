@@ -26,7 +26,13 @@ add_executable(usdGenCollideFarOracle collide_far_oracle.cpp)
 target_compile_features(usdGenCollideFarOracle PRIVATE cxx_std_17)
 target_compile_definitions(usdGenCollideFarOracle PRIVATE NOMINMAX)
 target_include_directories(usdGenCollideFarOracle PRIVATE
-    "${USDGEN_SOURCE_DIR}/libs/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenCurves"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenSurface"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenExpr"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
+    "${USDGEN_BUILD_DIR}/shim"
     "${USD_INSTALL_DIR}/include")
 target_link_directories(usdGenCollideFarOracle PRIVATE
     "${USDGEN_BUILD_DIR}"
@@ -43,8 +49,15 @@ endif()
 target_compile_features(usdGenBakeGroom PRIVATE cxx_std_17)
 target_compile_definitions(usdGenBakeGroom PRIVATE NOMINMAX)
 target_include_directories(usdGenBakeGroom PRIVATE
-    "${USDGEN_SOURCE_DIR}/libs/usdGen"
-    "${USDGEN_SOURCE_DIR}/libs/usdGenImaging"
+    "${USDGEN_SOURCE_DIR}/libs/core/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenCurves"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenSurface"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenExpr"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
+    "${USDGEN_BUILD_DIR}/shim"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenUsd"
     "${USD_INSTALL_DIR}/include")
 file(STRINGS "${USDGEN_BUILD_DIR}/CMakeCache.txt" _python_include_line
     REGEX "^_Python3_INCLUDE_DIR:INTERNAL=")
@@ -63,8 +76,15 @@ add_executable(usdGenUtilityFixtures utility_fixtures.cpp)
 target_compile_features(usdGenUtilityFixtures PRIVATE cxx_std_17)
 target_compile_definitions(usdGenUtilityFixtures PRIVATE NOMINMAX)
 target_include_directories(usdGenUtilityFixtures PRIVATE
-    "${USDGEN_SOURCE_DIR}/libs/usdGen"
-    "${USDGEN_SOURCE_DIR}/libs/usdGenImaging"
+    "${USDGEN_SOURCE_DIR}/libs/core/usdGen"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenCurves"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenSurface"
+    "${USDGEN_SOURCE_DIR}/libs/core/primitives/usdGenExpr"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenCuda"
+    "${USDGEN_SOURCE_DIR}/libs/core/backends/usdGenVulkan"
+    "${USDGEN_BUILD_DIR}/shim"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenHydra"
+    "${USDGEN_SOURCE_DIR}/libs/hosts/usdGenUsd"
     "${USD_INSTALL_DIR}/include")
 if(_python_include_line)
     target_include_directories(usdGenUtilityFixtures PRIVATE "${_python_include}")
@@ -76,12 +96,12 @@ target_link_directories(usdGenUtilityFixtures PRIVATE
 if(WIN32)
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/usd_*.lib")
     target_link_libraries(usdGenUtilityFixtures PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGen usdGenExecutionResources
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen
         ${_usd_libs} "${USD_INSTALL_DIR}/lib/tbb.lib" Shlwapi Ws2_32 Dbghelp)
 else()
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/libusd_*.so*")
     target_link_libraries(usdGenUtilityFixtures PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGen usdGenExecutionResources ${_usd_libs})
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen ${_usd_libs})
 endif()
 target_link_directories(usdGenBakeGroom PRIVATE
     "${USDGEN_BUILD_DIR}"
@@ -89,10 +109,10 @@ target_link_directories(usdGenBakeGroom PRIVATE
 if(WIN32)
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/usd_*.lib")
     target_link_libraries(usdGenBakeGroom PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGen usdGenExecutionResources
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen
         ${_usd_libs} "${USD_INSTALL_DIR}/lib/tbb.lib" Shlwapi Ws2_32 Dbghelp)
 else()
     file(GLOB _usd_libs "${USD_INSTALL_DIR}/lib/libusd_*.so*")
     target_link_libraries(usdGenBakeGroom PRIVATE
-        usdGenTestUtilsHd usdGenImaging usdGen usdGenExecutionResources ${_usd_libs})
+        usdGenTestUtilsHd usdGenImaging usdGenUsd usdGen ${_usd_libs})
 endif()

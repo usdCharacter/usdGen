@@ -1,13 +1,19 @@
-// usdGenPomade — hierarchical groom authoring model (plan/17, P0 skeleton).
-//
-// Build visibility follows the usdGenImaging convention: the library is built
-// with default visibility, so this macro is a no-op placeholder that keeps
-// the C ABI spelling stable if per-symbol export is ever adopted.
+// Copyright (c) 2026 Nick Burkard
+// SPDX-License-Identifier: MIT
+// usdGenPomade export macro (hierarchical groom authoring model, plan/17).
 #ifndef USDGEN_POMADE_API_H
 #define USDGEN_POMADE_API_H
 
 #ifndef USDGENPOMADE_API
-#define USDGENPOMADE_API
+#  if defined(_WIN32)
+#    if defined(usdGenPomade_EXPORTS)
+#      define USDGENPOMADE_API __declspec(dllexport)
+#    else
+#      define USDGENPOMADE_API __declspec(dllimport)
+#    endif
+#  else
+#    define USDGENPOMADE_API __attribute__((visibility("default")))
+#  endif
 #endif
 
 #endif // USDGEN_POMADE_API_H

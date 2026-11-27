@@ -25,10 +25,10 @@ SCENES = ROOT / "examples" / "docs" / "operators"
 MEDIA = ROOT / "docs" / "site" / "media"
 MEDIA_JSON = ROOT / "docs" / "reference" / "media.json"
 DIAGRAM_SOURCES = {
-    "UsdGenPart": "libs/usdGen/usdGen/ops/part.cpp",
-    "UsdGenFreeze": "libs/usdGen/usdGen/ops/freeze.cpp",
-    "UsdGenWidthBlend": "libs/usdGen/usdGen/ops/widthBlend.cpp",
-    "UsdGenInstance": "libs/usdGenSchema/schema.usda",
+    "UsdGenPart": "libs/core/primitives/usdGenCurves/usdGenCurves/ops/part.cpp",
+    "UsdGenFreeze": "libs/core/primitives/usdGenCurves/usdGenCurves/ops/freeze.cpp",
+    "UsdGenWidthBlend": "libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.cpp",
+    "UsdGenInstance": "libs/hosts/usdGenUsd/schema/schema.usda",
 }
 
 
