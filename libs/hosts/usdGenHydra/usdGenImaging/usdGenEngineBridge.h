@@ -11,6 +11,7 @@
 #define USDGEN_IMAGING_ENGINE_BRIDGE_H
 
 #include "usdGen/api/stats.h"
+#include "usdGenImaging/export.h"
 
 #include "pxr/usd/sdf/path.h"
 #include "pxr/pxr.h"
@@ -24,7 +25,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 
 namespace usdGenImaging {
 
-class UsdGenEngineBridge
+class USDGEN_HYDRA_API UsdGenEngineBridge
 {
 public:
     using TimingHook = std::function<void(usdGen::UsdGenCommitTiming const &)>;

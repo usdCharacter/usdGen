@@ -20,10 +20,8 @@
 #define USDGEN_IMAGING_TOOLS_API_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 
-#ifndef USDGENIMAGING_API
-#define USDGENIMAGING_API
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -46,7 +44,7 @@ extern "C" {
  *
  * 2: UsdGenTools_ListFunctions gained a trailing <category> field. */
 #define USDGEN_TOOLS_API_VERSION 2
-int USDGENIMAGING_API UsdGenTools_ApiVersion(void);
+USDGEN_HYDRA_API int UsdGenTools_ApiVersion(void);
 
 /* Compile `source` for `domain` (one of the three USDGEN_TOOLS_DOMAIN_*
  * values) producing `components` (1-4) floats, and report what the engine
@@ -62,7 +60,7 @@ int USDGENIMAGING_API UsdGenTools_ApiVersion(void);
  * rather than failing if errBuf is too small; 4096 bytes holds any diagnostic
  * the frontend currently produces. errBuf may be NULL when errLen is 0, which
  * asks for the status only. */
-int USDGENIMAGING_API UsdGenTools_CompileExpression(const char *source, int domain,
+USDGEN_HYDRA_API int UsdGenTools_CompileExpression(const char *source, int domain,
                                                     int components, char *errBuf,
                                                     int errLen);
 
@@ -82,7 +80,7 @@ int USDGENIMAGING_API UsdGenTools_CompileExpression(const char *source, int doma
  * doc         one line of prose.
  *
  * Every variable is always listed, whatever `domain` is. */
-int USDGENIMAGING_API UsdGenTools_ListVariables(int domain, char *buf, int len);
+USDGEN_HYDRA_API int UsdGenTools_ListVariables(int domain, char *buf, int len);
 
 /* The functions and operators an expression may use, one record per line,
  * fields tab-separated:
@@ -96,7 +94,7 @@ int USDGENIMAGING_API UsdGenTools_ListVariables(int domain, char *buf, int len);
  * "Trigonometry", "Noise", "Curves", ...). It is the engine's own category
  * when usdGen::expr::FunctionInfo carries one and a name-based classification
  * otherwise, so the field is always present and never empty. */
-int USDGENIMAGING_API UsdGenTools_ListFunctions(char *buf, int len);
+USDGEN_HYDRA_API int UsdGenTools_ListFunctions(char *buf, int len);
 
 #ifdef __cplusplus
 } /* extern "C" */

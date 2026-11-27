@@ -21,16 +21,16 @@ namespace usdGen {
 /// the ids palette are defined in sRGB and converted, so a mid-range value
 /// looks mid-range on screen; "rgb" shows the normalised components as a
 /// linear colour, so an expression that computes a colour shows that colour.
-GfVec3f UsdGenPreviewColor(TfToken const &colorMap, GfVec2f const &range,
+USDGEN_HYDRA_CURVES_API GfVec3f UsdGenPreviewColor(TfToken const &colorMap, GfVec2f const &range,
                            double const *values, unsigned components);
 
 /// The colour of a strand the source has no value for.
-GfVec3f UsdGenPreviewMissingColor();
+USDGEN_HYDRA_CURVES_API GfVec3f UsdGenPreviewMissingColor();
 
 /// The synthetic material a previewing description's tiles bind:
 /// <description>/__usdGenRender/material_preview (lit) or
 /// material_preview_flat (served by UsdGenGroomSceneIndex; usdGenUsd names it).
-UsdGenPublishRole UsdGenPreviewMaterialRole(TfToken const &shading);
+USDGEN_HYDRA_CURVES_API UsdGenPublishRole UsdGenPreviewMaterialRole(TfToken const &shading);
 
 } // namespace usdGen
 

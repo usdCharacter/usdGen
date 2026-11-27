@@ -9,6 +9,7 @@
 #define USDGEN_IMAGING_GRAPH_DESC_BUILDER_H
 
 #include "usdGenUsd/graphDesc.h"
+#include "usdGenImaging/export.h"
 #include "usdGenUsd/walk/buildOptions.h"
 
 #include "pxr/pxr.h"
@@ -30,7 +31,7 @@ struct UsdGenGraphDescCapture
 /// Capture a pure descriptor and its immutable node-read cache.  The cache
 /// is usable only when options explicitly request node reuse; all other
 /// descriptor sections are rebuilt on every call.
-UsdGenGraphDescCapture CaptureGraphDescFromHydra(
+USDGEN_HYDRA_API UsdGenGraphDescCapture CaptureGraphDescFromHydra(
     HdSceneIndexBase &input,
     SdfPath const &descriptionPath,
     UsdGenGraphDescBuildOptions const &options = UsdGenGraphDescBuildOptions());
@@ -66,7 +67,7 @@ UsdGenGraphDescCapture CaptureGraphDescFromHydra(
 /// with S14 pull-all preserved (every mapped locator pulled at least once
 /// per topology generation so dependencies register; stock subtrees sharing
 /// the overlaid root are pruned from the sweep). Sibling of
-usdGen::UsdGenGraphDesc BuildGraphDescFromHydra(
+USDGEN_HYDRA_API usdGen::UsdGenGraphDesc BuildGraphDescFromHydra(
     HdSceneIndexBase &input,
     SdfPath const &descriptionPath,
     UsdGenGraphDescBuildOptions const &options = UsdGenGraphDescBuildOptions());

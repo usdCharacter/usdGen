@@ -5,6 +5,8 @@
 #ifndef USDGEN_HYDRA_CURVES_STORM_INDICES_H
 #define USDGEN_HYDRA_CURVES_STORM_INDICES_H
 
+#include "usdGenHydraCurves/export.h"
+
 #include <cuda_runtime.h>
 #include <cstddef>
 #include <cstdint>
@@ -48,7 +50,7 @@ struct CurveIndexRequirements {
 // Indices and native Storm record counts must fit signed int32. Empty grooms
 // are allowed; populated curves must have at least one control point.
 // Segmented wrap is supported only for linear curves with even CV counts.
-cudaError_t GetCurveIndexRequirements(CurveIndexOptions options,
+USDGEN_HYDRA_CURVES_API cudaError_t GetCurveIndexRequirements(CurveIndexOptions options,
     size_t curveCount, size_t pointCount, CurveIndexRequirements* result,
     cudaStream_t stream = nullptr);
 
@@ -89,7 +91,7 @@ struct CurveIndexOutput {
 // Points use arity 1; primitiveParam is also supplied for tools even though
 // Storm's native points-index builder does not request that channel.
 // There is no implicit host topology or indexed-USD-curve remapping path.
-cudaError_t BuildCurveIndices(CurveIndexOptions options,
+USDGEN_HYDRA_CURVES_API cudaError_t BuildCurveIndices(CurveIndexOptions options,
     size_t curveCount, size_t pointCount, IndexView<const uint32_t> curveOffsets,
     CurveIndexRequirements const& requirements, CurveIndexWorkspace workspace,
     CurveIndexOutput output, cudaStream_t stream);
@@ -98,7 +100,7 @@ cudaError_t BuildCurveIndices(CurveIndexOptions options,
 // scalar pointBase + pointCount overflow and malformed device offsets fail
 // closed through status/recordCount, leaving indices and primitiveParam
 // untouched.  The legacy overload above forwards pointBase=0.
-cudaError_t BuildCurveIndices(CurveIndexOptions options, CurveIndexSpan span,
+USDGEN_HYDRA_CURVES_API cudaError_t BuildCurveIndices(CurveIndexOptions options, CurveIndexSpan span,
     CurveIndexRequirements const& requirements, CurveIndexWorkspace workspace,
     CurveIndexOutput output, cudaStream_t stream);
 
@@ -107,7 +109,7 @@ cudaError_t BuildCurveIndices(CurveIndexOptions options, CurveIndexSpan span,
 // nonzero, the record count exceeds maxRecords, or records*indexArity cannot
 // be represented by uint32_t.  This performs no host readback or allocation
 // and is safe to place in a CUDA graph after BuildCurveIndices.
-cudaError_t PackCurveDrawCount(IndexView<const uint64_t> recordCount,
+USDGEN_HYDRA_CURVES_API cudaError_t PackCurveDrawCount(IndexView<const uint64_t> recordCount,
     IndexView<const uint32_t> status, uint32_t indexArity,
     size_t maxRecords, IndexView<uint32_t> drawCount,
     cudaStream_t stream);

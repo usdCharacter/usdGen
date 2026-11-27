@@ -4,11 +4,12 @@
 #define USDGEN_IMAGING_REGISTRY_H
 
 #include <string>
+#include "usdGenImaging/export.h"
 
 namespace usdGenImaging {
 
 // Opaque handle reserved for the M1 (stage, sessionId) session model.
-class UsdGenImagingRegistry {
+class USDGEN_HYDRA_API UsdGenImagingRegistry {
 public:
     static UsdGenImagingRegistry& GetInstance();
 

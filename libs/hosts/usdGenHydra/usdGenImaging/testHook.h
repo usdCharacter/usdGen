@@ -10,6 +10,7 @@
 #define USDGEN_IMAGING_TEST_HOOK_H
 
 #include "pxr/pxr.h"
+#include "usdGenImaging/export.h"
 #include "pxr/base/tf/declarePtrs.h"
 #include "pxr/imaging/hd/sceneIndex.h"
 #include "pxr/usd/sdf/path.h"
@@ -24,7 +25,7 @@ class HdSceneIndexBase;
 
 /// Test-only probe over the live UsdGenGroomSceneIndex registry.
 /// `groom` is the adopted UsdGenGroom root path (e.g. `/groomA`).
-class UsdGenImagingTestHook
+class USDGEN_HYDRA_API UsdGenImagingTestHook
 {
 public:
     /// Max `generation` stamp across the groom's published tiles (0 when

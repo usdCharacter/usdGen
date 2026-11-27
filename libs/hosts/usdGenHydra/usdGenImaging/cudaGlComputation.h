@@ -5,6 +5,7 @@
 #define USDGEN_IMAGING_CUDA_GL_COMPUTATION_H
 
 #include "pxr/pxr.h"
+#include "usdGenImaging/export.h"
 
 #ifdef USDGEN_HAS_CUDA_GL_INTEROP
 
@@ -32,7 +33,7 @@ namespace usdGenImaging {
 /// This initial bridge fences on the graphics commit thread and registers
 /// each transfer separately; it does not claim asynchronous frame throughput.
 /// It must never execute on a CUDA host callback or an engine command owner.
-class UsdGenCudaGlComputation final : public HdStComputation
+class USDGEN_HYDRA_API UsdGenCudaGlComputation final : public HdStComputation
 {
 public:
     UsdGenCudaGlComputation(

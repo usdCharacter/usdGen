@@ -27,6 +27,7 @@
 #define USDGEN_IMAGING_TILE_PUBLISHER_H
 
 #include "usdGenUsd/walk/staticToken.h"
+#include "usdGenHydraCurves/export.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenUsd/graphDesc.h"
 
@@ -48,7 +49,7 @@ inline UsdGenStaticToken<kUsdGenMaterialStormText> const s_usdGenMaterialStormTo
 inline constexpr char kUsdGenRenderText[] = "__usdGenRender";
 inline UsdGenStaticToken<kUsdGenRenderText> const s_usdGenRenderToken{};
 
-class UsdGenTilePublisher
+class USDGEN_HYDRA_CURVES_API UsdGenTilePublisher
 {
 public:
     /// The C2 data source for one tile prim (basisCurves/topology/*,
@@ -81,7 +82,7 @@ public:
         std::string const &setName);
 
     /// Exact notice locator sets for one tile (06 §5.1 rules).
-    struct TileNotices
+    struct USDGEN_HYDRA_CURVES_API TileNotices
     {
         bool pointsDirty = false;
         bool widthsDirty = false;

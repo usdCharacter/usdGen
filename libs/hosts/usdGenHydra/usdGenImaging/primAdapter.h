@@ -16,6 +16,7 @@
 #define USDGEN_IMAGING_PRIM_ADAPTER_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 
 #include "pxr/usdImaging/usdImaging/dataSourceMapped.h"
 #include "pxr/usdImaging/usdImaging/sceneIndexPrimAdapter.h"
@@ -29,7 +30,7 @@ PXR_NAMESPACE_OPEN_SCOPE
 /// under the `usdGen` container (S14 pull-all), and maps each property edit
 /// to its precise C1 locator so the UsdGenDirtyRouter gets exact dirties
 /// (06 §2.7; 02-schema.md §6 is the property→locator table this emits).
-class UsdGenPrimAdapterBase : public UsdImagingSceneIndexPrimAdapter
+class USDGEN_HYDRA_API UsdGenPrimAdapterBase : public UsdImagingSceneIndexPrimAdapter
 {
 public:
     TfTokenVector GetImagingSubprims(UsdPrim const &prim) override;
@@ -94,12 +95,12 @@ public:
 
 /// Five one-line final subclasses, one per concrete prim type that must be
 /// individually claimed by the adapter registry (ADR §2.3).
-class UsdGenGroomAdapter final : public UsdGenPrimAdapterBase {};
-class UsdGenDescriptionAdapter final : public UsdGenPrimAdapterBase {};
-class UsdGenOperatorAdapter final : public UsdGenPrimAdapterBase {};
-class UsdGenMapAdapter final : public UsdGenPrimAdapterBase {};
-class UsdGenGuideSetAdapter final : public UsdGenPrimAdapterBase {};
-class UsdGenExpressionAdapter final : public UsdGenPrimAdapterBase {};
+class USDGEN_HYDRA_API UsdGenGroomAdapter final : public UsdGenPrimAdapterBase {};
+class USDGEN_HYDRA_API UsdGenDescriptionAdapter final : public UsdGenPrimAdapterBase {};
+class USDGEN_HYDRA_API UsdGenOperatorAdapter final : public UsdGenPrimAdapterBase {};
+class USDGEN_HYDRA_API UsdGenMapAdapter final : public UsdGenPrimAdapterBase {};
+class USDGEN_HYDRA_API UsdGenGuideSetAdapter final : public UsdGenPrimAdapterBase {};
+class USDGEN_HYDRA_API UsdGenExpressionAdapter final : public UsdGenPrimAdapterBase {};
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

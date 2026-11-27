@@ -8,6 +8,7 @@
 #define USDGEN_IMAGING_CURVE_API_SCHEMA_ADAPTER_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/dataSource.h"
@@ -17,7 +18,7 @@
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class UsdGenCurveAPIAdapter final : public UsdImagingAPISchemaAdapter
+class USDGEN_HYDRA_API UsdGenCurveAPIAdapter final : public UsdImagingAPISchemaAdapter
 {
 public:
     UsdGenCurveAPIAdapter() = default;
@@ -51,14 +52,14 @@ namespace usdGenImaging {
 ///   usdGenCurveRest/points          VtVec3fArray at UsdTimeCode::Default()
 ///   usdGenCurveRest/hasAuthoredRest bool provenance, queried live
 ///   usdGenCurveRest/surfaceCage/*   authored sparse-cage arrays, when present
-HdContainerDataSourceHandle UsdGenCurveRestContainerFactory(
+USDGEN_HYDRA_API HdContainerDataSourceHandle UsdGenCurveRestContainerFactory(
     UsdPrim const &prim,
     UsdImagingDataSourceStageGlobals const &stageGlobals);
 
 /// Both the Default-time points fallback and the authored rest primvar feed
 /// the same live root.  Dirtying the root also covers provenance changes when
 /// a primvar opinion is added or removed.
-HdDataSourceLocatorSet UsdGenCurveRestInvalidateMapping(
+USDGEN_HYDRA_API HdDataSourceLocatorSet UsdGenCurveRestInvalidateMapping(
     UsdPrim const &prim,
     TfTokenVector const &properties,
     UsdImagingPropertyInvalidationType invalidationType);
