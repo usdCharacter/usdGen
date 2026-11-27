@@ -307,6 +307,9 @@ struct UsdGenImagingSession::State {
         input.spec = staged ? usdGenUsd::LowerShared(*staged, &keys) : nullptr;
         input.devicePublication = request.devicePublication;
         input.callerDevice = callerDevice;
+        // Ordered before the commit on the engine's owner. A rejected post
+        // loses nothing: the descriptor the commit carries re-derives it.
+        if (request.dirty.Any()) (void)engine->PostDirty(request.dirty);
         ++outstanding;
         try {
             usdGen::UsdGenSession::TileProgressCallback progressFromCore;
