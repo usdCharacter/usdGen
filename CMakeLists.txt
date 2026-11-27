@@ -170,12 +170,16 @@ add_compile_definitions(
     "$<$<AND:$<NOT:$<CONFIG:Debug>>,$<NOT:$<BOOL:$<TARGET_PROPERTY:USDGEN_KEEP_ASSERTS>>>>:NDEBUG>")
 
 # $ORIGIN is ELF-only.  Use the native loader spelling where applicable and
-# leave Windows without an RPATH.
+# leave Windows without an RPATH. The OpenUSD prefix's lib directory (pxr
+# libraries and the OpenSubdiv that usdGenSurface links) is named explicitly:
+# CMAKE_INSTALL_RPATH_USE_LINK_PATH skips link directories inside the source
+# or build tree, so an OpenUSD prefix unpacked inside the checkout (as CI
+# does) would otherwise leave installed libraries unable to find it.
 if(UNIX AND NOT APPLE)
-    set(CMAKE_INSTALL_RPATH "$ORIGIN")
+    set(CMAKE_INSTALL_RPATH "$ORIGIN" "${USD_INSTALL_DIR}/lib")
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 elseif(APPLE)
-    set(CMAKE_INSTALL_RPATH "@loader_path")
+    set(CMAKE_INSTALL_RPATH "@loader_path" "${USD_INSTALL_DIR}/lib")
     set(CMAKE_INSTALL_RPATH_USE_LINK_PATH ON)
 endif()
 
