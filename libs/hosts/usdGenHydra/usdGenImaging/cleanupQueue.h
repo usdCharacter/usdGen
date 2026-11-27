@@ -15,7 +15,7 @@
 #ifndef USDGEN_IMAGING_CLEANUP_QUEUE_H
 #define USDGEN_IMAGING_CLEANUP_QUEUE_H
 
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <atomic>
 #include <exception>

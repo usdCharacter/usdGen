@@ -24,7 +24,7 @@
 
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 
 #include <algorithm>
 #include <cmath>

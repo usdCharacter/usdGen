@@ -3,9 +3,9 @@
 #include "usdGenHydraCurves/curveColumns.h"
 #include "usdGenUsd/convert/math.h"
 #include "usdGen/api/inputDesc.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/token.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/tokenScope.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 #include <cstddef>
 #include <cstdint>

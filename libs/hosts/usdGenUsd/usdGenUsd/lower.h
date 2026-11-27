@@ -10,9 +10,9 @@
 #include "usdGenUsd/presentation.h"
 
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/compile/compiler.h"
-#include "usdGen/compile/graph.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/compile.h"
+#include "usdGen/api/ext/op.h"   // LoweredParams
+#include "usdGen/api/session.h"
 
 #include "pxr/usd/sdf/path.h"
 
@@ -20,6 +20,10 @@
 #include <optional>
 #include <utility>
 #include <vector>
+
+namespace usdGen {
+class UsdGenCompiler;   // stateless; the free functions of api/compile.h do the work
+}
 
 namespace usdGenUsd {
 
@@ -142,7 +146,7 @@ usdGen::UsdGenCompileResult Recompile(usdGen::UsdGenCompiler &compiler,
                                       usdGen::UsdGenGraph *graph, NodeKeyMap *map = nullptr);
 usdGen::UsdGenCompileResult CompileInjectedDevice(
     usdGen::UsdGenCompiler &compiler, usdGen::UsdGenGraphDesc const &desc,
-    usdGen::UsdGenGraph *graph, usdGen::UsdGenCompiler::DevicePlanCompiler const &device,
+    usdGen::UsdGenGraph *graph, usdGen::UsdGenDevicePlanCompiler const &device,
     std::shared_ptr<const usdGen::UsdGenExecutionPlanHandle> *plan, NodeKeyMap *map = nullptr);
 
 /// Lower + UsdGenSession::SetGraphSpec / PostGraphSpec.

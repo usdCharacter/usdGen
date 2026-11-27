@@ -3,7 +3,7 @@
 
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenSurface/cuda/rootFrames.h"
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 
 #include <memory>
 #include <vector>

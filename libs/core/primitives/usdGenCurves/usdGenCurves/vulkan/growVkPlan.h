@@ -6,7 +6,7 @@
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 namespace usdGen::vulkan {
 // Lower stage-free Scatter root capture and ReferenceSource C3 import to the
 // existing immutable source packet. This never evaluates Grow on the CPU.

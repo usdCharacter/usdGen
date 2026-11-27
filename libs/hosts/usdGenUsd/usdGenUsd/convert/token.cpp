@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenUsd/convert/token.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include <atomic>
 

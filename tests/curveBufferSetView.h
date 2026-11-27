@@ -4,8 +4,8 @@
 // out of the engine in 5.4), so tests hand ops set views over buffers.
 #pragma once
 #include "usdGen/api/elementSet.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 

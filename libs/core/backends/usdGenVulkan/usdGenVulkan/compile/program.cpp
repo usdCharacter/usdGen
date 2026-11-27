@@ -3,8 +3,8 @@
 // Key function of the program interface: one typeinfo, in usdGenVulkan.
 #include "usdGenVulkan/compile/program.h"
 #include "usdGenVulkan/backendId.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 namespace usdGen::vulkan {
 

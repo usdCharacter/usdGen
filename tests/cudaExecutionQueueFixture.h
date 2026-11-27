@@ -8,9 +8,9 @@
 #define USDGEN_TEST_CUDA_EXECUTION_QUEUE_FIXTURE_H
 
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/exec/sharedCell.h"
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/api/sharedCell.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
 
 #include <cmath>
 #include <cstdint>

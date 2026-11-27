@@ -68,8 +68,8 @@
 #include "usdGenCurves/ops/clumpModes.h"
 #include "usdGenCurves/ops/opUtil.h"
 #include "usdGenCurves/ops/strandUtil.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/exec/scheduler.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/workDispatcher.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
@@ -89,7 +89,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 
 namespace usdGen {

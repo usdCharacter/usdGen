@@ -4,7 +4,7 @@
 #include "usdGenCurves/vulkan/sourceWidthJob.h"
 #include "usdGenCurves/vulkan/lengthEnvelope.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>

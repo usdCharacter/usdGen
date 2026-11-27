@@ -1,7 +1,7 @@
 #include "usdGenUsd/resolve/imageMapCache.h"
-#include "usdGen/exec/sharedCell.h"
+#include "usdGen/api/sharedCell.h"
 
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/parkingWord.h"
 
 #include "pxr/imaging/hio/image.h"
 #include "pxr/imaging/hio/types.h"

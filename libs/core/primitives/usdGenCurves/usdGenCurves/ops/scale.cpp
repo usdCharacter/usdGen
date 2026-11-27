@@ -15,7 +15,7 @@
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/ops/stylerParams.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
@@ -28,7 +28,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/span.h"

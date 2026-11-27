@@ -7,9 +7,9 @@
 #pragma once
 #include "usdGen/api/graphSpec.h"
 #include "usdGenCurves/types/curveTokens.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 #include "usdGenCurves/export.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"

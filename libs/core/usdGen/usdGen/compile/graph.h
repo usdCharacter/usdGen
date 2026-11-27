@@ -6,12 +6,13 @@
 #ifndef USDGEN_GRAPH_H
 #define USDGEN_GRAPH_H
 
+#include "usdGen/api/compile.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/routing.h"
 #include "usdGen/exec/executionCache.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/handles.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ids.h"
+#include "usdGen/api/types.h"
 
 #include <array>
 #include <cstddef>
@@ -24,11 +25,6 @@
 #include <vector>
 namespace usdGen {
 class UsdGenOpRecord;
-
-/// Extra-plane pointer tables are stack-local in the chunk evaluator.  The
-/// current R24 contract has only a handful of named outputs; keep an explicit
-/// bound so binding them never turns Evaluate() into an allocating path.
-constexpr uint32_t kUsdGenMaxExtraPlaneSlots = 16;
 
 /// One compiled node. Owns its UsdGenOp, its output set, its capture, its
 /// chunk dirty bytes and its digests (03 §3.2).

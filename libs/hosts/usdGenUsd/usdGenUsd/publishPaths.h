@@ -9,7 +9,7 @@
 #include "usdGenUsd/lower.h"
 
 #include "usdGen/api/primRef.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 
 #include "pxr/base/tf/token.h"
 #include "pxr/usd/sdf/path.h"

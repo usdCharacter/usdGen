@@ -16,7 +16,7 @@
 #include "usdGen/api/span.h"
 #include "usdGen/api/writeSet.h"
 #include "usdGen/exec/allocCounter.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 #include <cstdint>
 #include <cstdio>

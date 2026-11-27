@@ -23,7 +23,7 @@
 #define USDGEN_OP_FRIZZ_H
 
 #include "usdGenCurves/ops/wholeStrand.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

@@ -7,8 +7,8 @@
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/ids.h"
 
 #include <cstddef>
 #include <cstdint>

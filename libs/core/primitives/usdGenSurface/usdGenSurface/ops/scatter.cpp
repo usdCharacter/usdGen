@@ -19,10 +19,10 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 
-#include "usdGen/compile/digest.h"
+#include "usdGen/api/ext/digest.h"
 #include "usdGenSurface/limitSurface.h"
-#include "usdGen/exec/scheduler.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
+#include "usdGen/api/taskScheduler.h"
 #include "usdGenCurves/ops/opUtil.h"
 #include "usdGenSurface/ops/scatterModes.h"
 #include "usdGenMath/usdGenMath/hash.h"
@@ -40,7 +40,7 @@
 #include <numeric>
 #include <type_traits>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 namespace usdGen {
 

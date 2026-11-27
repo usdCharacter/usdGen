@@ -6,9 +6,9 @@
 // (I7), never this structure.
 #include "usdGen/compile/graph.h"
 
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/typeRegistry.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/typeRegistry.h"
+#include "usdGen/api/types.h"
 
 #include <algorithm>
 #include <cstddef>

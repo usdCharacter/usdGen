@@ -2,7 +2,7 @@
 #include "usdGenCuda/gpu/cudaCompat.h"
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <algorithm>
 #include <cmath>

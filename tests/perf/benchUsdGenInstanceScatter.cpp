@@ -39,12 +39,12 @@
 #include "usdGenUsd/lower.h"
 #include "usdGenSurface/maps/attributeInstance.h"
 #include "usdGenSurface/maps/attributeMap.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenSurface/ops/scatter.h"
 #include "../usdGenOpFixture.h"
 #include "usdGen/exec/sessionCooker.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 #include "usdGenHydraCurves/usdGenInstancer.h"
 
 #include "pxr/pxr.h"
@@ -58,7 +58,7 @@
 
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/cuda/cudaScatterInput.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 #include "usdGenCuda/gpu/deviceResources.h"
 #include "usdGenCurves/cuda/scatterGrow.h"
 #endif

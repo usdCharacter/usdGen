@@ -5,7 +5,7 @@
 #include "usdGenCurves/ops/lengthRange.h"
 
 #include "usdGenCurves/ops/strandUtil.h"
-#include "usdGen/exec/scheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
 #include "usdGenMath/math.h"
 
 #include <algorithm>

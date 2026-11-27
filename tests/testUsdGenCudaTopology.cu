@@ -1,7 +1,7 @@
 #include "usdGenCurves/cuda/topology.h"
 #include "usdGenCuda/backendId.h"
 #include "gpu/deviceBuffer.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 
 #include <cuda_runtime.h>
 

@@ -7,7 +7,7 @@
 #include "utils/pxrInterop.h"
 #include "testBackend.h"
 #include "usdGen/exec/allocCounter.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 #include "usdGenUsd/lower.h"
 

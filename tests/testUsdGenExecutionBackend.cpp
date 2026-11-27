@@ -1,10 +1,10 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/exec/device/executionBackend.h"
+#include "usdGen/api/backend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/exec/sessionBackendExecutor.h"
 #include "usdGen/compile/compiler.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "testBackend.h"
 
 #include <algorithm>

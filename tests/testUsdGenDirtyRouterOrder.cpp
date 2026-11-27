@@ -6,8 +6,8 @@
 #include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/exec/session.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/session.h"
+#include "usdGen/api/types.h"
 #include "usdGenUsd/lower.h"
 
 #include "pxr/imaging/hd/dataSourceLocator.h"

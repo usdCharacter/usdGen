@@ -24,7 +24,7 @@
 // disappears; the dirty router treats that as graph-structural (02 §6.6
 // rule 2).
 #include "usdGenImaging/primAdapter.h"
-#include "usdGen/exec/sharedCell.h"
+#include "usdGen/api/sharedCell.h"
 
 #include "usdGenUsd/walk/expressionConnection.h"
 

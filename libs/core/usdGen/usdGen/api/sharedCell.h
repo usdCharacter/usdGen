@@ -27,7 +27,7 @@
 // installs a process-lifetime object without a function-local static.
 #pragma once
 
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 
 #include <atomic>
 #include <cstdint>

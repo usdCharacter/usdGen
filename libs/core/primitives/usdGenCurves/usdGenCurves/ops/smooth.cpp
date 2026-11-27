@@ -22,8 +22,8 @@
 #include "usdGenCurves/ops/smooth.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenCurves/ops/stylerParams.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/exec/scratch.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/scratch.h"
 
 #include "usdGenCurves/ops/opUtil.h"
 
@@ -38,7 +38,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 

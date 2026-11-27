@@ -5,10 +5,10 @@
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/deformBinding.h"
-#include "usdGen/compile/graph.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/publisher.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/compile.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/publisher.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/span.h"
@@ -128,20 +128,20 @@ bool DeformBinding(UsdGenPublishContext const &ctx, UsdGenRef<const UsdGenDeform
 {
     if (!ctx.spec || !ctx.graph || !out) return false;
     UsdGenGraph const &graph = *ctx.graph;
-    auto const &terminal = graph.Node(graph.TerminalNodeId());
+    UsdGenCompiledNodeView const terminal = UsdGenCompiledNodeAt(graph, UsdGenCompiledTerminal(graph));
     if (!terminal.op || !terminal.record || !terminal.desc || terminal.inputs.empty()) return false;
     auto const makeBinding = terminal.record->Def().hooks.makeAnimationBinding;
     if (!makeBinding) return false;
     UsdGenAnimationBindingQuery query;
     query.terminalDesc = terminal.desc;
-    query.terminalParams = &terminal.paramView;
+    query.terminalParams = terminal.paramView;
     UsdGenSpan<const UsdGenInputRecord> const surfaceRecords = UsdGenSurfaceInputs(*ctx.spec);
     query.surface = terminal.surface < surfaceRecords.size() ? &surfaceRecords[terminal.surface] : nullptr;
     query.terminalInputCount = uint32_t(terminal.inputs.size());
-    query.terminalHasOutputPlanes = !terminal.outputPrimvars.empty();
+    query.terminalHasOutputPlanes = terminal.hasOutputPlanes;
     query.graphStatic = true;
-    for (int i = 0; i != graph.NodeCount(); ++i) {
-        auto const &node = graph.Node(i);
+    for (int i = 0; i != UsdGenCompiledNodeCount(graph); ++i) {
+        UsdGenCompiledNodeView const node = UsdGenCompiledNodeAt(graph, UsdGenNodeId(i));
         if (!node.op || !node.record || node.record->Has(kUsdGenOpReadsTime) ||
             !node.desc->expressionBindings.empty())
             query.graphStatic = false;
@@ -152,7 +152,7 @@ bool DeformBinding(UsdGenPublishContext const &ctx, UsdGenRef<const UsdGenDeform
     UsdGenRef<UsdGenDeformBinding> binding(new UsdGenDeformBinding);
     if (!makeBinding(query, *terminal.op, binding.Get()) || !query.surface) return false;
     binding->surface = query.surface->key;
-    UsdGenCurveSetView const rest = UsdGenCurveSetView::Of(graph.NodeOutput(terminal.inputs.front()));
+    UsdGenCurveSetView const rest = UsdGenCurveSetView::Of(UsdGenCompiledNodeOutput(graph, terminal.inputs.front()));
     UsdGenCurveSetView const term =
         ctx.terminal ? UsdGenCurveSetView::Of(*ctx.terminal) : UsdGenCurveSetView{};
     binding->groups.reserve(ctx.groups.size());

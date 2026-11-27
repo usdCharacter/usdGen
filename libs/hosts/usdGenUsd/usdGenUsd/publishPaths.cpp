@@ -3,7 +3,7 @@
 #include "usdGenUsd/publishPaths.h"
 #include "usdGenUsd/graphDesc.h"
 
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGenUsd/walk/usdGenTokens.h"
 
 #include <atomic>

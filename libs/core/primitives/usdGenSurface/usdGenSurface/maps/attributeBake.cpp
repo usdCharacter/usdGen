@@ -1,7 +1,7 @@
 // usdGen — painted attribute maps: the .ptx bake and its I/O lane.
 // See attributeBake.h for the handoff contract.
 #include "usdGenSurface/maps/attributeBake.h"
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/parkingWord.h"
 
 // Ptexture.h comes from the private usdGen_ptex archive (PTEX_STATIC,
 // PTEX_VENDOR=usdGen); only this translation unit (and ptexMap.cpp) sees it.

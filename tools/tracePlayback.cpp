@@ -18,8 +18,8 @@
 //             per-frame tally of the notices sent to Hydra
 //
 // bin/trace_playback.ps1 sets up the plugin environment and runs this.
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenHydraCurves/register.h"
 

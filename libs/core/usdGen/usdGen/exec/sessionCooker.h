@@ -1,13 +1,14 @@
 #ifndef USDGEN_SESSION_COOKER_H
 #define USDGEN_SESSION_COOKER_H
 
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGen/compile/compiler.h"
-#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/generationStore.h"
+#include "usdGen/api/epoch.h"
 #include "usdGen/exec/executionCache.h"
-#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
 #include "usdGen/exec/scheduler.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/ext/publisher.h"
 
 #include <memory>
 #include <functional>

@@ -1,6 +1,6 @@
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 #include "testBackend.h"
-#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
 #include "usdGenCuda/gpu/cudaRetirement.h"
 #include "usdGenCurves/cuda/curveCompaction.h"
 #include "usdGenCuda/gpu/deviceBuffer.h"

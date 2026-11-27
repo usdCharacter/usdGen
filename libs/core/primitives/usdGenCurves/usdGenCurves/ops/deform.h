@@ -1,7 +1,7 @@
 #ifndef USDGEN_OP_DEFORM_H
 #define USDGEN_OP_DEFORM_H
 
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
@@ -11,7 +11,7 @@
 #include "usdGenMath/math.h"
 
 #include <vector>
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

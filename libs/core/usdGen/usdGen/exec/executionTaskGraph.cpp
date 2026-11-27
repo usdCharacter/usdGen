@@ -1,7 +1,7 @@
-#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
 #include "usdGen/exec/executionRuntimeInternal.h"
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>

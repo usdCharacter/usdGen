@@ -5,7 +5,7 @@
 // continuations run once with the event status, many threads at once, and an
 // idle lane runs no passes (nothing polls).
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <cuda_runtime.h>
 

@@ -18,8 +18,8 @@
 #include "usdGenPomade/pomadeModelState.h"
 #include "usdGenPomade/pomadeRegistry.h"
 
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/parkingWord.h"
 
 #include <algorithm>
 #include <atomic>

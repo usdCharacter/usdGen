@@ -2,8 +2,8 @@
 
 #ifdef USDGEN_HAS_CUDA_GL_INTEROP
 
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/registries/backend.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/ext/backendDef.h"
 
 #include "pxr/imaging/hd/bufferSpec.h"
 #include "pxr/imaging/hd/types.h"

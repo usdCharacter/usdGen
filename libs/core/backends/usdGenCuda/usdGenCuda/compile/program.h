@@ -7,11 +7,11 @@
 #pragma once
 #include "usdGenCuda/export.h"
 #include "usdGen/api/ids.h"
-#include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/exec/sessionDeviceProvider.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/backend.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
+#include "usdGen/api/ext/publisher.h"
 
 #include <cstddef>
 #include <cstdint>

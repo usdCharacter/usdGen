@@ -6,8 +6,8 @@
 #include "utils/pxrInterop.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/exec/chunkView.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/ext/chunkView.h"
+#include "usdGen/api/engineTokens.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3d.h"

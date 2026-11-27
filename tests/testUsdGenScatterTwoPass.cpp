@@ -5,11 +5,11 @@
 // bit-exact positions/uv/frames, including the overflow-fan recompute
 // (ntri > 2), restricted capture, flip, and error parity.
 #include "utils/pxrInterop.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenSurface/ops/scatter.h"
 #include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"

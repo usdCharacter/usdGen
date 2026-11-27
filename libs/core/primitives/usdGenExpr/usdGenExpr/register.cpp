@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // usdGenExpr's registration: the CPU connected-parameter evaluator. The op
 // registry loads usdGenExpr and calls usdGenRegister (step 6.4).
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGenExpr/cpuParameters.h"
 #include "usdGenExpr/export.h"
 #include "usdGenExpr/exprValidate.h"

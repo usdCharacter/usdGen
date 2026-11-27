@@ -5,8 +5,8 @@
 // the primitive (was UsdGenRbfAnimationBinding).
 #pragma once
 #include "usdGen/api/nodeKey.h"
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/pool.h"
 #include "usdGenMath/rbf.h"
 #include "usdGen/api/cowArray.h"          // UsdGenVec3fArray until step 11
 #include <cstddef>

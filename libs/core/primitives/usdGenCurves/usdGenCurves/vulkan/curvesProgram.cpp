@@ -24,8 +24,8 @@
 #include "usdGenExpr/vulkan/exprVkContext.h"
 #include "usdGenExpr/vulkan/exprVkEvaluate.h"
 #include "usdGenExpr/vulkan/exprVkPack.h"
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
 
 #include <vulkan/vulkan.h>
 

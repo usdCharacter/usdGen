@@ -24,9 +24,9 @@
 #include "usdGenExpr/expressions/ir.h"
 #include "usdGenExpr/expressions/samplers.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/handles.h"
-#include "usdGen/registries/paramEvaluator.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ids.h"
+#include "usdGen/api/ext/paramEvaluator.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 #include "usdGen/api/token.h"
 

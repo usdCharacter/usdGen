@@ -13,12 +13,12 @@
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/exec/session.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/registrar.h"
-#include "usdGen/registries/token.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/session.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/registrar.h"
+#include "usdGen/api/ext/tokenScope.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 #include <cstdio>
 #include <cstdlib>

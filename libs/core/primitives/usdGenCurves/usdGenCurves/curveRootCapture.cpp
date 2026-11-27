@@ -4,7 +4,7 @@
 
 #include "usdGenSurface/surfaceRootBindings.h"
 #include "usdGenSurface/surfaceRootFrames.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/token.h"

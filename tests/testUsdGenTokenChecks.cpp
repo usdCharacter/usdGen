@@ -11,9 +11,9 @@
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/registrar.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/registrar.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/exec/scheduler.h"
 
 #include "pxr/pxr.h"

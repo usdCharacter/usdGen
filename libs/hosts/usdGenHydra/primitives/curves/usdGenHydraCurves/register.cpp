@@ -4,7 +4,7 @@
 #include "usdGenHydraCurves/curveColumns.h"
 #include "usdGenHydraCurves/publisher.h"
 #include "usdGen/api/engine.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 #include <atomic>
 #include <thread>

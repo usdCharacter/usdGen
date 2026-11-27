@@ -8,15 +8,15 @@
 // word, and a 64-thread Submit/Visible run against one Session. Tracked
 // values live in a never-reused poisoned arena, so reading a freed one fails.
 #include "utils/pxrInterop.h"
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/exec/executionCache.h"
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/exec/device/executionResources.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/exec/session.h"
-#include "usdGen/exec/sharedCell.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/ext/device/executionResources.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/session.h"
+#include "usdGen/api/sharedCell.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

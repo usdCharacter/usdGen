@@ -7,8 +7,8 @@
 #include "usdGen/api/export.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/pool.h"
 
 #include <cstddef>
 #include <cstdint>

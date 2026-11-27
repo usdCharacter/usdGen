@@ -2,9 +2,9 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/registrar.h"
 
 #include <algorithm>
 #include <array>

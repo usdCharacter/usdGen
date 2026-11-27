@@ -1,4 +1,4 @@
-#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
 #include "testBackend.h"
 
 #include <atomic>

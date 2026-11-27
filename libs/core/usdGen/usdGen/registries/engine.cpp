@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGen/api/engine.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 #include <atomic>
 

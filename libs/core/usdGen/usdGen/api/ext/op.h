@@ -15,12 +15,13 @@
 #define USDGEN_OP_H
 
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/paramEvaluator.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/diagnostics.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/paramEvaluator.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/api/elementSet.h"
-#include "usdGen/exec/chunkView.h"
+#include "usdGen/api/ext/chunkView.h"
 #include "usdGen/api/token.h"
 
 #include <memory>
@@ -42,18 +43,6 @@ struct UsdGenResolvedReferenceValue
     uint64_t generation = 0;
     uint64_t identity = 0;
     std::shared_ptr<const UsdGenReferenceSet> value;
-};
-
-/// Diagnostics collected by a node; the imaging layer is the one that logs
-/// (the engine core stays TF_WARN-free on hot paths, 03 §9.2).
-struct UsdGenDiagnostics
-{
-    std::vector<std::string> errors;
-    std::vector<std::string> warnings;
-    bool HasErrors() const { return !errors.empty(); }
-    /// Out of line: every message string is allocated in usdGen.
-    USDGEN_CORE_API void Error(std::string_view msg);
-    USDGEN_CORE_API void Warn(std::string_view msg);
 };
 
 /// The exec-phase token rule: true (and an error on diag) when the phase

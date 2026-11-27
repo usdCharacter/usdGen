@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Backends by registered name for tests: the engine names none (step 8.4).
 #pragma once
-#include "usdGen/registries/backend.h"
+#include "usdGen/api/ext/backendDef.h"
 
 namespace usdGenTestUtils {
 

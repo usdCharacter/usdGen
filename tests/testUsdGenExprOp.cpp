@@ -24,11 +24,11 @@
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/exec/device/executionBackend.h"
+#include "usdGen/api/backend.h"
 #include "usdGenExpr/expressions/context.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGen/exec/scheduler.h"
 
 #include <cmath>

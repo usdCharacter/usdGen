@@ -47,8 +47,8 @@
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenHydraCurves/usdGenTilePublisher.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"
 #include "pxr/imaging/hd/dataSourceLocator.h"

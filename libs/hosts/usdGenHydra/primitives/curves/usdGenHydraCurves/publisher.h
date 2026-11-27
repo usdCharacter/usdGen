@@ -6,7 +6,7 @@
 #pragma once
 
 #include "usdGenHydraCurves/export.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/ext/publisher.h"
 
 namespace usdGen {
 

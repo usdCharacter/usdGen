@@ -10,8 +10,8 @@
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/export.h"
 #include "usdGen/api/token.h"
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/pool.h"
 #include "usdGenMath/math.h"
 
 #include <cstddef>

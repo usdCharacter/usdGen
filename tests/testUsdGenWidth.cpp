@@ -12,10 +12,10 @@
 // combiner they bake into.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenOpFixture.h"
 #include "bufferOpCalls.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenUsd/lower.h"
 

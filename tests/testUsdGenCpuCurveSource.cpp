@@ -5,13 +5,13 @@
 #include "nodeSets.h"
 #include "usdGen/compile/graph.h"
 #include "usdGenSurface/imagePayload.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGen/exec/scheduler.h"
 #ifdef USDGEN_TEST_CUDA_SOURCE_PARITY
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #endif
 
 #include <cmath>

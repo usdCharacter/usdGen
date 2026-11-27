@@ -5,7 +5,7 @@
 // only the parking word, not the scheduler (the lane is in usdGen).
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/parkingWord.h"
 
 #include <atomic>
 #include <cstdint>

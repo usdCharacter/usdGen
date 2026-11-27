@@ -33,8 +33,8 @@
 
 #include "usdGenCurves/ops/opUtil.h"
 #include "usdGen/api/deformBinding.h"
-#include "usdGen/exec/scheduler.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include "usdGenMath/math.h"
 #include "usdGen/api/trace.h"
@@ -47,8 +47,8 @@
 #include <limits>
 #include <stdexcept>
 #include <string>
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/registrar.h"
 
 namespace usdGen {
 

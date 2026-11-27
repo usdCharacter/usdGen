@@ -4,7 +4,7 @@
 // no pxr, safe in .cu sources.
 #pragma once
 #include "usdGenCuda/export.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 #include <cstdint>
 

@@ -9,9 +9,9 @@
 #include "usdGenExpr/expressions/frontend.h"
 #include "usdGenExpr/expressions/irExec.h"
 #include "usdGenSurface/maps/ptexMap.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include "usdGenMath/math.h"
 

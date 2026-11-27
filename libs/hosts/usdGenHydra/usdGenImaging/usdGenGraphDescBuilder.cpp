@@ -17,7 +17,7 @@
 #include "usdGenUsd/resolve/sdfValueShape.h"
 
 #include "pxr/base/trace/trace.h"
-#include "usdGen/registries/backend.h"
+#include "usdGen/api/ext/backendDef.h"
 
 #include "pxr/base/tf/diagnostic.h"
 #include "pxr/base/vt/array.h"

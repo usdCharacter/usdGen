@@ -1,6 +1,6 @@
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 #include "usdGenMath/hash.h"
 
 #include <algorithm>

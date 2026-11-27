@@ -4,9 +4,9 @@
 #include "usdGenPomade/pomadeHierarchy.h"
 #include "usdGenPomade/pomadeModel.h"
 
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 #include "usdGenSurface/maps/ptexMap.h"
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/parkingWord.h"
 
 #ifdef USDGEN_POMADE_HAS_CUDA
 #include "usdGenPomade/pomadeKernels.h"

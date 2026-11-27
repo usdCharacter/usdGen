@@ -8,11 +8,12 @@
 #ifndef USDGEN_GENERATION_STORE_H
 #define USDGEN_GENERATION_STORE_H
 
+#include "usdGen/api/generation.h"
 #include "usdGen/api/primRef.h"
-#include "usdGen/exec/device/deviceGeneration.h"
-#include "usdGen/exec/sharedCell.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
+#include "usdGen/api/sharedCell.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/publisher.h"
 
 #include "usdGenMath/math.h"
 
@@ -21,23 +22,6 @@
 #include <optional>
 #include <vector>
 namespace usdGen {
-
-struct UsdGenGeneration
-{
-    int64_t id = -1;
-    double frame = 0.0;
-    // What the terminal type's publisher built (UsdGenPublisherDef); null on
-    // the device lane and when no publisher is registered.
-    UsdGenRef<const UsdGenPublication> publication;
-    // Mutually exclusive with host geometry. Device-aware consumers acquire
-    // leases from this immutable payload; never cast its pointers to VtArray.
-    std::shared_ptr<const UsdGenDeviceGeneration> device;
-    // The cooked spec's opaque host data (UsdGenGraphSpec::host): the host
-    // names the keys above through it and keeps the presentation it publishes
-    // them with (a device generation's included: usdGenUsd DevicePresentation).
-    std::shared_ptr<const void> host;
-};
-using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;
 
 class UsdGenGenerationStore
 {

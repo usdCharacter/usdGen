@@ -6,8 +6,8 @@
 #include "usdGenUsd/lower.h"
 #include "usdGen/exec/executionCache.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGen/exec/sessionCooker.h"
 
 #include "pxr/base/gf/vec3f.h"

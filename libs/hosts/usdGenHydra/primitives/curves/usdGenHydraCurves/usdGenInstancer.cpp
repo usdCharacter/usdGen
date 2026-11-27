@@ -30,7 +30,7 @@
 #include <cstring>
 #include <new>
 
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <type_traits>
 

@@ -14,9 +14,10 @@
 #define USDGEN_SCHEDULER_H
 
 #include "usdGen/compile/graph.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/types.h"
 #include "usdGen/exec/workerPool.h"
+#include "usdGen/api/ext/workDispatcher.h"
 
 #include <atomic>
 #include <cstddef>
@@ -45,24 +46,6 @@ struct UsdGenRunResult
     /// One entry per node with work. Points into the scheduler; valid until
     /// its next Run.
     UsdGenSpan<const UsdGenNodeRunStats> nodeStats;
-};
-
-/// The work dispatcher handed to Capture() for intra-node parallelism (03 §8.1).
-class UsdGenWorkDispatcher
-{
-public:
-    explicit UsdGenWorkDispatcher(UsdGenWorkerPool *pool) : _pool(pool) {}
-    /// Run a per-index body 0..count-1 over the scheduler's worker pool
-    /// (capture phase). A null pool runs the body inline, serially.
-    /// claimChunk overrides the pool's claim heuristic (0 keeps it); see
-    /// UsdGenWorkerPool::ParallelFor.
-    void ParallelFor(size_t count, void (*body)(size_t, void *), void *payload,
-                     size_t claimChunk = 0);
-    /// Pool worker count (1 when null/serial), so Capture() can size
-    /// partitions instead of oversubscribing ranges onto one worker.
-    int MaxConcurrency() const { return _pool ? _pool->Workers() : 1; }
-private:
-    UsdGenWorkerPool *_pool;
 };
 
 struct UsdGenRunScratch;

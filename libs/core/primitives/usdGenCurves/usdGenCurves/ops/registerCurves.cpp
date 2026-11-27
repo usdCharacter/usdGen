@@ -5,7 +5,7 @@
 // calls each usdGenRegister; registration order is id order, so this file
 // keeps registering the Surface and Expr items it registered before the
 // split (their ids and the input-kind run order stay unchanged).
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGenCurves/export.h"
 #include "usdGenCurves/ops/kernelOps.h"
 #include "usdGenCurves/publish/curvePublishDesc.h"

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // How curves read UsdGenDeviceLayoutMetadata (kind, variant, wrap).
 #pragma once
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 #include <cstdint>
 
 namespace usdGen {

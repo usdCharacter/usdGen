@@ -46,7 +46,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 
 namespace usdGen {

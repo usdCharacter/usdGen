@@ -3,8 +3,8 @@
 // UsdGenCow<T>: O(1) copy, detach on Edit. The value lives in a refcounted
 // block from the pools; copies share it until one of them edits.
 #pragma once
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/pool.h"
 
 #include <atomic>
 #include <utility>

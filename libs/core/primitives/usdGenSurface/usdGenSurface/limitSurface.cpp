@@ -7,8 +7,8 @@
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
-#include "usdGen/compile/digest.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/digest.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGenMath/math.h"
 #include <opensubdiv/far/patchTableFactory.h>
 #include <opensubdiv/far/patchMap.h>

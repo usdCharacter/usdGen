@@ -6,7 +6,7 @@
 
 #include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
 #include "usdGenCurves/vulkan/sourceWidthJob.h"
-#include "usdGen/exec/device/executionBackend.h"
+#include "usdGen/api/backend.h"
 
 #include <atomic>
 #include <memory>

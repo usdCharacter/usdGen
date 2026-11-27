@@ -1,4 +1,4 @@
-#include "usdGen/exec/executionSequenceWindow.h"
+#include "usdGen/api/pipeline.h"
 
 #include <cstddef>
 #include <limits>

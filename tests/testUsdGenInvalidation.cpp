@@ -22,10 +22,10 @@
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGen/exec/scheduler.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

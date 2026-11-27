@@ -14,14 +14,14 @@
 // capture and buffer from the previous graph. Exactly one appended node therefore rebuilds exactly one node.
 #include "usdGen/compile/compiler.h"
 
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/token.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/backendRegistry.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/tokenScope.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/backend.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/backendRegistry.h"
+#include "usdGen/api/types.h"
 #include "usdGen/api/trace.h"
 
 #include <algorithm>

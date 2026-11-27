@@ -10,8 +10,8 @@
 #include "usdGenCurves/ops/kernelOps.h"
 #include "usdGenCurves/ops/noiseGpuHook.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/registrar.h"
 
 using namespace usdGen;
 

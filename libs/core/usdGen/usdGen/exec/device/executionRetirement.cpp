@@ -1,7 +1,7 @@
-#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
 #include "usdGen/exec/executionRuntimeInternal.h"
-#include "usdGen/exec/parkingWord.h"
-#include "usdGen/exec/serialLane.h"
+#include "usdGen/api/parkingWord.h"
+#include "usdGen/api/serialLane.h"
 
 #include <atomic>
 #include <array>

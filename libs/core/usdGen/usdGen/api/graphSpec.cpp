@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/api/writeSet.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 #include <algorithm>
 #include <cstddef>

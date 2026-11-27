@@ -8,8 +8,8 @@
 #ifndef USDGEN_OP_CURL_H
 #define USDGEN_OP_CURL_H
 
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

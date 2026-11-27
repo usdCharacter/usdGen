@@ -2,8 +2,8 @@
 #ifndef USDGEN_SESSION_DEVICE_INTEGRATION_H
 #define USDGEN_SESSION_DEVICE_INTEGRATION_H
 
-#include "usdGen/exec/session.h"
-#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/api/session.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
 
 namespace usdGen {
 

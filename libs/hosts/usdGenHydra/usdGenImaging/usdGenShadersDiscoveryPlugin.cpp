@@ -6,7 +6,7 @@
 // "shaders/", so HioGlslfx can resolve the .glslfx files and Sdr can
 // discover the three shader defs declared in shaders/shaderDefs.usda.
 #include "usdGenImaging/usdGenShadersDiscoveryPlugin.h"
-#include "usdGen/exec/sharedCell.h"
+#include "usdGen/api/sharedCell.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/plug/plugin.h"

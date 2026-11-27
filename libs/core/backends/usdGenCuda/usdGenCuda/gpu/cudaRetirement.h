@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_CUDA_RETIREMENT_H
 #define USDGEN_GPU_CUDA_RETIREMENT_H
 
-#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
 
 #include <optional>
 

@@ -2,7 +2,7 @@
 #include "pxr/base/gf/vec2f.h"
 #include "testBackend.h"
 #include "pxr/base/gf/vec3f.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/generation.h"
 #include <cmath>

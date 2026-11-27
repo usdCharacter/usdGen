@@ -3,9 +3,9 @@
 // What an op library tells the engine about one op: plain data plus hooks.
 #pragma once
 #include "usdGen/api/span.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 #include "usdGen/api/valueShape.h"        // expr::Domain, expr::ScalarType
-#include "usdGen/compile/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
+#include "usdGen/api/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
 
 #include "usdGen/api/span.h"
 #include <cstdint>

@@ -6,10 +6,10 @@
 #include "usdGenCuda/compile/program.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 namespace usdGen::cuda {
 

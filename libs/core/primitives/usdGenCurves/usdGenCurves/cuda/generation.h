@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_GENERATION_H
 #define USDGEN_GPU_GENERATION_H
 
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 #include "usdGenCurves/cuda/curveSource.h"
 #include "usdGenCurves/cuda/curveResample.h"
 #include "usdGenCurves/cuda/curveGrow.h"

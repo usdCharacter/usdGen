@@ -1,10 +1,10 @@
 #include "usdGenHydraCurves/furOcclusion.h"
 #include "usdGenUsd/convert/token.h"
 #include "usdGenHydraCurves/tokens.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 
 #include "usdGenUsd/debugCodes.h"
-#include "usdGen/exec/scheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
 
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/trace/trace.h"

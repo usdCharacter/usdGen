@@ -11,10 +11,10 @@
 #include "usdGenHydraCurves/tokens.h"
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/primRef.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 #include "usdGen/api/plane.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/publisher.h"
 
 #include "pxr/base/gf/matrix4d.h"   // also GfVec3d
 #include "pxr/base/gf/vec2f.h"

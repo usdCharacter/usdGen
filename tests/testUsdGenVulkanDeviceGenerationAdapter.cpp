@@ -11,7 +11,7 @@
 #include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
 #include "usdGenVulkan/vulkan/completionService.h"
 #include "usdGenVulkan/vulkan/externalRetirement.h"
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 #include "vulkanNativeFixture.h"
 
 #include <cstdio>

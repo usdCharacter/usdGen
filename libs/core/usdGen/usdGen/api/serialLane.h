@@ -7,7 +7,7 @@
 #pragma once
 
 #include "usdGen/api/export.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <atomic>
 #include <cstdint>

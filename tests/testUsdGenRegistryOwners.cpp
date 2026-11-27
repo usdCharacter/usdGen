@@ -1,7 +1,7 @@
 // Ownership regression coverage for immutable imaging registry reads and
 // scheduled bridge mutation.
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/exec/stats.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/stats.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGenImaging/usdGenEngineBridge.h"
 

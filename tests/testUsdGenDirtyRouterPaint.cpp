@@ -11,10 +11,10 @@
 #include "usdGenUsd/lower.h"
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/exec/session.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/session.h"
+#include "usdGen/api/types.h"
 
 #include "pxr/imaging/hd/dataSourceLocator.h"
 

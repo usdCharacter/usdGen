@@ -6,7 +6,7 @@
 #include "usdGen/api/channel.h"
 #include "usdGen/api/export.h"
 #include "usdGen/api/span.h"
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/pool.h"
 #include <cstdint>
 
 namespace usdGen {

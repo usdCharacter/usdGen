@@ -2,8 +2,8 @@
 #include "usdGenCurves/cuda/cudaScatterInput.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/types/curveCapture.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 
 #include "tbb/task_arena.h"
 

@@ -6,8 +6,8 @@
 #include "usdGenVulkan/export.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGenVulkan/vulkan/defaultProvider.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/registrar.h"
 
 #include <atomic>
 #include <memory>

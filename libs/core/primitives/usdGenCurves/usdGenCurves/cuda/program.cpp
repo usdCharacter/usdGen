@@ -7,7 +7,7 @@
 #include "usdGenCurves/cuda/bindingReport.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGenCuda/exec/workspace.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 
 #include <cstddef>
 #include <cstdint>

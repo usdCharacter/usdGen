@@ -4,7 +4,7 @@
 #pragma once
 #include "usdGenCurves/cuda/export.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/ext/publisher.h"
 
 #include <cstdint>
 #include <memory>

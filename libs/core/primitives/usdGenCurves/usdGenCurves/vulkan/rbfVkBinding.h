@@ -36,7 +36,7 @@
 
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 
 #include <cstdint>
 #include <functional>

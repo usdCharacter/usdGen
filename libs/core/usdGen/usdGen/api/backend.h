@@ -7,10 +7,10 @@
 #ifndef USDGEN_EXECUTION_BACKEND_H
 #define USDGEN_EXECUTION_BACKEND_H
 
-#include "usdGen/exec/executionCache.h"
-#include "usdGen/exec/device/executionPlan.h"
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/registries/backend.h"
+#include "usdGen/api/ext/device/executionContext.h"
+#include "usdGen/api/ext/device/executionPlan.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/ext/backendDef.h"
 
 #include <cstdint>
 #include <exception>
@@ -22,6 +22,7 @@
 namespace usdGen {
 
 struct UsdGenDiagnostics;
+class UsdGenDeviceGeneration;
 
 enum class UsdGenExecutionBackendAvailability : uint8_t {
     Invalid = 0,

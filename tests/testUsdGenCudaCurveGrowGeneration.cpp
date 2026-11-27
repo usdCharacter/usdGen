@@ -3,7 +3,7 @@
 #include "testBackend.h"
 #include "usdGenCurves/cuda/generation.h"
 #include "usdGenCuda/gpu/deviceResources.h"
-#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
 
 #include <atomic>
 #include <cstdio>

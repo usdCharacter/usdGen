@@ -2,7 +2,7 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenCurves/types/curveTokens.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGenCurves/curveRootCapture.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"

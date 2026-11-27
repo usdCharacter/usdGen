@@ -7,8 +7,8 @@
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include "usdGenSurface/maps/ptexMap.h"
 #include "usdGenSurface/surfaceCageInterpolate.h"

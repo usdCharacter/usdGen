@@ -3,7 +3,7 @@
 // Per-(op, backend) kernel rows. Backends register them; lanes look them up.
 #pragma once
 #include "usdGen/api/export.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
 #include <atomic>
 #include <cstddef>

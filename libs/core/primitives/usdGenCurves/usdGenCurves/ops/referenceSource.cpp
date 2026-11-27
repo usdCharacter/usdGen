@@ -2,7 +2,7 @@
 #include "usdGenCurves/types/curveCapture.h"
 
 #include <memory>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/span.h"
 
 

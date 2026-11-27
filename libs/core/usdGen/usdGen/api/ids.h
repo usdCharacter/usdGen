@@ -20,4 +20,19 @@ constexpr uint8_t kUsdGenMaxLevels = 3;            // levels 1..3 under the cons
 // cook, so the limit sits above the chains in use (5.4: 4 compacted G3).
 constexpr uint8_t kUsdGenMaxArenasPerSet = 16;
 
+/// Registered handle; 0 is the CPU (api/ext/backendDef.h).
+enum class UsdGenBackendId : uint8_t { Invalid = 0xFFu };
+constexpr UsdGenBackendId kUsdGenBackendCpu = UsdGenBackendId(0);
+
+using UsdGenParamSlot = uint16_t;
+constexpr UsdGenParamSlot kUsdGenNoParam = 0xFFFFu;
+
+constexpr uint32_t kUsdGenMaxOps = 256;
+constexpr uint32_t kUsdGenMaxTypes = 64;
+constexpr uint32_t kUsdGenMaxBackends = 8;
+constexpr uint32_t kUsdGenMaxParamsPerOp = 128;   // Clump declares ~50 today
+constexpr uint32_t kUsdGenMaxOpTokens = 32;
+
+constexpr uint32_t UsdGenIndex(UsdGenBackendId id) noexcept { return uint32_t(id); }
+
 }  // namespace usdGen

@@ -5,10 +5,10 @@
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenExpr/expressions/valueShape.h"
-#include "usdGen/compile/graph.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/compile.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"
@@ -370,12 +370,12 @@ bool UsdGenValuePreview::FromAttribute(UsdGenGraphSpec const &desc, UsdGenGraph 
     UsdGenNodeKey const operatorKey = desc.preview.source;
     UsdGenToken const &attribute = desc.preview.attribute;
     std::string_view const name = CanonicalText(attribute);
-    for (int id = 0; id < graph.NodeCount(); ++id) {
-        UsdGenCompiledNode const &node = graph.Node(id);
+    for (int id = 0; id < UsdGenCompiledNodeCount(graph); ++id) {
+        UsdGenCompiledNodeView const node = UsdGenCompiledNodeAt(graph, UsdGenNodeId(id));
         if (!node.desc || node.desc->key != operatorKey) continue;
         // Connected values were evaluated over the operator's INPUT strands.
         values->input = UsdGenCurveSetView::Of(
-            graph.NodeOutput(node.inputs.empty() ? node.id : node.inputs.front()));
+            UsdGenCompiledNodeOutput(graph, node.inputs.empty() ? node.id : node.inputs.front()));
         UsdGenCurveSetView const &input = values->input;
         bool const connected = std::any_of(
             node.desc->expressionBindings.begin(), node.desc->expressionBindings.end(),

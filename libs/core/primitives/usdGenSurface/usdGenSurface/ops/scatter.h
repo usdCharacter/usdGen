@@ -6,13 +6,13 @@
 #ifndef USDGEN_OP_SCATTER_H
 #define USDGEN_OP_SCATTER_H
 
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/ops/opUtil.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 #include "usdGenCurves/export.h"
 #include "usdGenSurface/types/rootSet.h"
 

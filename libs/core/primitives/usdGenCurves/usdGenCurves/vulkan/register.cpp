@@ -10,8 +10,8 @@
 #include "usdGenCurves/vulkan/curvesProgram.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenVulkan/compile/program.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/registrar.h"
 
 using namespace usdGen;
 

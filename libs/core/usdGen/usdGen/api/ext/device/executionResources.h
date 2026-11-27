@@ -3,7 +3,7 @@
 #define USDGEN_EXECUTION_RESOURCES_H
 
 #include "usdGen/api/export.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 #include <array>
 #include <cstddef>

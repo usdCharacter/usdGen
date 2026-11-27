@@ -16,7 +16,7 @@
 #include "usdGenCurves/ops/wind.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/exec/scratch.h"
+#include "usdGen/api/ext/scratch.h"
 
 #include "usdGenCurves/clumpMotion.h"
 #include "usdGenCurves/ops/opUtil.h"
@@ -32,7 +32,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"

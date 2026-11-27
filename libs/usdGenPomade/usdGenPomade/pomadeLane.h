@@ -8,7 +8,7 @@
 #ifndef USDGEN_POMADE_LANE_H
 #define USDGEN_POMADE_LANE_H
 
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/parkingWord.h"
 
 #include <atomic>
 #include <chrono>

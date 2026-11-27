@@ -5,7 +5,7 @@
 // data (a compile-phase intern), like usdGenUsd::ToToken.
 #pragma once
 #include "usdGen/api/token.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include <string_view>
 

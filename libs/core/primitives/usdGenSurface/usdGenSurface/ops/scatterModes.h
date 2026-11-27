@@ -23,7 +23,7 @@
 #include "usdGen/api/token.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 
 #include "usdGenMath/math.h"
 

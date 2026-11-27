@@ -409,23 +409,26 @@ UsdGenCompileResult Compile(UsdGenCompiler &compiler, UsdGenGraphDesc const &des
                             UsdGenGraph *graph, NodeKeyMap *map)
 {
     UsdGenGraphSpec const spec = map ? Lower(desc, *map) : Lower(desc);
-    return compiler.Compile(spec, graph);
+    (void)compiler;
+    return UsdGenCompile(spec, graph);
 }
 
 UsdGenCompileResult Recompile(UsdGenCompiler &compiler, UsdGenGraphDesc const &desc,
                               UsdGenGraph *graph, NodeKeyMap *map)
 {
     UsdGenGraphSpec const spec = map ? Lower(desc, *map) : Lower(desc);
-    return compiler.Recompile(spec, graph);
+    (void)compiler;
+    return UsdGenRecompile(spec, graph);
 }
 
 UsdGenCompileResult CompileInjectedDevice(
     UsdGenCompiler &compiler, UsdGenGraphDesc const &desc, UsdGenGraph *graph,
-    UsdGenCompiler::DevicePlanCompiler const &device,
+    UsdGenDevicePlanCompiler const &device,
     std::shared_ptr<const UsdGenExecutionPlanHandle> *plan, NodeKeyMap *map)
 {
     UsdGenGraphSpec const spec = map ? Lower(desc, *map) : Lower(desc);
-    return compiler.CompileInjectedDevice(spec, graph, device, plan);
+    (void)compiler;
+    return UsdGenCompileInjectedDevice(spec, graph, device, plan);
 }
 
 void SetGraphDesc(UsdGenSession &session, UsdGenGraphDesc const &desc, NodeKeyMap *map)
@@ -440,7 +443,7 @@ bool PostGraphDesc(UsdGenSession &session, UsdGenGraphDesc const &desc, NodeKeyM
 
 UsdGenNodeId NodeIdForPath(UsdGenGraph const &graph, SdfPath const &path)
 {
-    return graph.NodeIdForKey(KeyFor(Paths(graph.Spec()), path));
+    return UsdGenCompiledNodeIdForKey(graph, KeyFor(Paths(UsdGenCompiledSpec(graph)), path));
 }
 
 UsdGenNodeId NodeIdForPath(UsdGenSessionGraphSnapshot const &graph, SdfPath const &path)
@@ -450,26 +453,26 @@ UsdGenNodeId NodeIdForPath(UsdGenSessionGraphSnapshot const &graph, SdfPath cons
 
 SdfPath NodePath(UsdGenGraph const &graph, UsdGenNodeId id)
 {
-    if (id >= UsdGenNodeId(graph.NodeCount())) return SdfPath();
-    UsdGenCompiledNode const &node = graph.Node(id);
-    return node.desc ? PathOf(Paths(graph.Spec()), node.desc->key) : SdfPath();
+    if (id >= UsdGenNodeId(UsdGenCompiledNodeCount(graph))) return SdfPath();
+    UsdGenCompiledNodeView const node = UsdGenCompiledNodeAt(graph, id);
+    return node.desc ? PathOf(Paths(UsdGenCompiledSpec(graph)), node.desc->key) : SdfPath();
 }
 
 void DirtyGeometry(UsdGenGraph &graph, SdfPath const &prim)
 {
     std::vector<UsdGenNodeKey> keys;
-    if (PathTable const *table = Paths(graph.Spec())) table->KeysUnder(prim, &keys);
-    for (UsdGenNodeKey key : keys) graph.DirtyGeometry(key);
+    if (PathTable const *table = Paths(UsdGenCompiledSpec(graph))) table->KeysUnder(prim, &keys);
+    for (UsdGenNodeKey key : keys) UsdGenCompiledDirtyGeometry(graph, key);
 }
 
 void DirtyInput(UsdGenGraph &graph, SdfPath const &input, uint64_t generation)
 {
-    graph.DirtyInput(KeyFor(Paths(graph.Spec()), input), generation);
+    UsdGenCompiledDirtyInput(graph, KeyFor(Paths(UsdGenCompiledSpec(graph)), input), generation);
 }
 
 void DirtyMap(UsdGenGraph &graph, SdfPath const &map, uint64_t generation)
 {
-    graph.DirtyMap(KeyFor(Paths(graph.Spec()), map), generation);
+    UsdGenCompiledDirtyMap(graph, KeyFor(Paths(UsdGenCompiledSpec(graph)), map), generation);
 }
 
 }  // namespace usdGenUsd

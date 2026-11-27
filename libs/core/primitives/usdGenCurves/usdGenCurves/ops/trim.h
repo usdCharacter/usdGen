@@ -8,7 +8,7 @@
 #define USDGEN_OP_TRIM_H
 
 #include "usdGenCurves/ops/wholeStrand.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

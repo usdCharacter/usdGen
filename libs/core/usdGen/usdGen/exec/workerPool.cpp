@@ -4,9 +4,9 @@
 #include "usdGen/exec/workerPool.h"
 #include "usdGen/exec/executionRuntimeInternal.h"
 #include "usdGen/exec/fastCores.h"
-#include "usdGen/exec/parkingWord.h"
-#include "usdGen/exec/scratch.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/parkingWord.h"
+#include "usdGen/api/ext/scratch.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>

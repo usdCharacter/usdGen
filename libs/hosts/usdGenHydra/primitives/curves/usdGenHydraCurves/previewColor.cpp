@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenHydraCurves/previewColor.h"
 #include "usdGenUsd/convert/token.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include <algorithm>
 #include <cmath>

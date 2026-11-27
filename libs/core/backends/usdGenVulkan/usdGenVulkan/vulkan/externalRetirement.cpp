@@ -3,9 +3,9 @@
 #include "externalRetirement.h"
 #include "completionService.h"
 #include "usdGen/exec/executionRuntimeInternal.h"
-#include "usdGen/exec/serialLane.h"
-#include "usdGen/exec/parkingWord.h"
-#include "usdGen/exec/sharedCell.h"
+#include "usdGen/api/serialLane.h"
+#include "usdGen/api/parkingWord.h"
+#include "usdGen/api/sharedCell.h"
 
 #include <algorithm>
 #include <cstdlib>

@@ -5,10 +5,10 @@
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/compile/graph.h"   // kUsdGenMaxExtraPlaneSlots
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/registrar.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/compile.h"   // kUsdGenMaxExtraPlaneSlots
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/registrar.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"

@@ -5,7 +5,7 @@
 #include "testBackend.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime.h>

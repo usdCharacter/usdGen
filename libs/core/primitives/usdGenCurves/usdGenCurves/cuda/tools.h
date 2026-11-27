@@ -5,7 +5,7 @@
 #include "usdGenCurves/cuda/curveTileBounds.h"
 #include "usdGenCurves/cuda/picking.h"
 #include "usdGenCurves/cuda/pointOverride.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 
 #include <vector>
 

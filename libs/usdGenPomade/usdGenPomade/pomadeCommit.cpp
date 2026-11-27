@@ -8,7 +8,7 @@
 // session; cancelling it is the plan/17 §3.2 rule 2 half of G7.
 #include "usdGenImaging/usdGenImagingSession.h"
 
-#include "usdGen/exec/parkingWord.h"
+#include "usdGen/api/parkingWord.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/vec2f.h"

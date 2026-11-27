@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/exec/serialLane.h"
+#include "usdGen/api/serialLane.h"
 
 namespace usdGen {
 

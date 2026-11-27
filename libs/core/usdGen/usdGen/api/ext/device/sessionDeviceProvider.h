@@ -4,12 +4,12 @@
 #ifndef USDGEN_SESSION_DEVICE_PROVIDER_H
 #define USDGEN_SESSION_DEVICE_PROVIDER_H
 
-#include "usdGen/exec/device/deviceGeneration.h"
-#include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/exec/executionValueRevisions.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
+#include "usdGen/api/backend.h"
+#include "usdGen/api/ext/device/executionValueRevisions.h"
 #include "usdGen/api/nodeKey.h"
-#include "usdGen/exec/epoch.h"
-#include "usdGen/registries/publisher.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/ext/publisher.h"
 
 #include <exception>
 #include <array>

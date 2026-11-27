@@ -2,8 +2,8 @@
 #include "usdGen/exec/generationStore.h"
 
 #include "usdGen/exec/executionRuntimeInternal.h"
-#include "usdGen/exec/parkingWord.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/parkingWord.h"
+#include "usdGen/api/types.h"
 
 #include <algorithm>
 #include <array>

@@ -6,7 +6,7 @@
 #include "usdGen/api/export.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/api/token.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 #include <cstddef>
 #include <cstdint>
 #include <memory>

@@ -9,7 +9,7 @@
 // match the synchronous Begin bit for bit.
 #include "utils/pxrInterop.h"
 #include "testBackend.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/vulkan/deformPipeline.h"
 #include "usdGenCurves/vulkan/deviceGenerationAdapter.h"

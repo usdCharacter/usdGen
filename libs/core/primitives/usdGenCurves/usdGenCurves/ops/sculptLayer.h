@@ -16,7 +16,7 @@
 #define USDGEN_OP_SCULPT_LAYER_H
 
 #include "usdGenCurves/ops/recordedOp.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

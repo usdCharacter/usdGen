@@ -11,8 +11,8 @@
 //   - heap fallback (growth denied) keeps the 64-byte alignment above 256
 
 #include "usdGen/exec/allocCounter.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/exec/scratch.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/ext/scratch.h"
 
 #include <atomic>
 #include <cstdint>

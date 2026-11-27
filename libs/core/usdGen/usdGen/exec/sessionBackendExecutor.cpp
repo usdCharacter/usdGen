@@ -1,7 +1,7 @@
 #include "usdGen/exec/sessionBackendExecutor.h"
 
-#include "usdGen/registries/backend.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <memory>
 #include <stdexcept>

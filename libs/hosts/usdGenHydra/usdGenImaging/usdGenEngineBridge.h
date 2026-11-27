@@ -10,7 +10,7 @@
 #ifndef USDGEN_IMAGING_ENGINE_BRIDGE_H
 #define USDGEN_IMAGING_ENGINE_BRIDGE_H
 
-#include "usdGen/exec/stats.h"
+#include "usdGen/api/stats.h"
 
 #include "pxr/usd/sdf/path.h"
 #include "pxr/pxr.h"

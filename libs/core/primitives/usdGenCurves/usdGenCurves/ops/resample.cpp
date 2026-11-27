@@ -16,7 +16,7 @@
 #include "usdGenCurves/ops/resample.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/exec/scratch.h"
+#include "usdGen/api/ext/scratch.h"
 
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/ops/opUtil.h"
@@ -29,7 +29,7 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"

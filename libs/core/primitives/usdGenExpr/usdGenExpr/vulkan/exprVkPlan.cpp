@@ -7,11 +7,11 @@
 #include "usdGen/api/token.h"
 #include "usdGenCurves/types/curveTokens.h"
 
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenExpr/expressions/frontend.h"
 #include "usdGenExpr/expressions/irExec.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 

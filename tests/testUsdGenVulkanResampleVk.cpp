@@ -27,19 +27,19 @@
 #include "usdGenCurves/vulkan/resampleVkPipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
-#include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/backend.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenCurves/types/curveBuffer.h"
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 #include "vulkanNativeFixture.h"
 #include "vulkanReadbackFixture.h"
 
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/cuda/curveResample.h"
 #include "usdGenCurves/cuda/namedChannelTopology.h"
-#include "usdGen/exec/device/executionResources.h"
-#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionResources.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
 #include "usdGenCuda/gpu/cudaRetirement.h"
 
 #include <cuda_runtime.h>

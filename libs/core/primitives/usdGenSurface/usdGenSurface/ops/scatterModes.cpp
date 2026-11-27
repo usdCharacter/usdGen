@@ -33,7 +33,7 @@
 
 #include "usdGenSurface/limitSurface.h"
 #include "usdGenSurface/ops/scatter.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 
 #include "usdGenCurves/ops/opUtil.h"
 #include "usdGenCurves/ops/strandUtil.h"

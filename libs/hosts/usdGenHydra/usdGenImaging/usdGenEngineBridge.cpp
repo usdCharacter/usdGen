@@ -1,7 +1,7 @@
 #include "usdGenImaging/usdGenEngineBridge.h"
-#include "usdGen/exec/sharedCell.h"
+#include "usdGen/api/sharedCell.h"
 
-#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/api/pipeline.h"
 #include "pxr/base/tf/diagnostic.h"
 
 #include <memory>

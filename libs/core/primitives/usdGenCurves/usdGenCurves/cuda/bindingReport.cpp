@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenCurves/cuda/bindingReport.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 
 namespace usdGen {
 

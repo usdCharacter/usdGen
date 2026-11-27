@@ -3,8 +3,8 @@
 // UsdGenCurveChunk over the generic chunk view.
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/exec/chunkView.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/ext/chunkView.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"

@@ -5,7 +5,7 @@
 #ifndef USDGEN_OPS_RECORDED_OP_H
 #define USDGEN_OPS_RECORDED_OP_H
 
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGen/api/value.h"
 
 namespace usdGen {

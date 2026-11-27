@@ -5,7 +5,7 @@
 #define USDGEN_VULKAN_SOURCE_VALIDATION_H
 
 #include "usdGenCurves/vulkan/sourceGeneration.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 #include <cmath>
 #include <cstring>
 #include <limits>

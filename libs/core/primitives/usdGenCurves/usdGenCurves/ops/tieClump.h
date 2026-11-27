@@ -35,7 +35,7 @@
 #define USDGEN_OP_TIECLUMP_H
 
 #include "usdGenCurves/ops/wholeStrand.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

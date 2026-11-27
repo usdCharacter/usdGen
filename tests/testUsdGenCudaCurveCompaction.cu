@@ -1,6 +1,6 @@
 #include "usdGenCurves/cuda/curveCompaction.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 
 #include <atomic>
 #include <cmath>

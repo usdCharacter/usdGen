@@ -6,7 +6,7 @@
 #include "usdGenCuda/gpu/cudaCompat.h"
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 #include "usdGenExpr/expressions/frontend.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenMath/math.h"
 #include <algorithm>
 #include <atomic>

@@ -8,7 +8,7 @@
 #include "usdGenCurves/curveLoader.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenSurface/surfaceCageSource.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenMath/math.h"

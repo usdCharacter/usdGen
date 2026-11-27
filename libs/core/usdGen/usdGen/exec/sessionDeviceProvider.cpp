@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
 
 namespace usdGen {
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Private: the tables a UsdGenOpRecord owns, built once by RegisterOp.
 #pragma once
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 
 #include <utility>
 #include <vector>

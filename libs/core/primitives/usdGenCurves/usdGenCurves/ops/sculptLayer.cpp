@@ -29,7 +29,7 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"

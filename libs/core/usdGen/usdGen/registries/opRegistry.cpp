@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGen/registries/opRecordTables.h"
-#include "usdGen/registries/registrar.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/registrar.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include "usdGen/api/engine.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 
 #include <bitset>
 

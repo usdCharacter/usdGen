@@ -12,11 +12,11 @@
 // (scale-up exact, scale-down by the pinned draw, identity, zero skip),
 // cross-worker bit-identity, and the mirrored negative/NaN error branch.
 #include "utils/pxrInterop.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenSurface/ops/scatter.h"
 #include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"

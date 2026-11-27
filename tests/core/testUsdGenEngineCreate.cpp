@@ -14,9 +14,9 @@
 #include "utils/testToken.h"
 #include "usdGen/api/engine.h"
 #include "usdGen/api/status.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/typeRegistry.h"
 
 #include <cstdio>
 #include <cstring>

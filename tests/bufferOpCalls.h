@@ -3,8 +3,8 @@
 // Test helpers: drive an op's Capture/Evaluate by concrete type over builder
 // buffers and raw chunk-local planes, the way the scheduler does.
 #pragma once
-#include "usdGen/exec/chunkView.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/chunkView.h"
+#include "usdGen/api/ext/op.h"
 #include "curveBufferSetView.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"

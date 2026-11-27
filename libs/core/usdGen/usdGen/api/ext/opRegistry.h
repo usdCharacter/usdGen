@@ -4,8 +4,8 @@
 // compile. Registration goes through UsdGenRegistrar (registrar.h).
 #pragma once
 #include "usdGen/api/export.h"
-#include "usdGen/registries/opDef.h"
-#include "usdGen/registries/paramEvaluator.h"
+#include "usdGen/api/ext/opDef.h"
+#include "usdGen/api/ext/paramEvaluator.h"
 #include "usdGen/api/channel.h"
 #include "usdGen/api/token.h"
 #include <atomic>

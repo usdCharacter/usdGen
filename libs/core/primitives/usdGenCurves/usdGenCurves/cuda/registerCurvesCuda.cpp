@@ -4,10 +4,10 @@
 // Registered in every build: the capability matrix reads them.
 #include "usdGenCurves/cuda/cudaStages.h"
 
-#include "usdGen/exec/device/executionPlan.h"
+#include "usdGen/api/ext/device/executionPlan.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/registrar.h"
 
 #include "usdGenCurves/ops/curveSource.h"
 #include "usdGenCurves/ops/deform.h"

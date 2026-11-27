@@ -25,7 +25,7 @@
 #include "usdGenSurface/surfaceInput.h"
 
 #include "usdGenCurves/ops/strandUtil.h"
-#include "usdGen/exec/scheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
 
 #include <algorithm>
 #include <cmath>
@@ -34,7 +34,7 @@
 #include <numeric>
 #include <utility>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/span.h"
 

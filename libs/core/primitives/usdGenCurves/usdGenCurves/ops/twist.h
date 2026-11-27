@@ -22,7 +22,7 @@
 #define USDGEN_OP_TWIST_H
 
 #include "usdGenCurves/ops/wholeStrand.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

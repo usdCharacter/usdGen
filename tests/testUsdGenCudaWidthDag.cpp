@@ -6,12 +6,12 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"
 #include "cudaExecutionQueueFixture.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 #include "usdGen/compile/graph.h"
 #include "usdGenCurves/cuda/generation.h"
 #include "usdGenSurface/imagePayload.h"
 #include "usdGen/exec/scheduler.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 
 #include <cuda_runtime_api.h>
 

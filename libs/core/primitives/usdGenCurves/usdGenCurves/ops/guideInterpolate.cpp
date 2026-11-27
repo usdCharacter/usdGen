@@ -53,10 +53,10 @@
 #include "usdGenCurves/ops/opUtil.h"
 #include "usdGenCurves/ops/regionMap.h"
 #include "usdGenCurves/ops/strandUtil.h"
-#include "usdGen/exec/scheduler.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/token.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/ext/workDispatcher.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/tokenScope.h"
+#include "usdGen/api/types.h"
 #include "usdGenMath/usdGenMath/hash.h"
 
 #include "usdGenMath/math.h"
@@ -71,7 +71,7 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"

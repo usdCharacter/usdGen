@@ -3,8 +3,8 @@
 // One refcounted block of column memory.
 #pragma once
 #include "usdGen/api/export.h"
-#include "usdGen/exec/epoch.h"        // UsdGenRefCounted, UsdGenRef (moves to api/ in step 12)
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/epoch.h"        // UsdGenRefCounted, UsdGenRef (moves to api/ in step 12)
+#include "usdGen/api/pool.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>

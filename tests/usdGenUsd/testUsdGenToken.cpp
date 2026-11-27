@@ -8,7 +8,7 @@
 // without interning, the host conversions, and a 64-thread intern stress.
 
 #include "usdGen/api/token.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGenUsd/convert/token.h"
 
 #include "pxr/base/tf/token.h"

@@ -14,9 +14,9 @@
 #include "usdGenSurface/ops/scatter.h"
 #include "usdGenCurves/ops/width.h"
 #include "usdGenCurves/ops/widthBlend.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGenVulkan/backendId.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 

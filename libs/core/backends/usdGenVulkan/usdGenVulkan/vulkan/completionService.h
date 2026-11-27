@@ -6,7 +6,7 @@
 
 #include "deviceContext.h"
 #include "queueTimeline.h"
-#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/api/pipeline.h"
 
 #include <cstdint>
 #include <atomic>

@@ -5,7 +5,7 @@
 #include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "usdGenCurves/curveLoader.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 
 #include <array>
 #include <atomic>

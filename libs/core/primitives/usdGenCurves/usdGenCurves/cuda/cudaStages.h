@@ -3,8 +3,8 @@
 // CUDA lane stages and backend parameter indices. No CUDA SDK types: the
 // kernel rows are registered (ops/registerCurvesCuda.cpp) in every build.
 #pragma once
-#include "usdGen/registries/backendRegistry.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ext/backendRegistry.h"
+#include "usdGen/api/ids.h"
 #include "usdGenCuda/backendId.h"
 
 #include <cstdint>

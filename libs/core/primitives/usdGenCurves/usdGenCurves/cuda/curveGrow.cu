@@ -1,7 +1,7 @@
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCuda/gpu/cudaCompat.h"
 
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 
 #include <cmath>
 #include <limits>

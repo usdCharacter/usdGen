@@ -1,8 +1,8 @@
 #ifndef USDGEN_EXECUTION_RUNTIME_INTERNAL_H
 #define USDGEN_EXECUTION_RUNTIME_INTERNAL_H
 
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/taskScheduler.h"
 #include <algorithm>
 #include <thread>
 

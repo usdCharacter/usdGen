@@ -9,10 +9,11 @@
 #ifndef USDGEN_COMPILER_H
 #define USDGEN_COMPILER_H
 
+#include "usdGen/api/compile.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/exec/pool.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/pool.h"
+#include "usdGen/api/types.h"
 
 #include <string>
 #include <functional>
@@ -24,21 +25,6 @@ namespace usdGen {
 
 class UsdGenExecutionPlanHandle;
 struct UsdGenDiagnostics;
-
-struct UsdGenCompileResult
-{
-    bool                      ok = false;
-    UsdGenEpoch               structuralDigest {};  // graph-level digest (03 §3.2)
-    UsdGenPoolVector<UsdGenNodeId> rebuilt;    // nodes whose UsdGenOp was recreated
-    UsdGenPoolVector<UsdGenNodeId> reordered;  // nodes whose topological index moved
-    UsdGenPoolVector<UsdGenNodeId> valueEdited; // kept nodes whose value-class params moved
-    std::vector<std::string>  errors;        // cycle, terminal ambiguity, unknown op, ...
-    std::vector<std::string>  warnings;      // non-fatal authoring diagnostics
-    /// False only when a failed Recompile had already moved state out of
-    /// *out (a broken invariant: every failure is preflighted). The caller
-    /// must then discard the graph.
-    bool                      graphIntact = true;
-};
 
 class UsdGenCompiler
 {
@@ -52,9 +38,7 @@ public:
     /// plan from this exact descriptor without changing global availability.
     /// No source capture or CPU geometry evaluation occurs. Both outputs stay
     /// untouched on failure. Used by the injected-provider route.
-    using DevicePlanCompiler = std::function<
-        std::shared_ptr<const UsdGenExecutionPlanHandle>(
-            UsdGenGraphSpec const&, UsdGenDiagnostics*)>;
+    using DevicePlanCompiler = UsdGenDevicePlanCompiler;
     UsdGenCompileResult CompileInjectedDevice(UsdGenGraphSpec const&,
         UsdGenGraph*, DevicePlanCompiler const&,
         std::shared_ptr<const UsdGenExecutionPlanHandle>* plan);

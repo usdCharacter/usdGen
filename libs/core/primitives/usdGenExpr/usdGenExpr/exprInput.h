@@ -10,7 +10,7 @@
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 #include "usdGenExpr/export.h"
 #include "usdGenExpr/expressions/context.h"
 

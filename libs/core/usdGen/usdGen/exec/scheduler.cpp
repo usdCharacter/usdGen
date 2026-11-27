@@ -17,18 +17,18 @@
 //
 // I8: every parallel region runs over the worker pool, never pxr work::.
 #include "usdGen/exec/scheduler.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 
 #include "usdGen/api/debug.h"
 #include "usdGen/api/env.h"
 #include "usdGen/api/status.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGen/exec/fastCores.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 #include "usdGen/api/writeSet.h"
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/trace.h"
@@ -903,6 +903,11 @@ void UsdGenWorkDispatcher::ParallelFor(
         return;
     }
     _pool->ParallelFor(count, body, payload, claimChunk);
+}
+
+int UsdGenWorkDispatcher::MaxConcurrency() const
+{
+    return _pool ? _pool->Workers() : 1;
 }
 
 UsdGenWorkDispatcher UsdGenScheduler::MakeWorkDispatcher() const

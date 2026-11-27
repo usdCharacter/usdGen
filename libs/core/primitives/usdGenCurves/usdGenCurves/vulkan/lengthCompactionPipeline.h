@@ -6,7 +6,7 @@
 
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include "usdGenCurves/types/curveBuffer.h"
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 
 #include <functional>
 #include <memory>

@@ -25,14 +25,14 @@
 #include "usdGen/api/span.h"
 
 #include "usdGenCurves/ops/strandUtil.h"
-#include "usdGen/exec/scheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <numeric>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 
 namespace usdGen {

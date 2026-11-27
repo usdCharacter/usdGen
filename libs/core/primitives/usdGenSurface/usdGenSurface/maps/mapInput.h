@@ -10,7 +10,7 @@
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/typeRegistry.h"
 #include "usdGenSurface/export.h"
 
 

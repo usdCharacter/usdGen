@@ -11,7 +11,7 @@
 
 #include "usdGenCurves/ops/opUtil.h"
 #include "usdGenCurves/ops/strandUtil.h"
-#include "usdGen/exec/scheduler.h"
+#include "usdGen/api/ext/workDispatcher.h"
 
 #include "usdGenMath/math.h"
 #include "usdGen/api/cowArray.h"
@@ -23,7 +23,7 @@
 #include <limits>
 #include <string>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/span.h"
 

@@ -4,7 +4,7 @@
 // table; Scatter, RootSet, the surface and map input kinds and the map types
 // still register from usdGenCurves (ops/registerCurves.cpp) so their ids and
 // the input-kind run order stay as they were before the split.
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 #include "usdGenSurface/export.h"
 #include "usdGenSurface/limitSurface.h"
 #include "usdGenSurface/maps/ptexMap.h"

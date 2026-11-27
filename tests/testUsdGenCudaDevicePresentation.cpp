@@ -9,7 +9,7 @@
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
 #include "usdGenCurves/cuda/tools.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 
 #include <cuda_runtime.h>
 

@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/serialLane.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/serialLane.h"
 
 #include <atomic>
 

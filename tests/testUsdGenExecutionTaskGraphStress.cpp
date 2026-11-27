@@ -1,4 +1,4 @@
-#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
 
 #include <array>
 #include <atomic>

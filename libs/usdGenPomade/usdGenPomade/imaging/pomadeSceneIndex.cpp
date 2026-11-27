@@ -6,7 +6,7 @@
 #include "usdGenPomade/pomadeRegistry.h"
 #include "usdGenPomade/pomadeTransport.h"
 
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 
 #include "pxr/base/tf/envSetting.h"
 #include "pxr/base/tf/registryManager.h"

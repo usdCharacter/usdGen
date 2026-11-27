@@ -12,7 +12,7 @@
 #include <new>
 #include <thread>
 
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 namespace usdGen::vulkan {
 namespace {

@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "usdGenCuda/exec/workspace.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 
 #include <cuda_runtime_api.h>
 

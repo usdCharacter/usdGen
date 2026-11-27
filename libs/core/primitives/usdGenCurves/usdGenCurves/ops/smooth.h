@@ -11,8 +11,8 @@
 #ifndef USDGEN_OP_SMOOTH_H
 #define USDGEN_OP_SMOOTH_H
 
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/handles.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ids.h"
 
 
 namespace usdGen {

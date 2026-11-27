@@ -7,10 +7,10 @@
 #include "usdGenCuda/export.h"
 #include "usdGenCuda/compile/program.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/registrar.h"
 #if defined(USDGEN_ENABLE_CUDA)
 #include "usdGenCuda/exec/provider.h"
 #endif

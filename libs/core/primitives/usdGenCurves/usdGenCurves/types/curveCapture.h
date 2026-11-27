@@ -3,7 +3,7 @@
 // Curve captures: generators fill a builder buffer; payload captures carry
 // per-curve / per-CV scalars resolved once per capture epoch (I4).
 #pragma once
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenCurves/export.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGen/api/cowArray.h"

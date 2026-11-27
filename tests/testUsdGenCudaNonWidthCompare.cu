@@ -1,7 +1,7 @@
 #include "utils/pxrInterop.h"
 #include "usdGenCurves/cuda/nonWidthCompare.h"
 #include "usdGenCuda/backendId.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 
 #include <cuda_runtime.h>
 #include <cmath>

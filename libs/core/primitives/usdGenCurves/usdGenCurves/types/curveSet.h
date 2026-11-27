@@ -9,7 +9,7 @@
 #include "usdGen/api/ids.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
-#include "usdGen/exec/chunkView.h"
+#include "usdGen/api/ext/chunkView.h"
 #include "usdGenMath/vec.h"
 #include "usdGenMath/math.h"
 #include <cstddef>

@@ -9,11 +9,11 @@
 // mutable Session state directly from the Vulkan waiter.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/api/pipeline.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
 #include "usdGenVulkan/vulkan/completionService.h"
 #include "usdGenCurves/vulkan/deviceGenerationAdapter.h"
@@ -23,7 +23,7 @@
 #include "usdGenCurves/vulkan/widthPipeline.h"
 #include "usdGenCurves/vulkan/widthBlendPipeline.h"
 #include "usdGenCurves/vulkan/nonWidthComparePipeline.h"
-#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
 #include "usdGenCurves/vulkan/sessionProvider.h"
 #include "usdGen/exec/sessionDeviceIntegration.h"
 #include "usdGen/exec/executionCache.h"

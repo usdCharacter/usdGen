@@ -9,12 +9,12 @@
 // first compile; after that every lookup reads immutable state.
 #pragma once
 #include "usdGen/api/export.h"
-#include "usdGen/registries/backend.h"
-#include "usdGen/registries/backendRegistry.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/paramEvaluator.h"
-#include "usdGen/registries/publisher.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/backendDef.h"
+#include "usdGen/api/ext/backendRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/paramEvaluator.h"
+#include "usdGen/api/ext/publisher.h"
+#include "usdGen/api/ext/typeRegistry.h"
 #include <string>
 
 namespace usdGen {

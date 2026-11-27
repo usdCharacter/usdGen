@@ -16,8 +16,8 @@
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/registrar.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/tf/token.h"

@@ -1,9 +1,9 @@
-#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/api/pipeline.h"
 #include "usdGen/exec/executionRuntimeInternal.h"
 
-#include "usdGen/exec/epoch.h"
-#include "usdGen/exec/parkingWord.h"
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/epoch.h"
+#include "usdGen/api/parkingWord.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <optional>
 #include <stdexcept>

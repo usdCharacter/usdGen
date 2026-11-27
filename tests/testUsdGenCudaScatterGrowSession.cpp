@@ -7,7 +7,7 @@
 #include "cudaPlanRunner.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/exec/scheduler.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGenCurves/cuda/generation.h"
 #include "usdGenSurface/imagePayload.h"
 

@@ -18,9 +18,9 @@
 #include "usdGen/compile/compiler.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/exec/scheduler.h"
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/registrar.h"
-#include "usdGen/registries/typeRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/registrar.h"
+#include "usdGen/api/ext/typeRegistry.h"
 #include "usdGenUsd/lower.h"
 
 #include "pxr/base/gf/matrix4d.h"

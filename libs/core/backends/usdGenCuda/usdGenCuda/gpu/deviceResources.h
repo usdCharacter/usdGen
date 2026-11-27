@@ -1,7 +1,7 @@
 #ifndef USDGEN_GPU_DEVICE_RESOURCES_H
 #define USDGEN_GPU_DEVICE_RESOURCES_H
 
-#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/api/ext/device/executionResources.h"
 
 #include <optional>
 

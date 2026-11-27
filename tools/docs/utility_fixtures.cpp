@@ -7,8 +7,8 @@
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGen/exec/scheduler.h"
 
 #include "pxr/usd/usd/stage.h"

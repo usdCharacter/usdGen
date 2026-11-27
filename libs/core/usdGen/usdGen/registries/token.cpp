@@ -3,7 +3,7 @@
 // The interner: an open-addressed table of atomic rep pointers (linear
 // probing, CAS insert) over an append-only bump arena. Lock-free, insert
 // only, never freed.
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 #include "usdGen/api/status.h"
 
 #include <atomic>

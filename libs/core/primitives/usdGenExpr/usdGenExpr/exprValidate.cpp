@@ -6,7 +6,7 @@
 #include "usdGen/api/token.h"
 #include "usdGenExpr/exprInput.h"
 #include "usdGenSurface/maps/mapInput.h"
-#include "usdGen/exec/pool.h"
+#include "usdGen/api/pool.h"
 
 #include <functional>
 #include <set>

@@ -6,7 +6,7 @@
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include <memory>
 
 

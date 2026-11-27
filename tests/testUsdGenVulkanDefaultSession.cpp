@@ -5,7 +5,7 @@
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/compile/compiler.h"

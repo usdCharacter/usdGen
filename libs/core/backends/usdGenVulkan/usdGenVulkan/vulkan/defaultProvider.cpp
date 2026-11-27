@@ -17,10 +17,10 @@
 #include "deviceFactory.h"
 #include "defaultResources.h"
 #include "externalRetirement.h"
-#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/api/pipeline.h"
 #include "usdGen/exec/executionCache.h"
-#include "usdGen/exec/executionTaskGraph.h"
-#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
 #include "usdGenVulkan/exec/shaderLibrary.h"
 
 #include <vulkan/vulkan.h>

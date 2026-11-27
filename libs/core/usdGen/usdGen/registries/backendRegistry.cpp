@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/registries/backendRegistry.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/backendRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 
 namespace usdGen {
 

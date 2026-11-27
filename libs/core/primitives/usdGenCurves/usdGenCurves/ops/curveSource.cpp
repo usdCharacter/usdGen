@@ -9,9 +9,9 @@
 
 #include "usdGenCurves/curveLoader.h"
 #include "usdGenSurface/surfaceCageSource.h"
-#include "usdGen/registries/op.h"
-#include "usdGen/registries/engineTokens.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/op.h"
+#include "usdGen/api/engineTokens.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
@@ -21,7 +21,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
-#include "usdGen/registries/registrar.h"
+#include "usdGen/api/ext/registrar.h"
 
 namespace usdGen {
 

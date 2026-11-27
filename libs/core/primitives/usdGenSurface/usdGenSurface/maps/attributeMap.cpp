@@ -2,7 +2,7 @@
 // See attributeMap.h for the model and its v1 limits.
 #include "usdGenSurface/maps/attributeMap.h"
 
-#include "usdGen/compile/digest.h"
+#include "usdGen/api/ext/digest.h"
 
 #include <algorithm>
 #include <atomic>

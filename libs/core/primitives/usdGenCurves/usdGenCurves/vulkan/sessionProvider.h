@@ -5,10 +5,10 @@
 #ifndef USDGEN_VULKAN_SESSION_PROVIDER_H
 #define USDGEN_VULKAN_SESSION_PROVIDER_H
 
-#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
 #include "usdGenCurves/vulkan/planExecutor.h"
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 
 #include <atomic>
 #include <array>

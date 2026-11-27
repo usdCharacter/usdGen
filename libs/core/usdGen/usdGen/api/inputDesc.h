@@ -11,7 +11,7 @@
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/token.h"
-#include "usdGen/exec/epoch.h"
+#include "usdGen/api/epoch.h"
 
 #include <cstddef>
 #include <cstdint>

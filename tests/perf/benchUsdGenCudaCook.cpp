@@ -9,7 +9,7 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "../testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/exec/session.h"
+#include "usdGen/api/session.h"
 
 #include <cuda_runtime.h>
 

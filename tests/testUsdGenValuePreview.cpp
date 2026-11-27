@@ -25,10 +25,10 @@
 #include "pxr/imaging/hd/materialSchema.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
 
-#include "usdGen/registries/op.h"
+#include "usdGen/api/ext/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
-#include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/ext/opRegistry.h"
 #include "usdGenHydraCurves/previewColor.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"

@@ -8,7 +8,7 @@
 #include "usdGenMath/math.h"
 
 #include "usdGenCurves/ops/opUtil.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 
 #include <algorithm>
 #include <cmath>

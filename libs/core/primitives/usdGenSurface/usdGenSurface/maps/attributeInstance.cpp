@@ -2,9 +2,9 @@
 // See attributeInstance.h for the contract and its distance from Pomade.
 #include "usdGenSurface/maps/attributeInstance.h"
 
-#include "usdGen/compile/digest.h"
+#include "usdGen/api/ext/digest.h"
 
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <algorithm>
 #include <type_traits>

@@ -1,12 +1,12 @@
 // Compile/link seam for consumers which only use the backend-neutral API.
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 #include "testBackend.h"
-#include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/exec/device/executionPlan.h"
-#include "usdGen/exec/device/executionResources.h"
-#include "usdGen/exec/device/executionRetirement.h"
-#include "usdGen/exec/executionTaskGraph.h"
-#include "usdGen/exec/executionValueRevisions.h"
+#include "usdGen/api/backend.h"
+#include "usdGen/api/ext/device/executionPlan.h"
+#include "usdGen/api/ext/device/executionResources.h"
+#include "usdGen/api/ext/device/executionRetirement.h"
+#include "usdGen/api/ext/device/executionTaskGraph.h"
+#include "usdGen/api/ext/device/executionValueRevisions.h"
 #include "usdGen/exec/executionCache.h"
 
 #include <cstdio>

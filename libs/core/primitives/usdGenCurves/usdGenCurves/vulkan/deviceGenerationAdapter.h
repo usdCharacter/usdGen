@@ -5,8 +5,8 @@
 
 #include "usdGenCurves/vulkan/sourceGeneration.h"
 #include "usdGenVulkan/vulkan/completionService.h"
-#include "usdGen/exec/sharedCell.h"
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/sharedCell.h"
+#include "usdGen/api/ext/device/deviceGeneration.h"
 
 #include <atomic>
 #include <memory>

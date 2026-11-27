@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenCurves/types/deviceChannelTokens.h"
 
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include <atomic>
 

@@ -1,4 +1,4 @@
-#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/api/pipeline.h"
 
 #include <atomic>
 #include <chrono>

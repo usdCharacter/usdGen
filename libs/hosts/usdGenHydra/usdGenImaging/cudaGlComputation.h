@@ -8,7 +8,7 @@
 
 #ifdef USDGEN_HAS_CUDA_GL_INTEROP
 
-#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/api/deviceLease.h"
 
 #include "pxr/imaging/hdSt/computation.h"
 #include "pxr/imaging/hd/types.h"

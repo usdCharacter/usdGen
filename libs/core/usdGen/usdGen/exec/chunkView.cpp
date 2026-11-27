@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // Compile check for chunkView.h. Emits nothing.
-#include "usdGen/exec/chunkView.h"
+#include "usdGen/api/ext/chunkView.h"
 
 #include <type_traits>
 

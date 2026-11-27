@@ -10,9 +10,9 @@
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGenMath/math.h"
-#include "usdGen/compile/types.h"
+#include "usdGen/api/types.h"
 #include "usdGenSurface/export.h"
-#include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/engineTokens.h"
 
 
 #include <cstddef>

@@ -4,7 +4,7 @@
 // registered for the graph's primitive (compile/program.h).
 #pragma once
 #include "usdGenCuda/export.h"
-#include "usdGen/exec/sessionDeviceProvider.h"
+#include "usdGen/api/ext/device/sessionDeviceProvider.h"
 
 #include <memory>
 #include <string>

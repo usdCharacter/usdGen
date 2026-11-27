@@ -1,11 +1,14 @@
 #ifndef USDGEN_SESSION_H
 #define USDGEN_SESSION_H
 
-#include "usdGen/exec/executionPipeline.h"
-#include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/exec/generationStore.h"
-#include "usdGen/compile/graph.h"
-#include "usdGen/exec/stats.h"
+#include "usdGen/api/pipeline.h"
+#include "usdGen/api/backend.h"
+#include "usdGen/api/generation.h"
+#include "usdGen/api/diagnostics.h"
+#include "usdGen/api/routing.h"
+#include "usdGen/api/sharedCell.h"
+#include "usdGen/api/types.h"
+#include "usdGen/api/stats.h"
 
 #include <atomic>
 #include <functional>
@@ -20,6 +23,8 @@
 namespace usdGen {
 
 class UsdGenSessionDeviceProvider;
+class UsdGenExecutionCacheDomain;
+class UsdGenDeviceGeneration;
 struct UsdGenSessionDeviceObservers;
 
 /// Value-only dirty input delivered to the command owner. Structural dirt

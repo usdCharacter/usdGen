@@ -1,0 +1,36 @@
+# Step 12.2 header tiers: <old include> <new include>, one per line.
+# Read by tools/restructure/rewriteTiers12.py.
+usdGen/exec/epoch.h usdGen/api/epoch.h
+usdGen/exec/sharedCell.h usdGen/api/sharedCell.h
+usdGen/exec/parkingWord.h usdGen/api/parkingWord.h
+usdGen/exec/taskScheduler.h usdGen/api/taskScheduler.h
+usdGen/exec/pool.h usdGen/api/pool.h
+usdGen/exec/stats.h usdGen/api/stats.h
+usdGen/exec/serialLane.h usdGen/api/serialLane.h
+usdGen/compile/types.h usdGen/api/types.h
+usdGen/registries/engineTokens.h usdGen/api/engineTokens.h
+usdGen/registries/handles.h usdGen/api/ids.h
+usdGen/exec/session.h usdGen/api/session.h
+usdGen/exec/executionPipeline.h usdGen/api/pipeline.h
+usdGen/exec/executionSequenceWindow.h usdGen/api/pipeline.h
+usdGen/exec/device/executionBackend.h usdGen/api/backend.h
+usdGen/registries/backend.h usdGen/api/ext/backendDef.h
+usdGen/registries/registrar.h usdGen/api/ext/registrar.h
+usdGen/registries/opDef.h usdGen/api/ext/opDef.h
+usdGen/registries/op.h usdGen/api/ext/op.h
+usdGen/registries/typeRegistry.h usdGen/api/ext/typeRegistry.h
+usdGen/registries/backendRegistry.h usdGen/api/ext/backendRegistry.h
+usdGen/registries/paramEvaluator.h usdGen/api/ext/paramEvaluator.h
+usdGen/registries/publisher.h usdGen/api/ext/publisher.h
+usdGen/registries/opRegistry.h usdGen/api/ext/opRegistry.h
+usdGen/registries/token.h usdGen/api/ext/tokenScope.h
+usdGen/exec/chunkView.h usdGen/api/ext/chunkView.h
+usdGen/exec/scratch.h usdGen/api/ext/scratch.h
+usdGen/compile/digest.h usdGen/api/ext/digest.h
+usdGen/exec/device/executionResources.h usdGen/api/ext/device/executionResources.h
+usdGen/exec/device/executionPlan.h usdGen/api/ext/device/executionPlan.h
+usdGen/exec/device/executionRetirement.h usdGen/api/ext/device/executionRetirement.h
+usdGen/exec/device/deviceGeneration.h usdGen/api/ext/device/deviceGeneration.h
+usdGen/exec/sessionDeviceProvider.h usdGen/api/ext/device/sessionDeviceProvider.h
+usdGen/exec/executionTaskGraph.h usdGen/api/ext/device/executionTaskGraph.h
+usdGen/exec/executionValueRevisions.h usdGen/api/ext/device/executionValueRevisions.h

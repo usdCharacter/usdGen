@@ -7,9 +7,9 @@
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 
-#include "usdGen/registries/opRegistry.h"
-#include "usdGen/registries/registrar.h"
-#include "usdGen/registries/token.h"
+#include "usdGen/api/ext/opRegistry.h"
+#include "usdGen/api/ext/registrar.h"
+#include "usdGen/api/ext/tokenScope.h"
 
 #include <atomic>
 #include <cstring>

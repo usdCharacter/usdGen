@@ -4,7 +4,7 @@
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 
-#include "usdGen/exec/taskScheduler.h"
+#include "usdGen/api/taskScheduler.h"
 
 #include <nanoflann.hpp>
 
