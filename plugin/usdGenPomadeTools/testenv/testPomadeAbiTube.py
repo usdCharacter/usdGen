@@ -16,7 +16,7 @@
 # that face is (u = z - iz, v = x - ix).
 #
 # Proven here (the ABI path; per-kernel semantics stay in
-# tests/testUsdGenPomadeTubes.cpp):
+# tests/hosts/usdGenPomade/testUsdGenPomadeTubes.cpp):
 #   * a stroked region rasterises and auto-tubes (5 center CVs, >= 2 rings
 #     of 8);
 #   * center edits move the CV, bump the version, and insert/delete round

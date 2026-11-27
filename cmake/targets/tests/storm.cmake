@@ -148,7 +148,7 @@ endif()
 # M1 T2 Storm tests (EGL harness; the S-8/S-9/L-1 PW decisions get confirmed
 # on shipped code here, 11 §2.2 exit-gate table).
 if(NOT WIN32)
-    add_executable(testUsdGenStormLook tests/testUsdGenStormLook.cpp)
+    add_executable(testUsdGenStormLook tests/hosts/usdGenUsd/testUsdGenStormLook.cpp)
     target_link_libraries(testUsdGenStormLook PRIVATE usdGenTestUtilsHd)
     target_include_directories(testUsdGenStormLook PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test)
 endif()
@@ -208,8 +208,9 @@ set(_usdgen_storm_labels_testUsdGenStormSurgery  "T2")
 foreach(_t testUsdGenStormTangent testUsdGenStormHgiResource
            testUsdGenStormRefine  testUsdGenStormMaterial
            testUsdGenStormSurgery)
-    if(NOT WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/${_t}.cpp")
-        add_executable(${_t} tests/${_t}.cpp)
+    usdgen_test_source(_usdgen_src ${_t}.cpp QUIET)
+    if(NOT WIN32 AND _usdgen_src)
+        add_executable(${_t} ${_usdgen_src})
         target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
         target_include_directories(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenHydra/primitives/curves/shaders/test)
         set(_usdgen_storm_cmd ${_t} ${PROJECT_SOURCE_DIR})

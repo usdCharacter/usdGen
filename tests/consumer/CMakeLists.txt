@@ -1,7 +1,7 @@
 # usdGen M0 consumer probe (plan §6.2; sol S-5/X-4).
 #
 # A minimal downstream CMake project proving the installed package config is
-# usable. testUsdGenConsumer (tests/testUsdGenConsumer.cpp) configures and
+# usable. testUsdGenConsumer (tests/api/testUsdGenConsumer.cpp) configures and
 # builds this directory against a scratch install prefix
 # (USDGEN_INSTALL_PREFIX) and runs the resulting binary.
 #

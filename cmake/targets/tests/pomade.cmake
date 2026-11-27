@@ -6,7 +6,7 @@
 # usdGenTools C ABI (usdGenImaging/usdGenToolsApi.h): the compile/list entry
 # points the usdview expression editor calls through ctypes. Pure C ABI over
 # the engine frontend, so it is an ordinary T1 with no stage and no Hydra.
-add_executable(testUsdGenToolsApi tests/testUsdGenToolsApi.cpp)
+add_executable(testUsdGenToolsApi tests/hosts/usdGenHydra/testUsdGenToolsApi.cpp)
 target_link_libraries(testUsdGenToolsApi PRIVATE usdGenImaging)
 add_test(NAME testUsdGenToolsApi COMMAND testUsdGenToolsApi)
 set_tests_properties(testUsdGenToolsApi PROPERTIES
@@ -18,7 +18,7 @@ set_tests_properties(testUsdGenToolsApi PROPERTIES
 # and asserts the registry join, the per-level publication and leaf-exact
 # dirties; the API test drives pomadeApi.h, including the V0 registry and
 # level-display entries with no index attached.
-add_executable(testUsdGenPomadeIndex tests/testUsdGenPomadeIndex.cpp)
+add_executable(testUsdGenPomadeIndex tests/hosts/usdGenPomade/testUsdGenPomadeIndex.cpp)
 target_link_libraries(testUsdGenPomadeIndex PRIVATE usdGenPomade hd)
 add_test(NAME testUsdGenPomadeIndex COMMAND testUsdGenPomadeIndex)
 # G6 times a 17.6 MB retained-array copy against an 8 ms move budget.
@@ -39,12 +39,12 @@ set_tests_properties(testUsdGenPomadeIndexNoTestTube PROPERTIES
     LABELS "T1;pomade" TIMEOUT 120)
 # The lock-free Pomade handoffs (lane mailbox, registry tables, published
 # model state) under many threads.
-add_executable(testUsdGenPomadeLanes tests/testUsdGenPomadeLanes.cpp)
+add_executable(testUsdGenPomadeLanes tests/hosts/usdGenPomade/testUsdGenPomadeLanes.cpp)
 target_link_libraries(testUsdGenPomadeLanes PRIVATE usdGenPomade usdGenWithPrimitives usdGenUsd)
 add_test(NAME testUsdGenPomadeLanes COMMAND testUsdGenPomadeLanes)
 set_tests_properties(testUsdGenPomadeLanes PROPERTIES
     LABELS "T0;pomade" TIMEOUT 120)
-add_executable(testUsdGenPomadeApi tests/testUsdGenPomadeApi.cpp)
+add_executable(testUsdGenPomadeApi tests/hosts/usdGenPomade/testUsdGenPomadeApi.cpp)
 target_link_libraries(testUsdGenPomadeApi PRIVATE usdGenPomade)
 add_test(NAME testUsdGenPomadeApi COMMAND testUsdGenPomadeApi)
 set_tests_properties(testUsdGenPomadeApi PROPERTIES
@@ -56,7 +56,7 @@ set_tests_properties(testUsdGenPomadeApi PROPERTIES
 # the GuideInterpolate fill-in, Save groom, and gate TN-4 (reference-scale
 # swap <= 5 ms). Needs the schema plugin for the typed groom prims, so it
 # carries the same environment as every adapter-dependent T1 test.
-add_executable(testUsdGenPomadeCommit tests/testUsdGenPomadeCommit.cpp)
+add_executable(testUsdGenPomadeCommit tests/hosts/usdGenPomade/testUsdGenPomadeCommit.cpp)
 target_link_libraries(testUsdGenPomadeCommit PRIVATE usdGenPomade usdGenImaging usd usdGeom sdf)
 add_test(NAME testUsdGenPomadeCommit COMMAND testUsdGenPomadeCommit)
 # TN-4 bounds each idle TransferContent slot at 8 ms. The first attempt on
@@ -69,7 +69,7 @@ set_tests_properties(testUsdGenPomadeCommit PROPERTIES
 
 # Sparse Output: cage guides and a PTex ownership map feed runtime
 # CurveSource interpolation -> Width, evaluated by the real engine.
-add_executable(testUsdGenPomadeOutput tests/testUsdGenPomadeOutput.cpp)
+add_executable(testUsdGenPomadeOutput tests/internal/usdGen/testUsdGenPomadeOutput.cpp)
 target_link_libraries(testUsdGenPomadeOutput PRIVATE usdGenPomade usdGenTestUtilsHd)
 add_test(NAME testUsdGenPomadeOutput COMMAND testUsdGenPomadeOutput)
 set_tests_properties(testUsdGenPomadeOutput PROPERTIES
@@ -80,7 +80,7 @@ set_tests_properties(testUsdGenPomadeOutput PROPERTIES
 # P2 scalp graph + region bake (plan/17). T0: K1/K2/K3 CPU twins, G1 graph
 # ops, the model graph layer and the P2 C ABI (TN-6 parity runs inside when
 # the build has CUDA and the host has a device).
-add_executable(testUsdGenPomadeGraph tests/testUsdGenPomadeGraph.cpp)
+add_executable(testUsdGenPomadeGraph tests/hosts/usdGenPomade/testUsdGenPomadeGraph.cpp)
 target_link_libraries(testUsdGenPomadeGraph PRIVATE usdGenPomade)
 if(USDGEN_ENABLE_CUDA)
     target_link_libraries(testUsdGenPomadeGraph PRIVATE CUDA::cudart)
@@ -92,7 +92,7 @@ set_tests_properties(testUsdGenPomadeGraph PROPERTIES
 # P3 tubes + fill (plan/17). T0: K4/K5/K8-K11 CPU twins, the model tube/fill
 # layers, auto-tube, the P3 C ABI (TN-6 parity runs inside when the build
 # has CUDA and the host has a device).
-add_executable(testUsdGenPomadeTubes tests/testUsdGenPomadeTubes.cpp)
+add_executable(testUsdGenPomadeTubes tests/hosts/usdGenPomade/testUsdGenPomadeTubes.cpp)
 target_link_libraries(testUsdGenPomadeTubes PRIVATE usdGenPomade)
 if(USDGEN_ENABLE_CUDA)
     target_link_libraries(testUsdGenPomadeTubes PRIVATE CUDA::cudart)
@@ -103,7 +103,7 @@ set_tests_properties(testUsdGenPomadeTubes PROPERTIES
 
 # Exact sub-face graph regions: guide roots and final K9/K10 guide starts
 # must follow closed polygons rather than the coarse face map's centroid.
-add_executable(testUsdGenPomadeSubface tests/testUsdGenPomadeSubface.cpp)
+add_executable(testUsdGenPomadeSubface tests/hosts/usdGenPomade/testUsdGenPomadeSubface.cpp)
 target_link_libraries(testUsdGenPomadeSubface PRIVATE usdGenPomade)
 add_test(NAME testUsdGenPomadeSubface COMMAND testUsdGenPomadeSubface)
 set_tests_properties(testUsdGenPomadeSubface PROPERTIES
@@ -112,7 +112,7 @@ set_tests_properties(testUsdGenPomadeSubface PROPERTIES
 # Region-rooted tubes retain their support-plane frame at section zero while
 # later center CV edits bend the shaft.  This verifies the final host mesh,
 # snapshot/hydrate, and the unpinned legacy K4 path.
-add_executable(testUsdGenPomadeRootFrame tests/testUsdGenPomadeRootFrame.cpp)
+add_executable(testUsdGenPomadeRootFrame tests/hosts/usdGenPomade/testUsdGenPomadeRootFrame.cpp)
 target_link_libraries(testUsdGenPomadeRootFrame PRIVATE usdGenPomade)
 add_test(NAME testUsdGenPomadeRootFrame COMMAND testUsdGenPomadeRootFrame)
 set_tests_properties(testUsdGenPomadeRootFrame PROPERTIES
@@ -125,7 +125,7 @@ set_tests_properties(testUsdGenPomadeRootFrame PROPERTIES
 # half and then exits 77: TN-6 is what this test is for, so an unprovable
 # run reports SKIPPED rather than passing quietly. A CPU-only build makes no
 # parity claim and exits 0.
-add_executable(testUsdGenPomadeKernels tests/testUsdGenPomadeKernels.cpp)
+add_executable(testUsdGenPomadeKernels tests/hosts/usdGenPomade/testUsdGenPomadeKernels.cpp)
 target_link_libraries(testUsdGenPomadeKernels PRIVATE usdGenPomade)
 if(USDGEN_ENABLE_CUDA)
     target_link_libraries(testUsdGenPomadeKernels PRIVATE CUDA::cudart)
@@ -138,7 +138,7 @@ set_tests_properties(testUsdGenPomadeKernels PROPERTIES
 # P4 hierarchy core (plan/17 section 8). T0: K14 subdivide/merge (Hausdorff
 # union bar, bit-exact round-trip via the persistent-parent hint,
 # determinism, edge mode) + K7 averaging (idempotence, propagation).
-add_executable(testUsdGenPomadeHierarchy tests/testUsdGenPomadeHierarchy.cpp)
+add_executable(testUsdGenPomadeHierarchy tests/hosts/usdGenPomade/testUsdGenPomadeHierarchy.cpp)
 target_link_libraries(testUsdGenPomadeHierarchy PRIVATE usdGenPomade)
 if(USDGEN_ENABLE_CUDA)
     target_link_libraries(testUsdGenPomadeHierarchy PRIVATE CUDA::cudart)
@@ -153,7 +153,7 @@ set_tests_properties(testUsdGenPomadeHierarchy PROPERTIES
 # T1: the versioned .ptx through the real ptex() expression (per-strand
 # equality with the live primvar), the bake worker, the swap, and the
 # graph/primvar/map commit round-trip.
-add_executable(testUsdGenPomadeRegionBake tests/testUsdGenPomadeRegionBake.cpp)
+add_executable(testUsdGenPomadeRegionBake tests/internal/usdGenCurves/testUsdGenPomadeRegionBake.cpp)
 target_link_libraries(testUsdGenPomadeRegionBake PRIVATE
     usdGenPomade usdGenWithPrimitives usdGenUsd usdGen_ptex usd sdf usdGeom)
 add_test(NAME testUsdGenPomadeRegionBake COMMAND testUsdGenPomadeRegionBake)

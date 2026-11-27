@@ -208,7 +208,7 @@ def run(stage):
     # TODO(TN-4): main-thread TransferContent of the reference groom in
     # <= 5 ms per idle slot; needs pomade-reference.usda at --wish scale
     # plus the idle-swap harness (the T1 TN-4 section in
-    # tests/testUsdGenPomadeCommit.cpp proves the slot budget meanwhile).
+    # tests/hosts/usdGenPomade/testUsdGenPomadeCommit.cpp proves the slot budget meanwhile).
     skip("TN-4 swap: needs the S7 reference scene + idle-swap harness")
     # TODO(TN-7): a Tube-mode drag while a full bake is in flight; needs
     # the bake worker under the reference scalp.

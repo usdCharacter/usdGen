@@ -317,7 +317,7 @@ add_test(NAME testUsdGenNoHydraInEngine
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoHydraInEngine PROPERTIES LABELS "T0;build;gate;gate:hydra")
 
-add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
+add_executable(testUsdGenWarmAllocations tests/internal/usdGen/testUsdGenWarmAllocations.cpp)
 target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen usdGenUsd)
 add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)
 set_tests_properties(testUsdGenWarmAllocations PROPERTIES

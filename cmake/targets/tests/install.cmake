@@ -11,7 +11,7 @@
 # USDGEN_INSTALL_PREFIX to the scratch prefix after running cmake --install.
 # ---------------------------------------------------------------------------
 if(NOT WIN32)
-    add_executable(testUsdGenInstallTree tests/testUsdGenInstallTree.cpp)
+    add_executable(testUsdGenInstallTree tests/hosts/usdGenUsd/testUsdGenInstallTree.cpp)
     target_link_libraries(testUsdGenInstallTree PRIVATE
         usd usdGeom tf arch gf vt sdf trace)
     target_compile_definitions(testUsdGenInstallTree PRIVATE
@@ -21,7 +21,7 @@ if(NOT WIN32)
         USDGEN_TEST_CMAKE_DIR="${USDGEN_INSTALL_CMAKEDIR}"
         USDGEN_TEST_USD_INSTALL_DIR="${USD_INSTALL_DIR}")
 
-    add_executable(testUsdGenConsumer tests/testUsdGenConsumer.cpp)
+    add_executable(testUsdGenConsumer tests/api/testUsdGenConsumer.cpp)
     target_compile_definitions(testUsdGenConsumer PRIVATE
         USDGEN_TEST_CONSUMER_SRC="${CMAKE_CURRENT_SOURCE_DIR}/tests/consumer"
         USDGEN_TEST_USD_INSTALL_DIR="${USD_INSTALL_DIR}"

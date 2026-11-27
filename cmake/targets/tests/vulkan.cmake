@@ -8,24 +8,24 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     # (resources), dispatch (completion service, timeline notification), and
     # error rendering (errors). Native tests require a compatible Vulkan
     # device and exit 77 when unavailable; ctest treats that as SKIP.
-    add_executable(testUsdGenVulkanRetirementStress tests/testUsdGenVulkanRetirementStress.cpp)
+    add_executable(testUsdGenVulkanRetirementStress tests/internal/usdGenVulkan/testUsdGenVulkanRetirementStress.cpp)
     target_link_libraries(testUsdGenVulkanRetirementStress PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanRetirementStress COMMAND testUsdGenVulkanRetirementStress)
     add_test(NAME testUsdGenVulkanRetirementStartFail COMMAND testUsdGenVulkanRetirementStress --start-fail)
     set_tests_properties(testUsdGenVulkanRetirementStress testUsdGenVulkanRetirementStartFail PROPERTIES
         LABELS "T0;retirement;vulkan" TIMEOUT 120)
-    add_executable(testUsdGenVulkanExternalRetirement tests/testUsdGenVulkanExternalRetirement.cpp)
+    add_executable(testUsdGenVulkanExternalRetirement tests/internal/usdGenVulkan/testUsdGenVulkanExternalRetirement.cpp)
     target_link_libraries(testUsdGenVulkanExternalRetirement PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanExternalRetirement COMMAND testUsdGenVulkanExternalRetirement)
     add_test(NAME testUsdGenVulkanExternalRetirementExit COMMAND testUsdGenVulkanExternalRetirement --exit)
     set_tests_properties(testUsdGenVulkanExternalRetirement testUsdGenVulkanExternalRetirementExit PROPERTIES
         LABELS "T0;vulkan;retirement" TIMEOUT 30)
-    add_executable(testUsdGenVulkanErrors tests/testUsdGenVulkanErrors.cpp)
+    add_executable(testUsdGenVulkanErrors tests/internal/usdGenVulkan/testUsdGenVulkanErrors.cpp)
     target_link_libraries(testUsdGenVulkanErrors PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanErrors COMMAND testUsdGenVulkanErrors)
     set_tests_properties(testUsdGenVulkanErrors PROPERTIES
         LABELS "T0;vulkan;errors" TIMEOUT 30)
-    add_executable(testUsdGenVulkanCompletionService tests/testUsdGenVulkanCompletionService.cpp)
+    add_executable(testUsdGenVulkanCompletionService tests/internal/usdGenVulkan/testUsdGenVulkanCompletionService.cpp)
     target_link_libraries(testUsdGenVulkanCompletionService PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanCompletionService COMMAND testUsdGenVulkanCompletionService)
     add_test(NAME testUsdGenVulkanCompletionServiceClosePending COMMAND testUsdGenVulkanCompletionService --close-pending)
@@ -35,27 +35,27 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         LABELS "T1;vulkan;notification;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
         FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanTimelineNotification tests/testUsdGenVulkanTimelineNotification.cpp)
+    add_executable(testUsdGenVulkanTimelineNotification tests/hosts/usdGenUsd/testUsdGenVulkanTimelineNotification.cpp)
     target_link_libraries(testUsdGenVulkanTimelineNotification PRIVATE Vulkan::Vulkan Threads::Threads)
     add_test(NAME testUsdGenVulkanTimelineNotification COMMAND testUsdGenVulkanTimelineNotification)
     set_tests_properties(testUsdGenVulkanTimelineNotification PROPERTIES
         LABELS "T1;vulkan;notification" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
         FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanFactory tests/testUsdGenVulkanFactory.cpp)
+    add_executable(testUsdGenVulkanFactory tests/internal/usdGenVulkan/testUsdGenVulkanFactory.cpp)
     target_link_libraries(testUsdGenVulkanFactory PRIVATE usdGenVulkanFactory)
     add_test(NAME testUsdGenVulkanFactory COMMAND testUsdGenVulkanFactory)
     set_tests_properties(testUsdGenVulkanFactory PROPERTIES
         LABELS "T1;vulkan;resources;identity" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
-    add_executable(testUsdGenVulkanDefaultResources tests/testUsdGenVulkanDefaultResources.cpp)
+    add_executable(testUsdGenVulkanDefaultResources tests/internal/usdGenVulkan/testUsdGenVulkanDefaultResources.cpp)
     target_link_libraries(testUsdGenVulkanDefaultResources PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanDefaultResources COMMAND testUsdGenVulkanDefaultResources)
     set_tests_properties(testUsdGenVulkanDefaultResources PROPERTIES
         LABELS "T0;vulkan;resources" TIMEOUT 30)
 
     if(USDGEN_ENABLE_VULKAN_RUNTIME)
-        add_executable(testUsdGenVulkanDefaultSession tests/testUsdGenVulkanDefaultSession.cpp)
+        add_executable(testUsdGenVulkanDefaultSession tests/internal/usdGen/testUsdGenVulkanDefaultSession.cpp)
         target_link_libraries(testUsdGenVulkanDefaultSession PRIVATE usdGenUsd usdGenVulkanNative)
         target_link_libraries(testUsdGenVulkanDefaultSession PRIVATE usdGenTestUtils usdGenHydraCurves)
         add_dependencies(testUsdGenVulkanDefaultSession usdGenVulkanShaders)
@@ -78,7 +78,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             TIMEOUT 120 SKIP_RETURN_CODE 77
             FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
         # Warm cooks and the asynchronous deform begin make no timeline Wait.
-        add_executable(testUsdGenVulkanAsyncCook tests/testUsdGenVulkanAsyncCook.cpp
+        add_executable(testUsdGenVulkanAsyncCook tests/internal/usdGenVulkan/testUsdGenVulkanAsyncCook.cpp
             "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
         target_link_libraries(testUsdGenVulkanAsyncCook PRIVATE usdGenUsd usdGenVulkanNative usdGenMath)
         add_dependencies(testUsdGenVulkanAsyncCook usdGenVulkanShaders)
@@ -90,7 +90,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             TIMEOUT 120 SKIP_RETURN_CODE 77
             FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
         if(USDGEN_ENABLE_CUDA)
-            add_executable(testUsdGenCudaVulkanSessionParity tests/testUsdGenCudaVulkanSessionParity.cpp)
+            add_executable(testUsdGenCudaVulkanSessionParity tests/internal/usdGenCurves/testUsdGenCudaVulkanSessionParity.cpp)
             target_link_libraries(testUsdGenCudaVulkanSessionParity PRIVATE usdGenUsd usdGenVulkanNative usdGenCurvesCuda usdGen_ptex CUDA::cudart)
             target_link_libraries(testUsdGenCudaVulkanSessionParity PRIVATE usdGenTestUtils usdGenHydraCurves)
             add_dependencies(testUsdGenCudaVulkanSessionParity usdGenVulkanShaders)
@@ -110,8 +110,8 @@ if(USDGEN_BUILD_VULKAN_TESTS)
                 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
         endif()
     endif()
-    add_executable(testUsdGenVulkanLifecycle tests/testUsdGenVulkanLifecycle.cpp)
-    add_executable(testUsdGenVulkanSurfaceCageSource tests/testUsdGenVulkanSurfaceCageSource.cpp)
+    add_executable(testUsdGenVulkanLifecycle tests/internal/usdGenVulkan/testUsdGenVulkanLifecycle.cpp)
+    add_executable(testUsdGenVulkanSurfaceCageSource tests/internal/usdGenCurves/testUsdGenVulkanSurfaceCageSource.cpp)
     target_link_libraries(testUsdGenVulkanSurfaceCageSource PRIVATE usdGenUsd usdGenVulkanNative usdGen_ptex)
     add_test(NAME testUsdGenVulkanSurfaceCageSource COMMAND testUsdGenVulkanSurfaceCageSource)
     set_tests_properties(testUsdGenVulkanSurfaceCageSource PROPERTIES LABELS "T0;vulkan;source" TIMEOUT 60)
@@ -121,7 +121,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLifecycle testUsdGenVulkanLifecycleQuarantine PROPERTIES
         LABELS "T1;vulkan;resources;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
-    add_executable(testUsdGenVulkanResources tests/testUsdGenVulkanResources.cpp)
+    add_executable(testUsdGenVulkanResources tests/internal/usdGenVulkan/testUsdGenVulkanResources.cpp)
     target_link_libraries(testUsdGenVulkanResources PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanResources COMMAND testUsdGenVulkanResources)
     add_test(NAME testUsdGenVulkanResourcesQuarantine COMMAND testUsdGenVulkanResources --quarantine)
@@ -129,14 +129,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         LABELS "T1;vulkan;cow;resources;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
     if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        add_executable(testUsdGenVulkanFenceFd tests/testUsdGenVulkanFenceFd.cpp)
+        add_executable(testUsdGenVulkanFenceFd tests/hosts/usdGenUsd/testUsdGenVulkanFenceFd.cpp)
         target_link_libraries(testUsdGenVulkanFenceFd PRIVATE Vulkan::Vulkan)
         add_test(NAME testUsdGenVulkanFenceFd COMMAND testUsdGenVulkanFenceFd)
         set_tests_properties(testUsdGenVulkanFenceFd PROPERTIES
             LABELS "T1;vulkan;notification" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
             SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
             FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-        add_executable(testUsdGenVulkanSemaphoreFd tests/testUsdGenVulkanSemaphoreFd.cpp)
+        add_executable(testUsdGenVulkanSemaphoreFd tests/hosts/usdGenUsd/testUsdGenVulkanSemaphoreFd.cpp)
         target_link_libraries(testUsdGenVulkanSemaphoreFd PRIVATE Vulkan::Vulkan)
         add_test(NAME testUsdGenVulkanSemaphoreFd COMMAND testUsdGenVulkanSemaphoreFd)
         set_tests_properties(testUsdGenVulkanSemaphoreFd PROPERTIES
@@ -144,9 +144,9 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
             FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
     endif()
-    add_executable(testUsdGenVulkanSource tests/testUsdGenVulkanSource.cpp)
-    add_executable(testUsdGenVulkanSourcePreparation tests/testUsdGenVulkanSourcePreparation.cpp)
-    add_executable(testUsdGenVulkanExecutionPlan tests/testUsdGenVulkanExecutionPlan.cpp)
+    add_executable(testUsdGenVulkanSource tests/internal/usdGenCurves/testUsdGenVulkanSource.cpp)
+    add_executable(testUsdGenVulkanSourcePreparation tests/internal/usdGenCurves/testUsdGenVulkanSourcePreparation.cpp)
+    add_executable(testUsdGenVulkanExecutionPlan tests/internal/usdGen/testUsdGenVulkanExecutionPlan.cpp)
     target_link_libraries(testUsdGenVulkanExecutionPlan PRIVATE usdGenUsd usdGenVulkanNative)
     if(USDGEN_ENABLE_VULKAN_RUNTIME)
         target_compile_definitions(testUsdGenVulkanExecutionPlan PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
@@ -157,7 +157,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     # without a Vulkan counterpart rejects Vulkan plans with a clear
     # diagnostic (or is already served on Vulkan, proven here). The lease
     # fail-closed leg needs the CUDA lane only when it is compiled in.
-    add_executable(testUsdGenVulkanGapRejections tests/testUsdGenVulkanGapRejections.cpp)
+    add_executable(testUsdGenVulkanGapRejections tests/internal/usdGenCurves/testUsdGenVulkanGapRejections.cpp)
     target_link_libraries(testUsdGenVulkanGapRejections PRIVATE usdGenUsd usdGenVulkanNative)
     if(USDGEN_ENABLE_CUDA)
         target_link_libraries(testUsdGenVulkanGapRejections PRIVATE usdGenCurvesCuda)
@@ -165,7 +165,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     endif()
     add_test(NAME testUsdGenVulkanGapRejections COMMAND testUsdGenVulkanGapRejections)
     set_tests_properties(testUsdGenVulkanGapRejections PROPERTIES LABELS "T1;vulkan;planning;gaps" TIMEOUT 60)
-    add_executable(testUsdGenVulkanWidthOverlapWitness tests/testUsdGenVulkanWidthOverlapWitness.cpp
+    add_executable(testUsdGenVulkanWidthOverlapWitness tests/internal/usdGenCurves/testUsdGenVulkanWidthOverlapWitness.cpp
         "${_usdgen_vulkan_overlap_spv}")
     target_link_libraries(testUsdGenVulkanWidthOverlapWitness PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanWidthOverlapWitness COMMAND testUsdGenVulkanWidthOverlapWitness
@@ -173,7 +173,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanWidthOverlapWitness PROPERTIES
         LABELS "T1;vulkan;operators;witness" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanSourceCapture tests/testUsdGenVulkanSourceCapture.cpp)
+    add_executable(testUsdGenVulkanSourceCapture tests/internal/usdGen/testUsdGenVulkanSourceCapture.cpp)
     target_link_libraries(testUsdGenVulkanSourceCapture PRIVATE usdGenUsd usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanSourceCapture COMMAND testUsdGenVulkanSourceCapture)
     set_tests_properties(testUsdGenVulkanSourceCapture PROPERTIES
@@ -182,7 +182,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     add_test(NAME testUsdGenVulkanSourcePreparation COMMAND testUsdGenVulkanSourcePreparation)
     set_tests_properties(testUsdGenVulkanSourcePreparation PROPERTIES
         LABELS "T1;vulkan;sources;cow" TIMEOUT 60)
-    add_executable(testUsdGenVulkanSourceStride tests/testUsdGenVulkanSourceStride.cpp)
+    add_executable(testUsdGenVulkanSourceStride tests/internal/usdGenCurves/testUsdGenVulkanSourceStride.cpp)
     target_link_libraries(testUsdGenVulkanSourceStride PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanSourceStride COMMAND testUsdGenVulkanSourceStride)
     set_tests_properties(testUsdGenVulkanSourceStride PROPERTIES
@@ -197,29 +197,29 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanSource testUsdGenVulkanSourceQuarantine PROPERTIES
         LABELS "T1;vulkan;cow;sources;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
-    add_executable(testUsdGenVulkanWidth tests/testUsdGenVulkanWidth.cpp "${_usdgen_vulkan_width_spv}")
-    add_executable(testUsdGenVulkanNonWidthCompare tests/testUsdGenVulkanNonWidthCompare.cpp "${_usdgen_vulkan_width_spv}" "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_compare_spv}" "${_usdgen_vulkan_blend_spv}")
+    add_executable(testUsdGenVulkanWidth tests/hosts/usdGenUsd/testUsdGenVulkanWidth.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanNonWidthCompare tests/internal/usdGenCurves/testUsdGenVulkanNonWidthCompare.cpp "${_usdgen_vulkan_width_spv}" "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_compare_spv}" "${_usdgen_vulkan_blend_spv}")
     target_link_libraries(testUsdGenVulkanNonWidthCompare PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanNonWidthCompare COMMAND testUsdGenVulkanNonWidthCompare "${_usdgen_vulkan_width_spv}" "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_compare_spv}" "${_usdgen_vulkan_blend_spv}")
     set_tests_properties(testUsdGenVulkanNonWidthCompare PROPERTIES
         LABELS "T1;vulkan;cow;operators;retirement" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanRootFrameCow tests/testUsdGenVulkanRootFrameCow.cpp
+    add_executable(testUsdGenVulkanRootFrameCow tests/internal/usdGenCurves/testUsdGenVulkanRootFrameCow.cpp
         "${_usdgen_vulkan_width_spv}" "${_usdgen_vulkan_length_spv}"
         "${_usdgen_vulkan_blend_spv}" "${_usdgen_vulkan_compare_spv}")
-    add_executable(testUsdGenVulkanLengthCompaction tests/testUsdGenVulkanLengthCompaction.cpp
+    add_executable(testUsdGenVulkanLengthCompaction tests/internal/usdGenCurves/testUsdGenVulkanLengthCompaction.cpp
         "${_usdgen_vulkan_compaction_spv}")
-    add_executable(testUsdGenVulkanResampleVk tests/testUsdGenVulkanResampleVk.cpp
+    add_executable(testUsdGenVulkanResampleVk tests/internal/usdGenCurves/testUsdGenVulkanResampleVk.cpp
         "${_usdgen_vulkan_resample_vk_spv}")
-    add_executable(testUsdGenVulkanCullAdmission tests/testUsdGenVulkanCullAdmission.cpp
+    add_executable(testUsdGenVulkanCullAdmission tests/internal/usdGenCurves/testUsdGenVulkanCullAdmission.cpp
         "${_usdgen_vulkan_compaction_spv}")
-    add_executable(testUsdGenVulkanTopologyPipeline tests/testUsdGenVulkanTopologyPipeline.cpp "${_usdgen_vulkan_topo_spv}")
+    add_executable(testUsdGenVulkanTopologyPipeline tests/internal/usdGenVulkan/testUsdGenVulkanTopologyPipeline.cpp "${_usdgen_vulkan_topo_spv}")
     target_link_libraries(testUsdGenVulkanTopologyPipeline PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanTopologyPipeline COMMAND testUsdGenVulkanTopologyPipeline "${_usdgen_vulkan_topo_spv}")
     set_tests_properties(testUsdGenVulkanTopologyPipeline PROPERTIES
         LABELS "T1;vulkan;operators;topology" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanPointOverridePipeline tests/testUsdGenVulkanPointOverridePipeline.cpp "${_usdgen_vulkan_po_spv}")
+    add_executable(testUsdGenVulkanPointOverridePipeline tests/internal/usdGenVulkan/testUsdGenVulkanPointOverridePipeline.cpp "${_usdgen_vulkan_po_spv}")
     target_link_libraries(testUsdGenVulkanPointOverridePipeline PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanPointOverridePipeline COMMAND testUsdGenVulkanPointOverridePipeline "${_usdgen_vulkan_po_spv}")
     set_tests_properties(testUsdGenVulkanPointOverridePipeline PROPERTIES
@@ -228,7 +228,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     # Phase 2 picktiles: Vulkan picking + tile spans/bounds/indices vs the
     # CUDA twins. CUDA-only registration (compares against gpu/ lane).
     if(USDGEN_ENABLE_CUDA)
-        add_executable(testUsdGenVulkanPicktileVkParity tests/testUsdGenVulkanPicktileVkParity.cpp
+        add_executable(testUsdGenVulkanPicktileVkParity tests/internal/usdGenCurves/testUsdGenVulkanPicktileVkParity.cpp
             "${_usdgen_vulkan_picktile_pick_spv}" "${_usdgen_vulkan_picktile_footprint_spv}"
             "${_usdgen_vulkan_picktile_tiles_spv}" "${_usdgen_vulkan_picktile_bounds_spv}")
         target_link_libraries(testUsdGenVulkanPicktileVkParity PRIVATE usdGenVulkanNative usdGenCurvesCuda usdGenWithPrimitives usdGenUsd)
@@ -245,7 +245,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             LABELS "T1;parity;cuda;vulkan;picking;tiles" RESOURCE_LOCK usdgen_gpu
             TIMEOUT 600 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
     endif()
-    add_executable(testUsdGenVulkanCurveGrowPipeline tests/testUsdGenVulkanCurveGrowPipeline.cpp "${_usdgen_vulkan_grow_spv}")
+    add_executable(testUsdGenVulkanCurveGrowPipeline tests/internal/usdGenCurves/testUsdGenVulkanCurveGrowPipeline.cpp "${_usdgen_vulkan_grow_spv}")
     target_link_libraries(testUsdGenVulkanCurveGrowPipeline PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanCurveGrowPipeline COMMAND testUsdGenVulkanCurveGrowPipeline "${_usdgen_vulkan_grow_spv}")
     set_tests_properties(testUsdGenVulkanCurveGrowPipeline PROPERTIES
@@ -255,18 +255,18 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanCurveGrowPipelineQuarantine PROPERTIES
         LABELS "T1;vulkan;operators;grow;quarantine" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanScatterGrowPipeline tests/testUsdGenVulkanScatterGrowPipeline.cpp "${_usdgen_vulkan_scatter_grow_spv}")
+    add_executable(testUsdGenVulkanScatterGrowPipeline tests/internal/usdGenCurves/testUsdGenVulkanScatterGrowPipeline.cpp "${_usdgen_vulkan_scatter_grow_spv}")
     target_link_libraries(testUsdGenVulkanScatterGrowPipeline PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanScatterGrowPipeline COMMAND testUsdGenVulkanScatterGrowPipeline "${_usdgen_vulkan_scatter_grow_spv}")
     set_tests_properties(testUsdGenVulkanScatterGrowPipeline PROPERTIES
         LABELS "T1;vulkan;operators;scatterGrow" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanScatterGrowCpuReject tests/testUsdGenVulkanScatterGrowCpuReject.cpp)
+    add_executable(testUsdGenVulkanScatterGrowCpuReject tests/internal/usdGenCurves/testUsdGenVulkanScatterGrowCpuReject.cpp)
     target_link_libraries(testUsdGenVulkanScatterGrowCpuReject PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanScatterGrowCpuReject COMMAND testUsdGenVulkanScatterGrowCpuReject)
     set_tests_properties(testUsdGenVulkanScatterGrowCpuReject PROPERTIES
         LABELS "T0;vulkan;operators;scatterGrowCpuReject" TIMEOUT 60)
-    add_executable(testUsdGenVulkanRootFrames tests/testUsdGenVulkanRootFrames.cpp
+    add_executable(testUsdGenVulkanRootFrames tests/internal/usdGenSurface/testUsdGenVulkanRootFrames.cpp
         "${_usdgen_vulkan_rfval_spv}" "${_usdgen_vulkan_rfbuild_spv}")
     target_link_libraries(testUsdGenVulkanRootFrames PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanRootFrames COMMAND testUsdGenVulkanRootFrames
@@ -279,7 +279,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanRootFramesQuarantine PROPERTIES
         LABELS "T1;vulkan;operators;rootFrames;quarantine" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanRootFrameGather tests/testUsdGenVulkanRootFrameGatherPipeline.cpp
+    add_executable(testUsdGenVulkanRootFrameGather tests/internal/usdGenSurface/testUsdGenVulkanRootFrameGatherPipeline.cpp
         "${_usdgen_vulkan_rfgather_spv}")
     target_link_libraries(testUsdGenVulkanRootFrameGather PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanRootFrameGather COMMAND testUsdGenVulkanRootFrameGather
@@ -292,7 +292,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanRootFrameGatherQuarantine PROPERTIES
         LABELS "T1;vulkan;operators;rootFrameGather;quarantine" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanNoise tests/testUsdGenVulkanNoise.cpp
+    add_executable(testUsdGenVulkanNoise tests/internal/usdGenVulkan/testUsdGenVulkanNoise.cpp
         "${_usdgen_vulkan_noise_validate_spv}" "${_usdgen_vulkan_noise_generate_spv}")
     target_link_libraries(testUsdGenVulkanNoise PRIVATE usdGenVulkanNative usdGen_seexpr usdGenMath)
     add_test(NAME testUsdGenVulkanNoise COMMAND testUsdGenVulkanNoise
@@ -304,7 +304,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     # GPU lanes (the CUDA leg only when USDGEN_ENABLE_CUDA) and is compared
     # against the common SeExpr oracle plus cross-backend. Skips 77 when no
     # GPU backend is available, so single-backend builds stay green.
-    add_executable(testUsdGenCudaVulkanParity tests/testUsdGenCudaVulkanParity.cpp
+    add_executable(testUsdGenCudaVulkanParity tests/internal/usdGenVulkan/testUsdGenCudaVulkanParity.cpp
         "${_usdgen_vulkan_noise_validate_spv}" "${_usdgen_vulkan_noise_generate_spv}")
     target_link_libraries(testUsdGenCudaVulkanParity PRIVATE usdGenVulkanNative usdGen_seexpr usdGenMath)
     if(USDGEN_ENABLE_CUDA)
@@ -319,7 +319,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     # Phase-2 styleops gap: CUDA-vs-Vulkan equivalence gate for the
     # device-only style primitives (StyleVkPipeline vs CudaStyleOps).
     # Skips 77 when no GPU backend is available.
-    add_executable(testUsdGenVulkanStyleVkParity tests/testUsdGenVulkanStyleVkParity.cpp
+    add_executable(testUsdGenVulkanStyleVkParity tests/internal/usdGenVulkan/testUsdGenVulkanStyleVkParity.cpp
         "${_usdgen_vulkan_stylevk_ramp_spv}" "${_usdgen_vulkan_stylevk_length_spv}" "${_usdgen_vulkan_stylevk_grow_spv}")
     target_link_libraries(testUsdGenVulkanStyleVkParity PRIVATE usdGenVulkanNative)
     if(USDGEN_ENABLE_CUDA)
@@ -331,7 +331,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanStyleVkParity PROPERTIES
         LABELS "T1;parity;cuda;vulkan;operators;style" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanDeform tests/testUsdGenVulkanDeform.cpp
+    add_executable(testUsdGenVulkanDeform tests/internal/usdGenCurves/testUsdGenVulkanDeform.cpp
         "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
         "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
         "${_usdgen_vulkan_deform_evaluate_cached_spv}")
@@ -344,7 +344,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         LABELS "T1;vulkan;operators;deform" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
     # Many threads on one cached deform pipeline and one queue timeline.
-    add_executable(testUsdGenVulkanDeformStress tests/testUsdGenVulkanDeformStress.cpp
+    add_executable(testUsdGenVulkanDeformStress tests/internal/usdGenVulkan/testUsdGenVulkanDeformStress.cpp
         "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}"
         "${_usdgen_vulkan_deform_evaluate_verify_spv}" "${_usdgen_vulkan_deform_evaluate_fill_spv}"
         "${_usdgen_vulkan_deform_evaluate_cached_spv}")
@@ -356,13 +356,13 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanDeformStress PROPERTIES
         LABELS "T1;vulkan;deform;stress;scheduling" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanQueueTimeline tests/testUsdGenVulkanQueueTimeline.cpp)
+    add_executable(testUsdGenVulkanQueueTimeline tests/internal/usdGenVulkan/testUsdGenVulkanQueueTimeline.cpp)
     target_link_libraries(testUsdGenVulkanQueueTimeline PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanQueueTimeline COMMAND testUsdGenVulkanQueueTimeline)
     set_tests_properties(testUsdGenVulkanQueueTimeline PROPERTIES
         LABELS "T1;vulkan;stress;scheduling" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanSurfaceVk tests/testUsdGenVulkanSurfaceVk.cpp
+    add_executable(testUsdGenVulkanSurfaceVk tests/internal/usdGenCurves/testUsdGenVulkanSurfaceVk.cpp
         "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
     target_link_libraries(testUsdGenVulkanSurfaceVk PRIVATE usdGenUsd usdGenVulkanNative usdGenMath)
     if(USDGEN_ENABLE_CUDA)
@@ -374,7 +374,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanSurfaceVk PROPERTIES
         LABELS "T1;parity;cuda;vulkan;operators;deform;surface" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 120 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanRbfVkParity tests/testUsdGenVulkanRbfVkParity.cpp
+    add_executable(testUsdGenVulkanRbfVkParity tests/internal/usdGenCurves/testUsdGenVulkanRbfVkParity.cpp
         "${_usdgen_vulkan_rbfvk_extent_spv}" "${_usdgen_vulkan_rbfvk_gram_spv}" "${_usdgen_vulkan_rbfvk_build_matrix_spv}" "${_usdgen_vulkan_rbfvk_lu_spv}" "${_usdgen_vulkan_rbfvk_rhs_spv}" "${_usdgen_vulkan_rbfvk_trisolve_spv}" "${_usdgen_vulkan_rbfvk_evaluate_spv}" "${_usdgen_vulkan_rbfvk_apply_spv}" "${_usdgen_vulkan_rbfvk_verify_spv}" "${_usdgen_vulkan_rbfvk_fill_spv}" "${_usdgen_vulkan_rbfvk_evaluate_cached_spv}")
     target_link_libraries(testUsdGenVulkanRbfVkParity PRIVATE usdGenUsd usdGenVulkanNative usdGenMath)
     if(USDGEN_ENABLE_CUDA)
@@ -386,7 +386,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanRbfVkParity PROPERTIES
         LABELS "T1;parity;cuda;vulkan;operators;rbf;deform" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 780 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanCsourceVkParity tests/testUsdGenVulkanCsourceVkParity.cpp
+    add_executable(testUsdGenVulkanCsourceVkParity tests/internal/usdGenCurves/testUsdGenVulkanCsourceVkParity.cpp
         "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
     target_link_libraries(testUsdGenVulkanCsourceVkParity PRIVATE usdGenUsd usdGenVulkanNative)
     if(USDGEN_ENABLE_CUDA)
@@ -398,8 +398,8 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanCsourceVkParity PROPERTIES
         LABELS "T1;parity;cuda;vulkan;sources;csource" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 300 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanExprVkParity tests/testUsdGenVulkanExprVkParity.cpp
-        tests/testUsdGenVulkanExprVkParityOracle.cpp
+    add_executable(testUsdGenVulkanExprVkParity tests/internal/usdGenExpr/testUsdGenVulkanExprVkParity.cpp
+        tests/internal/usdGenExpr/testUsdGenVulkanExprVkParityOracle.cpp
         "${_usdgen_vulkan_exprvk_evaluate_spv}" "${_usdgen_vulkan_exprvk_context_spv}"
         "${_usdgen_vulkan_exprvk_width_spv}" "${_usdgen_vulkan_exprvk_exprop_spv}")
     target_link_libraries(testUsdGenVulkanExprVkParity PRIVATE usdGenUsd usdGenVulkanNative usdGenExprFrontend)
@@ -409,10 +409,10 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     endif()
     target_compile_options(testUsdGenVulkanExprVkParity PRIVATE ${_usdgen_host_expr_fp_options})
     if(MSVC)
-        set_property(SOURCE tests/testUsdGenVulkanExprVkParityOracle.cpp
+        set_property(SOURCE tests/internal/usdGenExpr/testUsdGenVulkanExprVkParityOracle.cpp
             APPEND PROPERTY COMPILE_OPTIONS /O1)
     else()
-        set_property(SOURCE tests/testUsdGenVulkanExprVkParityOracle.cpp
+        set_property(SOURCE tests/internal/usdGenExpr/testUsdGenVulkanExprVkParityOracle.cpp
             APPEND PROPERTY COMPILE_OPTIONS -O1 -fno-fast-math)
     endif()
     add_test(NAME testUsdGenVulkanExprVkParity COMMAND testUsdGenVulkanExprVkParity
@@ -421,7 +421,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanExprVkParity PROPERTIES
         LABELS "T1;parity;cuda;vulkan;operators;expression" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 600 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthSet tests/testUsdGenVulkanLengthSet.cpp
+    add_executable(testUsdGenVulkanLengthSet tests/internal/usdGenCurves/testUsdGenVulkanLengthSet.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}")
     target_link_libraries(testUsdGenVulkanLengthSet PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanLengthSet COMMAND testUsdGenVulkanLengthSet
@@ -429,7 +429,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLengthSet PROPERTIES
         LABELS "T1;vulkan;cow;length-set;operators;retirement" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthCutExtend tests/testUsdGenVulkanLengthCutExtend.cpp
+    add_executable(testUsdGenVulkanLengthCutExtend tests/internal/usdGenCurves/testUsdGenVulkanLengthCutExtend.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}" "${_usdgen_vulkan_cut_extend_spv}")
     target_link_libraries(testUsdGenVulkanLengthCutExtend PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanLengthCutExtend COMMAND testUsdGenVulkanLengthCutExtend
@@ -437,7 +437,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLengthCutExtend PROPERTIES
         LABELS "T1;vulkan;cow;length-cut-extend;operators;retirement" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthReparam tests/testUsdGenVulkanLengthReparam.cpp
+    add_executable(testUsdGenVulkanLengthReparam tests/internal/usdGenCurves/testUsdGenVulkanLengthReparam.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}")
     target_link_libraries(testUsdGenVulkanLengthReparam PRIVATE usdGenVulkanNative)
@@ -447,7 +447,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLengthReparam PROPERTIES
         LABELS "T1;vulkan;cow;length-reparam;operators;retirement" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthMinimum tests/testUsdGenVulkanLengthMinimum.cpp
+    add_executable(testUsdGenVulkanLengthMinimum tests/internal/usdGenCurves/testUsdGenVulkanLengthMinimum.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}"
         "${_usdgen_vulkan_minimum_spv}")
@@ -459,7 +459,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLengthMinimum PROPERTIES
         LABELS "T1;vulkan;cow;length-minimum;operators;retirement;resources" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthLiteralV1 tests/testUsdGenVulkanLengthLiteralV1.cpp
+    add_executable(testUsdGenVulkanLengthLiteralV1 tests/internal/usdGenCurves/testUsdGenVulkanLengthLiteralV1.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}"
         "${_usdgen_vulkan_minimum_spv}" "${_usdgen_vulkan_literal_v1_spv}")
@@ -471,7 +471,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLengthLiteralV1 PROPERTIES
         LABELS "T1;vulkan;cow;length-random;operators;retirement;resources" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthEnvelopeV1 tests/testUsdGenVulkanLengthEnvelopeV1.cpp
+    add_executable(testUsdGenVulkanLengthEnvelopeV1 tests/internal/usdGenCurves/testUsdGenVulkanLengthEnvelopeV1.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}"
         "${_usdgen_vulkan_minimum_spv}" "${_usdgen_vulkan_literal_v1_spv}" "${_usdgen_vulkan_envelope_v1_spv}")
@@ -483,7 +483,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanLengthEnvelopeV1 PROPERTIES
         LABELS "T1;vulkan;cow;length-envelope;operators;retirement;resources" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanLengthDeviceV1 tests/testUsdGenVulkanLengthDeviceV1.cpp)
+    add_executable(testUsdGenVulkanLengthDeviceV1 tests/internal/usdGenCurves/testUsdGenVulkanLengthDeviceV1.cpp)
     target_link_libraries(testUsdGenVulkanLengthDeviceV1 PRIVATE usdGenVulkanNative)
     add_dependencies(testUsdGenVulkanLengthDeviceV1 usdGenVulkanShaders)
     add_test(NAME testUsdGenVulkanLengthDeviceV1 COMMAND testUsdGenVulkanLengthDeviceV1
@@ -503,7 +503,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         COMMAND "${USDGEN_SPIRV_VAL_EXECUTABLE}" --target-env vulkan1.2 "${_usdgen_vulkan_arithmetic_spv}"
         DEPENDS tests/shaders/envelopeArithmetic.comp
             libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/shaders/float32Envelope.glsl VERBATIM)
-    add_executable(testUsdGenVulkanEnvelopeArithmetic tests/testUsdGenVulkanEnvelopeArithmetic.cpp
+    add_executable(testUsdGenVulkanEnvelopeArithmetic tests/internal/usdGenCurves/testUsdGenVulkanEnvelopeArithmetic.cpp
         "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_set_spv}"
         "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}"
         "${_usdgen_vulkan_minimum_spv}" "${_usdgen_vulkan_literal_v1_spv}"
@@ -557,8 +557,8 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanSourceLengthCow testUsdGenVulkanSourceWidthBlendCow PROPERTIES
         LABELS "T1;vulkan;cow;operators;retirement" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanSourceAccounting tests/testUsdGenVulkanSourceAccounting.cpp "${_usdgen_vulkan_width_spv}")
-    add_executable(testUsdGenVulkanDeviceGenerationAdapter tests/testUsdGenVulkanDeviceGenerationAdapter.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSourceAccounting tests/internal/usdGenCurves/testUsdGenVulkanSourceAccounting.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanDeviceGenerationAdapter tests/internal/usdGenCurves/testUsdGenVulkanDeviceGenerationAdapter.cpp "${_usdgen_vulkan_width_spv}")
     target_link_libraries(testUsdGenVulkanDeviceGenerationAdapter PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanDeviceGenerationAdapter COMMAND testUsdGenVulkanDeviceGenerationAdapter "${_usdgen_vulkan_width_spv}")
     add_test(NAME testUsdGenVulkanDeviceGenerationAdapterCloseHeld COMMAND testUsdGenVulkanDeviceGenerationAdapter "${_usdgen_vulkan_width_spv}" --close-held)
@@ -566,12 +566,12 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanDeviceGenerationAdapter testUsdGenVulkanDeviceGenerationAdapterCloseHeld testUsdGenVulkanDeviceGenerationAdapterExitHeld PROPERTIES
         LABELS "T1;vulkan;cow;generation;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanSourceWidthJob tests/testUsdGenVulkanSourceWidthJob.cpp "${_usdgen_vulkan_width_spv}")
-    add_executable(testUsdGenVulkanSessionProvider tests/testUsdGenVulkanSessionProvider.cpp "${_usdgen_vulkan_width_spv}")
-    add_executable(testUsdGenVulkanSession tests/testUsdGenVulkanSession.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSourceWidthJob tests/internal/usdGenCurves/testUsdGenVulkanSourceWidthJob.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSessionProvider tests/internal/usdGen/testUsdGenVulkanSessionProvider.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSession tests/internal/usdGen/testUsdGenVulkanSession.cpp "${_usdgen_vulkan_width_spv}")
     target_sources(testUsdGenVulkanSession PRIVATE "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_blend_spv}")
-    add_executable(testUsdGenVulkanSessionCoalescing tests/testUsdGenVulkanSessionCoalescing.cpp "${_usdgen_vulkan_width_spv}")
-    add_executable(testUsdGenVulkanSessionContextLoss tests/testUsdGenVulkanSessionContextLoss.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSessionCoalescing tests/internal/usdGen/testUsdGenVulkanSessionCoalescing.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSessionContextLoss tests/internal/usdGen/testUsdGenVulkanSessionContextLoss.cpp "${_usdgen_vulkan_width_spv}")
     target_link_libraries(testUsdGenVulkanSessionContextLoss PRIVATE usdGenUsd usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanSessionContextLoss COMMAND testUsdGenVulkanSessionContextLoss "${_usdgen_vulkan_width_spv}")
     set_tests_properties(testUsdGenVulkanSessionContextLoss PROPERTIES
@@ -743,8 +743,8 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanSessionProvider PROPERTIES
         LABELS "T1;vulkan;generation;retirement;provider" RESOURCE_LOCK usdgen_gpu
         TIMEOUT 60 SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanPublicationJob tests/testUsdGenVulkanPublicationJob.cpp "${_usdgen_vulkan_width_spv}")
-    add_executable(testUsdGenVulkanPlanExecutor tests/testUsdGenVulkanPlanExecutor.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanPublicationJob tests/internal/usdGenCurves/testUsdGenVulkanPublicationJob.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanPlanExecutor tests/internal/usdGen/testUsdGenVulkanPlanExecutor.cpp "${_usdgen_vulkan_width_spv}")
     target_sources(testUsdGenVulkanPlanExecutor PRIVATE "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_blend_spv}" "${_usdgen_vulkan_set_spv}" "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}" "${_usdgen_vulkan_minimum_spv}" "${_usdgen_vulkan_literal_v1_spv}" "${_usdgen_vulkan_noise_validate_spv}" "${_usdgen_vulkan_noise_generate_spv}")
     target_link_libraries(testUsdGenVulkanPlanExecutor PRIVATE usdGenUsd usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanPlanExecutor COMMAND testUsdGenVulkanPlanExecutor "${_usdgen_vulkan_width_spv}" "${_usdgen_vulkan_length_spv}" "${_usdgen_vulkan_blend_spv}" "${_usdgen_vulkan_set_spv}" "${_usdgen_vulkan_cut_extend_spv}" "${_usdgen_vulkan_reparam_spv}" "${_usdgen_vulkan_minimum_spv}" "${_usdgen_vulkan_literal_v1_spv}" "${_usdgen_vulkan_noise_validate_spv}" "${_usdgen_vulkan_noise_generate_spv}")
@@ -760,7 +760,7 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         testUsdGenVulkanPublicationPrepareReject testUsdGenVulkanPublicationOwnerUnavailable PROPERTIES
         LABELS "T1;vulkan;sources;generation;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE 77 FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanSourcePreparationLifecycle tests/testUsdGenVulkanSourcePreparationLifecycle.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSourcePreparationLifecycle tests/internal/usdGenCurves/testUsdGenVulkanSourcePreparationLifecycle.cpp "${_usdgen_vulkan_width_spv}")
     target_link_libraries(testUsdGenVulkanSourcePreparationLifecycle PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanSourcePreparationCancel COMMAND testUsdGenVulkanSourcePreparationLifecycle "${_usdgen_vulkan_width_spv}")
     add_test(NAME testUsdGenVulkanSourcePreparationReject COMMAND testUsdGenVulkanSourcePreparationLifecycle "${_usdgen_vulkan_width_spv}" --reject)
@@ -769,14 +769,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
         LABELS "T1;vulkan;sources;retirement;resources" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
         FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanWidthAdmission tests/testUsdGenVulkanWidthAdmission.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanWidthAdmission tests/internal/usdGenVulkan/testUsdGenVulkanWidthAdmission.cpp "${_usdgen_vulkan_width_spv}")
     target_link_libraries(testUsdGenVulkanWidthAdmission PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanWidthAdmission COMMAND testUsdGenVulkanWidthAdmission "${_usdgen_vulkan_width_spv}")
     set_tests_properties(testUsdGenVulkanWidthAdmission PROPERTIES
         LABELS "T1;vulkan;notification;resources;cow" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
         FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
-    add_executable(testUsdGenVulkanSourceWidthAsync tests/testUsdGenVulkanSourceWidthAsync.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanSourceWidthAsync tests/internal/usdGenCurves/testUsdGenVulkanSourceWidthAsync.cpp "${_usdgen_vulkan_width_spv}")
     target_link_libraries(testUsdGenVulkanSourceWidthAsync PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanSourceWidthAsync COMMAND testUsdGenVulkanSourceWidthAsync "${_usdgen_vulkan_width_spv}")
     add_test(NAME testUsdGenVulkanSourceWidthAsyncEarly COMMAND testUsdGenVulkanSourceWidthAsync "${_usdgen_vulkan_width_spv}" --early-notifications)
@@ -831,14 +831,14 @@ if(USDGEN_BUILD_VULKAN_TESTS)
     set_tests_properties(testUsdGenVulkanSourceWidthCow PROPERTIES
         LABELS "T1;vulkan;cow;sources;operators" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
-    add_executable(testUsdGenVulkanWidthPipeline tests/testUsdGenVulkanWidthPipeline.cpp "${_usdgen_vulkan_width_spv}")
+    add_executable(testUsdGenVulkanWidthPipeline tests/internal/usdGenCurves/testUsdGenVulkanWidthPipeline.cpp "${_usdgen_vulkan_width_spv}")
     target_link_libraries(testUsdGenVulkanWidthPipeline PRIVATE usdGenVulkanNative)
     add_test(NAME testUsdGenVulkanWidthPipeline COMMAND testUsdGenVulkanWidthPipeline "${_usdgen_vulkan_width_spv}")
     add_test(NAME testUsdGenVulkanWidthPipelineQuarantine COMMAND testUsdGenVulkanWidthPipeline "${_usdgen_vulkan_width_spv}" --quarantine)
     set_tests_properties(testUsdGenVulkanWidthPipeline testUsdGenVulkanWidthPipelineQuarantine PROPERTIES
         LABELS "T1;vulkan;cow;operators;retirement" TIMEOUT 60 RESOURCE_LOCK usdgen_gpu
         SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
-    add_executable(testUsdGenVulkanMapVkSample tests/testUsdGenVulkanMapVkSample.cpp
+    add_executable(testUsdGenVulkanMapVkSample tests/internal/usdGenSurface/testUsdGenVulkanMapVkSample.cpp
         "${_usdgen_vulkan_mapvk_sample_spv}")
     # usdGenSurface: the CPU image sampler oracle (usdGen links no primitive).
     target_link_libraries(testUsdGenVulkanMapVkSample PRIVATE usdGenVulkanNative usdGenSurface)

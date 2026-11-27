@@ -6,7 +6,8 @@
 # Restructure step 4 guards: the CPU lane's output of record and the op
 # contract snapshot. Both compare against tests/golden/*.txt byte for byte.
 foreach(_t testUsdGenOutputGoldens testUsdGenOpContracts)
-    add_executable(${_t} tests/${_t}.cpp tests/golden/goldenGraphs.cpp)
+    usdgen_test_source(_usdgen_src ${_t}.cpp)
+    add_executable(${_t} ${_usdgen_src} tests/golden/goldenGraphs.cpp)
     target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
     target_include_directories(${_t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
     target_compile_definitions(${_t} PRIVATE
@@ -23,7 +24,7 @@ set_tests_properties(testUsdGenOutputGoldens PROPERTIES SKIP_RETURN_CODE 77)
 # Restructure 5.0: published geometry of record over frames 0/1/12 and a
 # value and topology edit (tests/golden/cookDigests.<os>-<cc>.txt; a
 # toolchain without its own file skips with 77).
-add_executable(testUsdGenCookGoldens tests/testUsdGenCookGoldens.cpp tests/golden/goldenGraphs.cpp)
+add_executable(testUsdGenCookGoldens tests/internal/usdGen/testUsdGenCookGoldens.cpp tests/golden/goldenGraphs.cpp)
 target_link_libraries(testUsdGenCookGoldens PRIVATE usdGenTestUtilsHd)
 target_include_directories(testUsdGenCookGoldens PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(testUsdGenCookGoldens PRIVATE
@@ -36,20 +37,20 @@ set_tests_properties(testUsdGenCookGoldens PROPERTIES
 
 # Restructure 5.3a/5.3f: ops over buffer-backed set views (the old op
 # family and USDGEN_BRIDGE_VERIFY are gone).
-add_executable(testUsdGenOpBridge tests/testUsdGenOpBridge.cpp)
+add_executable(testUsdGenOpBridge tests/internal/usdGen/testUsdGenOpBridge.cpp)
 target_link_libraries(testUsdGenOpBridge PRIVATE usdGenTestUtils)
 add_test(NAME testUsdGenOpBridge COMMAND testUsdGenOpBridge)
 set_tests_properties(testUsdGenOpBridge PROPERTIES LABELS "T0;bridge")
 
 # Step 4 registries: handles, lookups, freeze, interner counters.
-add_executable(testUsdGenRegistries tests/testUsdGenRegistries.cpp tests/golden/goldenGraphs.cpp)
+add_executable(testUsdGenRegistries tests/internal/usdGen/testUsdGenRegistries.cpp tests/golden/goldenGraphs.cpp)
 target_link_libraries(testUsdGenRegistries PRIVATE usdGenTestUtils)
 target_include_directories(testUsdGenRegistries PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 add_test(NAME testUsdGenRegistries COMMAND testUsdGenRegistries)
 set_tests_properties(testUsdGenRegistries PROPERTIES LABELS "T0;registries")
 
 # Step 6.4: the primitives are DLLs that usdGen loads; links usdGen only.
-add_executable(testUsdGenRegistrarLoad tests/testUsdGenRegistrarLoad.cpp)
+add_executable(testUsdGenRegistrarLoad tests/hosts/usdGenUsd/testUsdGenRegistrarLoad.cpp)
 target_link_libraries(testUsdGenRegistrarLoad PRIVATE usdGen)
 add_dependencies(testUsdGenRegistrarLoad usdGenSurface usdGenExpr usdGenCurves usdGenSchema
     usdGenHydraCurves)
@@ -76,7 +77,7 @@ set_tests_properties(testUsdGenRegistrarLoad testUsdGenRegistrarLoadDefaults PRO
 string(ASCII 13 _usdgen_cr)
 set(_usdgen_engine_create_manifest
     "# testUsdGenEngineCreate\n$<TARGET_FILE_NAME:usdGenSurface>${_usdgen_cr}\n\n  $<TARGET_FILE_NAME:usdGenExpr>  \n$<TARGET_FILE_NAME:usdGenCurves>\n")
-add_executable(testUsdGenEngineCreate tests/core/testUsdGenEngineCreate.cpp)
+add_executable(testUsdGenEngineCreate tests/hosts/usdGenUsd/testUsdGenEngineCreate.cpp)
 target_link_libraries(testUsdGenEngineCreate PRIVATE usdGen)
 target_include_directories(testUsdGenEngineCreate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 add_dependencies(testUsdGenEngineCreate usdGenSurface usdGenExpr usdGenCurves usdGenCuda)
@@ -101,7 +102,7 @@ unset(_usdgen_engine_create_manifest)
 unset(_usdgen_cr)
 
 # Step 6.5: the engine builds and runs without any primitive (links usdGen only).
-add_executable(testUsdGenEngineBare tests/core/testUsdGenEngineBare.cpp)
+add_executable(testUsdGenEngineBare tests/internal/usdGen/testUsdGenEngineBare.cpp)
 target_link_libraries(testUsdGenEngineBare PRIVATE usdGen)
 add_test(NAME testUsdGenEngineBare COMMAND testUsdGenEngineBare)
 set_tests_properties(testUsdGenEngineBare PROPERTIES
@@ -109,7 +110,7 @@ set_tests_properties(testUsdGenEngineBare PROPERTIES
     ENVIRONMENT_MODIFICATION "USDGEN_EXTENSIONS=unset:")
 
 # Step 4 gate 4: an exec-phase intern fails the cook (warns with checks off).
-add_executable(testUsdGenTokenChecks tests/testUsdGenTokenChecks.cpp)
+add_executable(testUsdGenTokenChecks tests/internal/usdGen/testUsdGenTokenChecks.cpp)
 target_link_libraries(testUsdGenTokenChecks PRIVATE usdGenTestUtils)
 add_test(NAME testUsdGenTokenChecks COMMAND testUsdGenTokenChecks)
 add_test(NAME testUsdGenTokenChecksOff COMMAND testUsdGenTokenChecks off)
@@ -118,7 +119,7 @@ set_tests_properties(testUsdGenTokenChecks testUsdGenTokenChecksOff PROPERTIES
     LABELS "T0;registries;gate;gate:registries")
 
 # UsdGenDeform on the CPU lane: hair deformed by animated curves (RBF).
-add_executable(testUsdGenRbfDeform tests/testUsdGenRbfDeform.cpp)
+add_executable(testUsdGenRbfDeform tests/internal/usdGen/testUsdGenRbfDeform.cpp)
 target_link_libraries(testUsdGenRbfDeform PRIVATE usdGenTestUtilsHd)
 target_compile_definitions(testUsdGenRbfDeform PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -132,7 +133,7 @@ set_tests_properties(testUsdGenRbfImmediatePose PROPERTIES
     LABELS "T1;deform;publication" TIMEOUT 60)
 
 # usdGen:preview:* — the viewport value preview through the groom scene index.
-add_executable(testUsdGenValuePreview tests/testUsdGenValuePreview.cpp)
+add_executable(testUsdGenValuePreview tests/hosts/usdGenHydra/testUsdGenValuePreview.cpp)
 target_link_libraries(testUsdGenValuePreview PRIVATE usdGenTestUtilsHd)
 target_compile_definitions(testUsdGenValuePreview PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -140,7 +141,7 @@ add_test(NAME testUsdGenValuePreview COMMAND testUsdGenValuePreview)
 set_tests_properties(testUsdGenValuePreview PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;expressions;examples;preview" TIMEOUT 300)
 
-add_executable(testUsdGenExpressionTransport tests/testUsdGenExpressionTransport.cpp)
+add_executable(testUsdGenExpressionTransport tests/hosts/usdGenHydra/testUsdGenExpressionTransport.cpp)
 target_link_libraries(testUsdGenExpressionTransport PRIVATE usdGenTestUtilsHd)
 target_compile_definitions(testUsdGenExpressionTransport PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -148,28 +149,29 @@ add_test(NAME testUsdGenExpressionTransport COMMAND testUsdGenExpressionTranspor
 set_tests_properties(testUsdGenExpressionTransport PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;expressions" TIMEOUT 120)
 
-add_executable(testUsdGenSessionIsolation tests/testUsdGenSessionIsolation.cpp)
+add_executable(testUsdGenSessionIsolation tests/hosts/usdGenHydra/testUsdGenSessionIsolation.cpp)
 target_link_libraries(testUsdGenSessionIsolation PRIVATE usdGenImaging)
 add_test(NAME testUsdGenSessionIsolation COMMAND testUsdGenSessionIsolation)
 set_tests_properties(testUsdGenSessionIsolation PROPERTIES
     LABELS "T1;sessions" TIMEOUT 120)
 
 foreach(_expr_test ExpressionContext ExpressionBindings ExpressionFrontend ExpressionIr ExpressionCpuEval)
-    add_executable(testUsdGen${_expr_test} tests/testUsdGen${_expr_test}.cpp)
+    usdgen_test_source(_usdgen_src testUsdGen${_expr_test}.cpp)
+    add_executable(testUsdGen${_expr_test} ${_usdgen_src})
     target_link_libraries(testUsdGen${_expr_test} PRIVATE usdGenWithPrimitives usdGenUsd)
     add_test(NAME testUsdGen${_expr_test} COMMAND testUsdGen${_expr_test})
     set_tests_properties(testUsdGen${_expr_test} PROPERTIES
         LABELS "T0;expressions" TIMEOUT 120)
 endforeach()
 # geoSampler()/ptex(): links usdGen_ptex itself to author its fixture .ptx.
-add_executable(testUsdGenExpressionSamplers tests/testUsdGenExpressionSamplers.cpp)
+add_executable(testUsdGenExpressionSamplers tests/internal/usdGenExpr/testUsdGenExpressionSamplers.cpp)
 target_link_libraries(testUsdGenExpressionSamplers PRIVATE usdGenWithPrimitives usdGenUsd usdGen_ptex)
 add_test(NAME testUsdGenExpressionSamplers COMMAND testUsdGenExpressionSamplers)
 set_tests_properties(testUsdGenExpressionSamplers PROPERTIES
     LABELS "T0;expressions;maps" TIMEOUT 120)
 # Curl/Bend/Wave/Part stylers plus the primitive-domain Grow lift: registry
 # contracts, expression-target validation and deterministic CPU cooks.
-add_executable(testUsdGenCurlBendWavePart tests/testUsdGenCurlBendWavePart.cpp)
+add_executable(testUsdGenCurlBendWavePart tests/internal/usdGen/testUsdGenCurlBendWavePart.cpp)
 # CUDA admission checks (ValidateCudaGraph) live in usdGenCurvesCuda.
 target_link_libraries(testUsdGenCurlBendWavePart PRIVATE usdGenWithPrimitives usdGenUsd usdGenCurvesCuda)
 add_test(NAME testUsdGenCurlBendWavePart COMMAND testUsdGenCurlBendWavePart)
@@ -180,7 +182,8 @@ set_tests_properties(testUsdGenCurlBendWavePart PROPERTIES
 # SculptLayer/Wind/ExprOp/Freeze/Collide stylers: same shape, appended to
 # the operator foreach above.
 foreach(_styler_test Direction Smooth Resample Scale Straighten Displace SculptLayer Wind ExprOp Freeze Collide)
-    add_executable(testUsdGen${_styler_test} tests/testUsdGen${_styler_test}.cpp)
+    usdgen_test_source(_usdgen_src testUsdGen${_styler_test}.cpp)
+    add_executable(testUsdGen${_styler_test} ${_usdgen_src})
     target_link_libraries(testUsdGen${_styler_test} PRIVATE usdGenWithPrimitives usdGenUsd)
     add_test(NAME testUsdGen${_styler_test} COMMAND testUsdGen${_styler_test})
     set_tests_properties(testUsdGen${_styler_test} PROPERTIES
@@ -198,41 +201,41 @@ endforeach()
 target_link_libraries(testUsdGenScale PRIVATE usdGenMath)
 # Ptex face ids/coordinates and the sampler. Links usdGen_ptex itself so the
 # test can author its fixture .ptx with PtexWriter.
-add_executable(testUsdGenPtexMap tests/testUsdGenPtexMap.cpp)
+add_executable(testUsdGenPtexMap tests/internal/usdGenSurface/testUsdGenPtexMap.cpp)
 target_link_libraries(testUsdGenPtexMap PRIVATE usdGenWithPrimitives usdGenUsd usdGen_ptex)
 add_test(NAME testUsdGenPtexMap COMMAND testUsdGenPtexMap)
 set_tests_properties(testUsdGenPtexMap PROPERTIES LABELS "T0;maps" TIMEOUT 120)
 # Paintable per-surface attribute maps + stroke accumulation (the host-groomer
 # brush model over per-face storage). Engine-only, no USD dependency.
-add_executable(testUsdGenAttributeMap tests/testUsdGenAttributeMap.cpp)
+add_executable(testUsdGenAttributeMap tests/internal/usdGenSurface/testUsdGenAttributeMap.cpp)
 target_link_libraries(testUsdGenAttributeMap PRIVATE usdGenWithPrimitives usdGenUsd)
 add_test(NAME testUsdGenAttributeMap COMMAND testUsdGenAttributeMap)
 set_tests_properties(testUsdGenAttributeMap PROPERTIES LABELS "T0;maps" TIMEOUT 120)
 # Internal digest contract (determinism + sensitivity, never golden values).
-add_executable(testUsdGenDigest tests/testUsdGenDigest.cpp)
+add_executable(testUsdGenDigest tests/internal/usdGenSurface/testUsdGenDigest.cpp)
 target_link_libraries(testUsdGenDigest PRIVATE usdGenWithPrimitives usdGenUsd)
 add_test(NAME testUsdGenDigest COMMAND testUsdGenDigest)
 set_tests_properties(testUsdGenDigest PROPERTIES LABELS "T0;digest" TIMEOUT 120)
 # Morton key contract: magic-mask interleave proven against the loop form.
-add_executable(testUsdGenMorton tests/testUsdGenMorton.cpp)
+add_executable(testUsdGenMorton tests/api/testUsdGenMorton.cpp)
 target_link_libraries(testUsdGenMorton PRIVATE usdGenMath)
 add_test(NAME testUsdGenMorton COMMAND testUsdGenMorton)
 set_tests_properties(testUsdGenMorton PROPERTIES LABELS "T0;morton" TIMEOUT 120)
 # Painted attribute maps: the .ptx bake and the async bake-to-stage worker.
 # Engine-only (threads + filesystem, no USD/Hydra), like the map it bakes.
-add_executable(testUsdGenAttributeBake tests/testUsdGenAttributeBake.cpp)
+add_executable(testUsdGenAttributeBake tests/internal/usdGenSurface/testUsdGenAttributeBake.cpp)
 target_link_libraries(testUsdGenAttributeBake PRIVATE usdGenWithPrimitives usdGenUsd)
 add_test(NAME testUsdGenAttributeBake COMMAND testUsdGenAttributeBake)
 set_tests_properties(testUsdGenAttributeBake PROPERTIES LABELS "T1;maps" TIMEOUT 120)
 # Authored maps into groom cooking/instancing: keep/drop + prototype index
 # per strand root, CPU-only and separate from Pomade's region-map flow.
-add_executable(testUsdGenAttributeInstance tests/testUsdGenAttributeInstance.cpp)
+add_executable(testUsdGenAttributeInstance tests/internal/usdGenSurface/testUsdGenAttributeInstance.cpp)
 target_link_libraries(testUsdGenAttributeInstance PRIVATE usdGenWithPrimitives usdGenUsd)
 add_test(NAME testUsdGenAttributeInstance COMMAND testUsdGenAttributeInstance)
 set_tests_properties(testUsdGenAttributeInstance PROPERTIES LABELS "T0;maps" TIMEOUT 120)
 # The live paint-preview overlay: app -> Hydra displayColor for the brushed
 # surface and the groom, over the real UsdImaging chain.
-add_executable(testUsdGenAttributePreview tests/testUsdGenAttributePreview.cpp)
+add_executable(testUsdGenAttributePreview tests/internal/usdGenSurface/testUsdGenAttributePreview.cpp)
 target_link_libraries(testUsdGenAttributePreview PRIVATE usdGenTestUtilsHd)
 add_test(NAME testUsdGenAttributePreview COMMAND testUsdGenAttributePreview)
 set_tests_properties(testUsdGenAttributePreview PROPERTIES
@@ -240,12 +243,12 @@ set_tests_properties(testUsdGenAttributePreview PROPERTIES
 # The attribute-brush C ABI: pick/footprint, dab kernel with hardness and
 # erase, the cross-face corner smooth, commit == working, the 100k-face
 # per-move cost, and the global preview overlay.
-add_executable(testUsdGenBrushApi tests/testUsdGenBrushApi.cpp)
+add_executable(testUsdGenBrushApi tests/hosts/usdGenHydra/testUsdGenBrushApi.cpp)
 target_link_libraries(testUsdGenBrushApi PRIVATE usdGenTestUtilsHd)
 add_test(NAME testUsdGenBrushApi COMMAND testUsdGenBrushApi)
 set_tests_properties(testUsdGenBrushApi PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;maps;preview;brush" TIMEOUT 120)
-add_executable(testUsdGenSurfaceCageInterpolate tests/testUsdGenSurfaceCageInterpolate.cpp)
+add_executable(testUsdGenSurfaceCageInterpolate tests/internal/usdGenSurface/testUsdGenSurfaceCageInterpolate.cpp)
 target_link_libraries(testUsdGenSurfaceCageInterpolate PRIVATE usdGenWithPrimitives usdGenUsd usdGen_ptex)
 add_test(NAME testUsdGenSurfaceCageInterpolate COMMAND testUsdGenSurfaceCageInterpolate)
 set_tests_properties(testUsdGenSurfaceCageInterpolate PROPERTIES
@@ -256,7 +259,7 @@ set_tests_properties(testUsdGenSurfaceCageInterpolate PROPERTIES
 # something if it is checked against the original. The include directory is
 # SYSTEM so the vendored headers keep their own warning level, and the SeExpr2
 # namespace rename must match the one usdGenExprFrontend was compiled with.
-add_executable(testUsdGenSeExprOracle tests/testUsdGenSeExprOracle.cpp)
+add_executable(testUsdGenSeExprOracle tests/internal/usdGenExpr/testUsdGenSeExprOracle.cpp)
 target_link_libraries(testUsdGenSeExprOracle PRIVATE usdGenWithPrimitives usdGenUsd usdGenExprFrontend)
 target_include_directories(testUsdGenSeExprOracle SYSTEM PRIVATE "${_usdgen_frontend_dir}")
 target_compile_definitions(testUsdGenSeExprOracle PRIVATE
@@ -290,7 +293,7 @@ set_tests_properties(testUsdGenAdapter PROPERTIES LABELS "T1;gate:SI-7")
 set_tests_properties(testUsdGenRestAdapter PROPERTIES LABELS "T1;gate:SI-7")
 set_tests_properties(testUsdGenCurveRestAdapter PROPERTIES LABELS "T1;gate:SI-7")
 if(USDGEN_ENABLE_CUDA)
-    add_executable(testUsdGenCudaHierarchy tests/testUsdGenCudaHierarchy.cpp)
+    add_executable(testUsdGenCudaHierarchy tests/internal/usdGenCurves/testUsdGenCudaHierarchy.cpp)
     target_link_libraries(testUsdGenCudaHierarchy PRIVATE usdGenTestUtilsHd usdGenCurvesCuda)
     target_compile_definitions(testUsdGenCudaHierarchy PRIVATE USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME testUsdGenCudaHierarchy COMMAND testUsdGenCudaHierarchy)
@@ -314,7 +317,7 @@ if(WIN32)
     usdgen_add_unix_only_test(testUsdGenSchemaUpToDate testUsdGenSchemaUpToDate)
     set(_usdgen_schema_uptodate_props SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/testUsdGenSchemaUpToDate.cpp")
-    add_executable(testUsdGenSchemaUpToDate tests/testUsdGenSchemaUpToDate.cpp)
+    add_executable(testUsdGenSchemaUpToDate tests/api/testUsdGenSchemaUpToDate.cpp)
     target_link_libraries(testUsdGenSchemaUpToDate PRIVATE usdGenSchema usd tf arch)
     target_compile_definitions(testUsdGenSchemaUpToDate PRIVATE
         USDGEN_TEST_SCHEMA_USDA="${CMAKE_CURRENT_SOURCE_DIR}/libs/hosts/usdGenUsd/schema/schema.usda"
@@ -325,7 +328,7 @@ elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/testUsdGenSchemaUpToDate.cpp")
 else()
     add_test(NAME testUsdGenSchemaUpToDate
         COMMAND ${CMAKE_COMMAND} -E echo
-            "M1-STUB testUsdGenSchemaUpToDate (tests/testUsdGenSchemaUpToDate.cpp pending wave 3)")
+            "M1-STUB testUsdGenSchemaUpToDate (tests/api/testUsdGenSchemaUpToDate.cpp pending wave 3)")
     set(_usdgen_schema_uptodate_props SKIP_REGULAR_EXPRESSION "M1-STUB")
 endif()
 set_tests_properties(testUsdGenSchemaUpToDate PROPERTIES

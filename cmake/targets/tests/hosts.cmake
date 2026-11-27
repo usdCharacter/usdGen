@@ -12,7 +12,8 @@ foreach(_t testUsdGenTileContract testUsdGenStockStormContract testUsdGenInvalid
            testUsdGenSourceColor testUsdGenLookPrimvars
            testUsdGenInstance testUsdGenReferenceSource testUsdGenPaintLengthRecook
            testUsdGenDormantGroom)
-    add_executable(${_t} tests/${_t}.cpp)
+    usdgen_test_source(_usdgen_src ${_t}.cpp)
+    add_executable(${_t} ${_usdgen_src})
     target_link_libraries(${_t} PRIVATE usdGenTestUtilsHd)
     add_test(NAME ${_t} COMMAND ${_t})
     set_tests_properties(${_t} PROPERTIES
@@ -64,7 +65,7 @@ set_tests_properties(testUsdGenUnpatchedOpenUsdNegative PROPERTIES
 # Placement: after the existing testUsdGenInvalidation block (~line 446).
 
 add_executable(testUsdGenSessions
-    tests/testUsdGenSessions.cpp
+    tests/internal/usdGen/testUsdGenSessions.cpp
     )
 target_link_libraries(testUsdGenSessions
     PUBLIC usdGenWithPrimitives usdGenUsd
@@ -91,7 +92,7 @@ set_tests_properties(testUsdGenSessions
 # source path, mirrors the bench --scene pattern); plugin discovery comes
 # from _usdgen_m1_env like every adapter-dependent T1 test.
 add_executable(testUsdGenHydraParity
-    tests/testUsdGenHydraParity.cpp
+    tests/internal/usdGenSurface/testUsdGenHydraParity.cpp
 )
 target_link_libraries(testUsdGenHydraParity
     PUBLIC usdGenTestUtilsHd
@@ -117,7 +118,7 @@ set_tests_properties(testUsdGenHydraParity
 # builders, Scatter restriction/union/diagnostics, subset paint and
 # geoSampler inputs, cooked on the CPU lane from an authored stage.
 add_executable(testUsdGenGeomSubset
-    tests/testUsdGenGeomSubset.cpp
+    tests/internal/usdGen/testUsdGenGeomSubset.cpp
 )
 target_link_libraries(testUsdGenGeomSubset
     PUBLIC usdGenTestUtilsHd
@@ -136,20 +137,20 @@ set_tests_properties(testUsdGenGeomSubset
     TIMEOUT 300
 )
 
-add_executable(testUsdGenHierarchy tests/testUsdGenHierarchy.cpp)
+add_executable(testUsdGenHierarchy tests/hosts/usdGenHydra/testUsdGenHierarchy.cpp)
 target_link_libraries(testUsdGenHierarchy PRIVATE usdGenTestUtilsHd)
 add_test(NAME testUsdGenHierarchy COMMAND testUsdGenHierarchy)
 set_tests_properties(testUsdGenHierarchy PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;hierarchy" TIMEOUT 120)
 
-add_executable(testUsdGenEnabledToggle tests/testUsdGenEnabledToggle.cpp)
+add_executable(testUsdGenEnabledToggle tests/internal/usdGen/testUsdGenEnabledToggle.cpp)
 target_link_libraries(testUsdGenEnabledToggle PRIVATE usdGenTestUtilsHd)
 add_test(NAME testUsdGenEnabledToggle COMMAND testUsdGenEnabledToggle)
 set_tests_properties(testUsdGenEnabledToggle PROPERTIES
     ENVIRONMENT_MODIFICATION "${_usdgen_m1_env}" LABELS "T1;imaging;scheduling" TIMEOUT 120)
 
 # The shipped root-to-tip width example, cooked on the CPU reference lane.
-add_executable(testUsdGenExpressionWidthExample tests/testUsdGenExpressionWidthExample.cpp)
+add_executable(testUsdGenExpressionWidthExample tests/internal/usdGen/testUsdGenExpressionWidthExample.cpp)
 target_link_libraries(testUsdGenExpressionWidthExample PRIVATE usdGenTestUtilsHd)
 target_compile_definitions(testUsdGenExpressionWidthExample PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
@@ -160,7 +161,7 @@ set_tests_properties(testUsdGenExpressionWidthExample PROPERTIES
 # The guide-interpolation and Ptex clump examples, including dirty
 # propagation from sampled geometry and map prims through the scene index.
 # Reads the baked examples/maps/*.ptx.
-add_executable(testUsdGenGroomExamples tests/testUsdGenGroomExamples.cpp)
+add_executable(testUsdGenGroomExamples tests/internal/usdGen/testUsdGenGroomExamples.cpp)
 target_link_libraries(testUsdGenGroomExamples PRIVATE usdGenTestUtilsHd)
 target_compile_definitions(testUsdGenGroomExamples PRIVATE
     USDGEN_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")

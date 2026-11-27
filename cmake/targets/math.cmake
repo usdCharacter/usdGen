@@ -104,12 +104,12 @@ if(_usdgen_host_expr_fp_options)
         libs/core/primitives/usdGenExpr/usdGenExpr/expressions/cpuEvaluator.cpp
         libs/core/primitives/usdGenExpr/usdGenExpr/expressions/samplers.cpp)
     set(_usdgen_fp_tests_sources
-        tests/testUsdGenSeExprOracle.cpp
-        tests/usdGenSeExprOracle.cpp
-        tests/testUsdGenExpressionCpuEval.cpp
-        tests/testUsdGenExpressionSamplers.cpp
-        tests/testUsdGenCudaExpressionParity.cpp
-        tests/testUsdGenVulkanExprVkParityOracle.cpp)
+        tests/internal/usdGenExpr/testUsdGenSeExprOracle.cpp
+        tests/api/usdGenSeExprOracle.cpp
+        tests/internal/usdGenExpr/testUsdGenExpressionCpuEval.cpp
+        tests/internal/usdGenExpr/testUsdGenExpressionSamplers.cpp
+        tests/internal/usdGenExpr/testUsdGenCudaExpressionParity.cpp
+        tests/internal/usdGenExpr/testUsdGenVulkanExprVkParityOracle.cpp)
     # usdGenCurves. strandUtil and the imported-groom kernels reproduce a
     # reference generator bit for bit; keep their float evaluation order
     # independent of the toolchain.

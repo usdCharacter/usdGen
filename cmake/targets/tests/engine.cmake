@@ -26,7 +26,7 @@ file(READ
 file(GENERATE OUTPUT "${_fake_prman_pluginfo}"
     CONTENT "${_fake_prman_pluginfo_content}")
 
-add_executable(testUsdGenChainOrder tests/testUsdGenChainOrder.cpp)
+add_executable(testUsdGenChainOrder tests/hosts/usdGenUsd/testUsdGenChainOrder.cpp)
 # Deliberately does NOT link usdGenImaging: the usdGen (and fixture) plugins
 # are discovered via PXR_PLUGINPATH_NAME and dlopen'd by the registry during
 # the test, so a TfErrorMark inside main catches any coding error emitted
@@ -45,7 +45,7 @@ set_tests_properties(testUsdGenChainOrder PROPERTIES
     LABELS "T1;gate:SI-5"
     ENVIRONMENT_MODIFICATION "${_usdgen_chain_order_env}")
 
-add_executable(testUsdGenPluginDiscovery tests/testUsdGenPluginDiscovery.cpp)
+add_executable(testUsdGenPluginDiscovery tests/hosts/usdGenUsd/testUsdGenPluginDiscovery.cpp)
 target_link_libraries(testUsdGenPluginDiscovery PRIVATE usdGenImaging usdGenTestUtilsHd)
 add_test(NAME testUsdGenPluginDiscovery
     COMMAND testUsdGenPluginDiscovery
@@ -91,7 +91,8 @@ foreach(_t testUsdGenGraph testUsdGenKernelDeterminism testUsdGenWidth
            testUsdGenSurfaceBindingCache testUsdGenScatterDensity testUsdGenLimitScatter
            testUsdGenScatterTwoPass testUsdGenScatterSortSkips
            testUsdGenScatterDegenerateFan testUsdGenScatterTwoPassMult)
-    add_executable(${_t} tests/${_t}.cpp)
+    usdgen_test_source(_usdgen_src ${_t}.cpp)
+    add_executable(${_t} ${_usdgen_src})
     target_link_libraries(${_t} PRIVATE usdGenTestUtils)
     add_test(NAME ${_t} COMMAND ${_t})
     set_tests_properties(${_t} PROPERTIES SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
@@ -103,7 +104,7 @@ set_tests_properties(testUsdGenKernelDeterminism PROPERTIES LABELS "T0;gate:E-8"
 set_tests_properties(testUsdGenWidth PROPERTIES LABELS "T0")
 set_tests_properties(testUsdGenCpuFanout PROPERTIES LABELS "T0;scheduling;dag")
 set_tests_properties(testUsdGenClumpMotion PROPERTIES LABELS "T0;clump;motion;topology")
-add_executable(benchUsdGenClumpMotion tests/perf/benchUsdGenClumpMotion.cpp)
+add_executable(benchUsdGenClumpMotion tests/internal/usdGenCurves/benchUsdGenClumpMotion.cpp)
 target_link_libraries(benchUsdGenClumpMotion PRIVATE usdGenWithPrimitives usdGenUsd)
 # Informational benchmark: run manually on an otherwise quiet host.
 set_tests_properties(testUsdGenCpuReferenceMap PROPERTIES LABELS "T0;scheduling;reference;map")
@@ -130,7 +131,8 @@ target_link_libraries(testUsdGenScatterTwoPassMult PRIVATE usdGenMath)
 foreach(_t testUsdGenStrandUtil testUsdGenScatterModes testUsdGenGuideBlend
            testUsdGenClumpModes testUsdGenBraid testUsdGenTwistFrizz
            testUsdGenLengthTrim testUsdGenTieCollide testUsdGenCardSource)
-    add_executable(${_t} tests/${_t}.cpp)
+    usdgen_test_source(_usdgen_src ${_t}.cpp)
+    add_executable(${_t} ${_usdgen_src})
     target_link_libraries(${_t} PRIVATE usdGenTestUtils usdGenMath)
     add_test(NAME ${_t} COMMAND ${_t})
     set_tests_properties(${_t} PROPERTIES SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77"
@@ -145,14 +147,15 @@ target_link_libraries(usdGenCookStats PRIVATE usdGenTestUtilsHd)
 # M1 T0 perf benches (E-1/E-7 via --threads; E-2 sparse; carried in from
 # prototypes/data-plane-benchmark, 11 §2.2).
 foreach(_t benchUsdGenChain benchUsdGenSparse)
-    add_executable(${_t} tests/perf/${_t}.cpp)
+    usdgen_test_source(_usdgen_src ${_t}.cpp)
+    add_executable(${_t} ${_usdgen_src})
     target_link_libraries(${_t} PRIVATE usdGenTestUtils)
     add_test(NAME ${_t} COMMAND ${_t})
     set_tests_properties(${_t} PROPERTIES SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 endforeach()
 set_tests_properties(benchUsdGenChain PROPERTIES LABELS "T0;perf;gate:E-1;gate:E-7")
 set_tests_properties(benchUsdGenSparse PROPERTIES LABELS "T0;perf;gate:E-2")
-add_executable(benchUsdGenRbfDeform tests/perf/benchUsdGenRbfDeform.cpp)
+add_executable(benchUsdGenRbfDeform tests/internal/usdGen/benchUsdGenRbfDeform.cpp)
 target_link_libraries(benchUsdGenRbfDeform PRIVATE usdGenTestUtils)
 if(USDGEN_ENABLE_CUDA)
     target_compile_definitions(benchUsdGenRbfDeform PRIVATE USDGEN_BENCH_CUDA)
@@ -182,9 +185,9 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME)
 endif()
 # Restructure before/after numbers (engine cook, compile, Hydra publish/pull,
 # allocations). Informational: run manually, never gates on timing.
-add_executable(benchUsdGenRestructure tests/perf/benchUsdGenRestructure.cpp)
+add_executable(benchUsdGenRestructure tests/internal/usdGen/benchUsdGenRestructure.cpp)
 target_link_libraries(benchUsdGenRestructure PRIVATE usdGenTestUtilsHd)
-add_executable(benchUsdGenSurfaceBindings tests/perf/benchUsdGenSurfaceBindings.cpp)
+add_executable(benchUsdGenSurfaceBindings tests/internal/usdGenSurface/benchUsdGenSurfaceBindings.cpp)
 target_link_libraries(benchUsdGenSurfaceBindings PRIVATE usdGenTestUtils)
 add_test(NAME benchUsdGenSurfaceBindings COMMAND benchUsdGenSurfaceBindings)
 set_tests_properties(benchUsdGenSurfaceBindings PROPERTIES
@@ -195,7 +198,7 @@ set_tests_properties(benchUsdGenSurfaceBindings PROPERTIES
 # instscatter). GPU stages compile in only when their backend does, and skip
 # at runtime without a device (CUDA) or --vk-spv (Vulkan dispatch), so the
 # registered run stays green on CPU-only CI.
-add_executable(benchUsdGenInstanceScatter tests/perf/benchUsdGenInstanceScatter.cpp)
+add_executable(benchUsdGenInstanceScatter tests/internal/usdGen/benchUsdGenInstanceScatter.cpp)
 target_link_libraries(benchUsdGenInstanceScatter PRIVATE usdGenTestUtilsHd)
 target_include_directories(benchUsdGenInstanceScatter PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests")
