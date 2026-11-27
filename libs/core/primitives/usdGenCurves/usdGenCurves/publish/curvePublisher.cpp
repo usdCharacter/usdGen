@@ -28,6 +28,7 @@
 #include "pxr/base/trace/trace.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <exception>
@@ -76,8 +77,27 @@ bool UsdGenPrimSetSignature::operator==(
 namespace {
 
 // Returned for a null or foreign publication; never referenced by a UsdGenRef.
-UsdGenCurvePublication const _emptyPublication;
-UsdGenCurveDirtyReport const _emptyReport;
+// Built at registration (UsdGenRegisterCurvePublisher), never at load: their
+// constructors read the CurveSet type id, and that read builds the registries.
+// A registry built while this library's initializers run loads this library
+// before its later translation units are initialized (glibc returns a library
+// that is mid-initialization), so ops whose tables are dynamically initialized
+// (Scatter, ExprOp) would register with empty tables. CAS-published, never freed.
+std::atomic<UsdGenCurvePublication const *> gEmptyPublication{nullptr};
+std::atomic<UsdGenCurveDirtyReport const *> gEmptyReport{nullptr};
+
+template <class T>
+T const &EmptyPublication(std::atomic<T const *> &slot)
+{
+    if (T const *p = slot.load(std::memory_order_acquire)) return *p;
+    T const *fresh = new T;
+    T const *winner = nullptr;
+    if (slot.compare_exchange_strong(winner, fresh, std::memory_order_acq_rel,
+                                     std::memory_order_acquire))
+        return *fresh;
+    delete fresh;
+    return *winner;
+}
 
 // Schema-default look, made at load rather than behind a static's guard.
 UsdGenLookDesc const _lookFallbackDesc;
@@ -1337,7 +1357,7 @@ UsdGenRef<UsdGenCurvePublication> UsdGenNewCurvePublication()
 UsdGenCurvePublication const &UsdGenCurvePublicationOf(UsdGenPublication const *p) noexcept
 {
     return p && p->kind == kUsdGenCurvePublicationKind && p->type == UsdGenCurveSetType()
-        ? static_cast<UsdGenCurvePublication const &>(*p) : _emptyPublication;
+        ? static_cast<UsdGenCurvePublication const &>(*p) : EmptyPublication(gEmptyPublication);
 }
 
 UsdGenCurvePublication const &UsdGenCurvePublicationOf(UsdGenGeneration const &generation) noexcept
@@ -1348,7 +1368,7 @@ UsdGenCurvePublication const &UsdGenCurvePublicationOf(UsdGenGeneration const &g
 UsdGenCurveDirtyReport const &UsdGenCurveDirtyReportOf(UsdGenPublication const *p) noexcept
 {
     return p && p->kind == kUsdGenCurveDirtyReportKind && p->type == UsdGenCurveSetType()
-        ? static_cast<UsdGenCurveDirtyReport const &>(*p) : _emptyReport;
+        ? static_cast<UsdGenCurveDirtyReport const &>(*p) : EmptyPublication(gEmptyReport);
 }
 
 UsdGenRef<const UsdGenPublication> UsdGenDiffCurvePublications(UsdGenPublication const *prev,
@@ -1366,6 +1386,10 @@ bool UsdGenRegisterCurvePublisher(UsdGenRegistrar &r)
     def.diff = &Diff;
     def.bytes = &Bytes;
     def.createState = &CreateState;
+    // The CurveSet type registered first, so these read its id without
+    // building the registries.
+    (void)EmptyPublication(gEmptyPublication);
+    (void)EmptyPublication(gEmptyReport);
     return r.RegisterPublisher(def);
 }
 

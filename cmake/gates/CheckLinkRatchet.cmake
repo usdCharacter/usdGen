@@ -9,6 +9,10 @@
 #   PATTERN   regex for a pxr library name
 #   BASELINE  file listing allowed pxr libraries, one per line, # comments
 
+# -P scripts start with every policy unset: CMake 3.x reads IN_LIST as an
+# unknown argument unless CMP0057 is NEW (CMake 4 makes it NEW itself).
+cmake_policy(SET CMP0057 NEW)
+
 foreach(_v NAME TARGET PATTERN BASELINE)
     if(NOT DEFINED ${_v} OR "${${_v}}" STREQUAL "")
         message(FATAL_ERROR "CheckLinkRatchet: ${_v} is required")
