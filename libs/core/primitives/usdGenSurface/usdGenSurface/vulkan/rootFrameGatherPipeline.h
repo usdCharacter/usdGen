@@ -21,6 +21,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -44,7 +45,7 @@ char const* RootFrameGatherSemanticName(RootFrameGatherSemantic) noexcept;
 // - sourceIds strictly ascending (guaranteed by upstream TopologyPipeline)
 // - survivors strictly ascending
 // - all float3 planes packed as float[] (12-byte stride, not std430 vec3[])
-class RootFrameGatherPipeline final : public std::enable_shared_from_this<RootFrameGatherPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RootFrameGatherPipeline final : public std::enable_shared_from_this<RootFrameGatherPipeline> {
 public:
     class Candidate;
 
@@ -91,7 +92,7 @@ private:
 
 // One candidate owns a single gather operation. It holds every input buffer
 // so the whole dependency graph stays alive until Poll or destruction.
-class RootFrameGatherPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RootFrameGatherPipeline::Candidate final {
 public:
     // Result planes: 6 output buffers + status. All owned by the candidate.
     struct Output {

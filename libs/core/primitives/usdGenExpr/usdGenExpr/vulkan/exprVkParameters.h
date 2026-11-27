@@ -28,6 +28,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -50,7 +51,7 @@ struct ExprVkParameterField {
     expr::Domain domain = expr::Domain::Groom;
 };
 
-class ExprVkParameterEvaluator {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkParameterEvaluator {
 public:
     ExprVkParameterEvaluator(std::shared_ptr<ExprVkContextPipeline> contextPipeline,
                              std::shared_ptr<ExprVkEvaluatePipeline> evaluatePipeline);

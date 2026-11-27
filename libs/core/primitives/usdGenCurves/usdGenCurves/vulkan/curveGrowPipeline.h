@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 // Queue-owner confined. Inputs must be immutable and have completed upload on
@@ -22,7 +23,7 @@ namespace usdGen::vulkan {
 // formula) and Begin uploads it to the shader's read-only target plane.
 // Begin therefore REQUIRES a complete precomputedTargets span in the Input and
 // NEVER reads device stableIds on the host.
-class CurveGrowPipeline final : public std::enable_shared_from_this<CurveGrowPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API CurveGrowPipeline final : public std::enable_shared_from_this<CurveGrowPipeline> {
 public:
     class Candidate;
     // Owner-side admission checkpoint immediately before the first native
@@ -130,7 +131,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class CurveGrowPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API CurveGrowPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

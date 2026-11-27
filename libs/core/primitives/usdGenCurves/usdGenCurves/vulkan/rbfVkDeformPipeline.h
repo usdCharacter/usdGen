@@ -21,10 +21,11 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
-class RbfVkDeformPipeline final : public std::enable_shared_from_this<RbfVkDeformPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RbfVkDeformPipeline final : public std::enable_shared_from_this<RbfVkDeformPipeline> {
 public:
     class Candidate;
     using BeforeSubmit = DeformPipeline::BeforeSubmit;
@@ -57,7 +58,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class RbfVkDeformPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RbfVkDeformPipeline::Candidate final {
 public:
     struct Output {
         std::shared_ptr<const ChargedBuffer> points;

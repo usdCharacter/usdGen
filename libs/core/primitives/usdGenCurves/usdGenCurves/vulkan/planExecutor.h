@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -33,7 +34,7 @@ namespace usdGen::vulkan {
 // ExecutionPlanHandle::Payload(). CPU workers capture source data only; native
 // operator stages and joins run on the shared device owner without production
 // geometry readback or fallback.
-class VulkanPlanExecutor final : public std::enable_shared_from_this<VulkanPlanExecutor> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanPlanExecutor final : public std::enable_shared_from_this<VulkanPlanExecutor> {
   public:
     struct CreateInfo {
         std::shared_ptr<VulkanGenerationAdapterDomain> domain;

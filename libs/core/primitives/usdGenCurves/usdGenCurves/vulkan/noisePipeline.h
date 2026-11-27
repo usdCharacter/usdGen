@@ -21,6 +21,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -43,7 +44,7 @@ char const* NoiseSemanticName(NoiseSemantic) noexcept;
 //
 // The generate dispatch uses FP64; the device context must have
 // shaderFloat64Enabled (factory contract).
-class NoisePipeline final : public std::enable_shared_from_this<NoisePipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API NoisePipeline final : public std::enable_shared_from_this<NoisePipeline> {
 public:
     class Candidate;
 
@@ -132,7 +133,7 @@ private:
 
 // One candidate owns a single noise operation. It holds every input buffer
 // so the whole dependency graph stays alive until Poll or destruction.
-class NoisePipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API NoisePipeline::Candidate final {
 public:
     // Result plane: the generated points.
     struct Output {

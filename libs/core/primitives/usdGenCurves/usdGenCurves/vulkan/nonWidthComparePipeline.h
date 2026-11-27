@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 class VulkanSourceGeneration;
@@ -16,7 +17,7 @@ class VulkanSourceGeneration;
 // private source frames and stride padding) are compared on the GPU, exactly
 // by bits, not approximate floating-point equality. Only scalar status is read
 // back. Both predecessor generations are retained for the entire proof.
-class NonWidthComparePipeline final : public std::enable_shared_from_this<NonWidthComparePipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API NonWidthComparePipeline final : public std::enable_shared_from_this<NonWidthComparePipeline> {
 public:
     class Candidate;
     using BeforeSubmit = std::function<bool()>;
@@ -35,7 +36,7 @@ private:
     explicit NonWidthComparePipeline(std::shared_ptr<Native>);
     std::shared_ptr<Native> native_;
 };
-class NonWidthComparePipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API NonWidthComparePipeline::Candidate final {
 public:
     enum class Status { NotReady, Ready, LostProof };
     ~Candidate();

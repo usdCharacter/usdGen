@@ -7,6 +7,7 @@
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include <functional>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -34,7 +35,7 @@ enum class RootFramesBeginStatus : uint32_t {
 // Queue-owner confined. Inputs must be immutable and have completed upload on
 // this queue before Begin. Neither Begin nor Poll waits for device completion
 // beyond Begin's own synchronous validation-readback step.
-class RootFramesPipeline final : public std::enable_shared_from_this<RootFramesPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RootFramesPipeline final : public std::enable_shared_from_this<RootFramesPipeline> {
 public:
     class Candidate;
 
@@ -95,7 +96,7 @@ private:
 // One candidate owns a single root-frame build for `curves` curves. It holds
 // every input buffer (inputOwner is the first/context bearer) so the whole
 // dependency graph stays alive until Poll or destruction.
-class RootFramesPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RootFramesPipeline::Candidate final {
 public:
     // Result planes: flat scalar float[3*curves] storage buffers plus the
     // u32-lane valid/drop arrays. All six plane owners are always present.

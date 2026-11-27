@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 class VulkanSourceGeneration;
@@ -29,7 +30,7 @@ class VulkanSourceGeneration;
 // semantic status instead of producing a partial packet.
 // Submits go through the context's VulkanQueueTimeline (timelineSemaphoreEnabled);
 // without it Begin fails with VK_ERROR_FEATURE_NOT_PRESENT.
-class ResampleVkPipeline final
+class USDGEN_CURVES_VULKAN_INTERNAL_API ResampleVkPipeline final
     : public std::enable_shared_from_this<ResampleVkPipeline> {
 public:
     class Candidate;
@@ -51,7 +52,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class ResampleVkPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ResampleVkPipeline::Candidate final {
 public:
     struct OutputPlane {
         UsdGenDeviceChannelMetadata metadata;

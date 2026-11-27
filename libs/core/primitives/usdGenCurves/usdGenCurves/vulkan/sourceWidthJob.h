@@ -24,11 +24,12 @@
 #include "usdGenCurves/vulkan/widthBlendPipeline.h"
 #include <atomic>
 #include <functional>
+#include "usdGenCurves/vulkan/export.h"
 namespace usdGen::vulkan {
 // Owner-confined, value-indexed execution. Stages submit serially in validated
 // topological order; fan-out shares immutable values and fan-in uses explicit
 // ordered inputs. This does not claim concurrent GPU branch execution.
-class VulkanSourceWidthJob final : public std::enable_shared_from_this<VulkanSourceWidthJob> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanSourceWidthJob final : public std::enable_shared_from_this<VulkanSourceWidthJob> {
   public:
     enum class State {
         Created,

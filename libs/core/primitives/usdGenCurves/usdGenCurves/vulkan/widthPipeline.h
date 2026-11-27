@@ -7,11 +7,12 @@
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include <functional>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 // Queue-owner confined. Inputs must be immutable and have completed upload on
 // this queue before Begin. Neither Begin nor Poll waits for device completion.
-class WidthPipeline final : public std::enable_shared_from_this<WidthPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API WidthPipeline final : public std::enable_shared_from_this<WidthPipeline> {
 public:
     class Candidate;
     // Owner-side admission checkpoint immediately before the first native
@@ -39,7 +40,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class WidthPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API WidthPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

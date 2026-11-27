@@ -14,10 +14,11 @@
 #include <array>
 #include <memory>
 #include <string>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
-class VulkanSessionProvider final : public UsdGenSessionDeviceProvider,
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanSessionProvider final : public UsdGenSessionDeviceProvider,
                                     public std::enable_shared_from_this<VulkanSessionProvider> {
 public:
     ~VulkanSessionProvider() override;

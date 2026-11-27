@@ -17,10 +17,11 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
-class ExprVkWidthApplyPipeline {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkWidthApplyPipeline {
 public:
     using BeforeSubmit = std::function<bool()>;
     static std::shared_ptr<ExprVkWidthApplyPipeline> Create(
@@ -40,7 +41,7 @@ public:
         float baseLiteral = 1.0f;
     };
 
-    class Candidate {
+    class USDGEN_CURVES_VULKAN_INTERNAL_API Candidate {
     public:
         ~Candidate();
         Candidate(Candidate const&) = delete;
@@ -84,7 +85,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class ExprVkExprOpPipeline {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkExprOpPipeline {
 public:
     using BeforeSubmit = std::function<bool()>;
     static std::shared_ptr<ExprVkExprOpPipeline> Create(
@@ -95,7 +96,7 @@ public:
     ExprVkExprOpPipeline& operator=(ExprVkExprOpPipeline const&) = delete;
     std::shared_ptr<DeviceContext> const& context() const noexcept;
 
-    class Candidate {
+    class USDGEN_CURVES_VULKAN_INTERNAL_API Candidate {
     public:
         ~Candidate();
         Candidate(Candidate const&) = delete;

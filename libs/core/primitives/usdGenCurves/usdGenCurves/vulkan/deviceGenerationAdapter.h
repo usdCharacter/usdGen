@@ -12,12 +12,13 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
 class VulkanGenerationAdapterDomainAccess;
 
-class VulkanGenerationAdapterDomain final
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanGenerationAdapterDomain final
     : public std::enable_shared_from_this<VulkanGenerationAdapterDomain> {
 public:
     struct CreateInfo {
@@ -30,7 +31,7 @@ public:
     // the exact owner/service pair and prevents Close from detaching the
     // pipeline. It is move-only; the bound owner must Retire after proof (or
     // a pre-submit rollback). Unretired destruction deliberately fails closed.
-    class OperationLease final {
+    class USDGEN_CURVES_VULKAN_INTERNAL_API OperationLease final {
     public:
         OperationLease() = default;
         ~OperationLease();
@@ -96,7 +97,7 @@ private:
 // Bridges an already-proved immutable Vulkan source snapshot into the neutral
 // device-generation contract.  It deliberately does not advertise Vulkan as
 // an execution backend or create a Vulkan context.
-class VulkanDeviceGenerationAdapter final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanDeviceGenerationAdapter final {
 public:
     struct CreateInfo {
         std::shared_ptr<const VulkanSourceGeneration> source;
@@ -119,7 +120,7 @@ public:
 // Backend-private native view paired with the neutral lease.  `planes` is a
 // public-channel copy only: source-frame T/B/N buffers are never exposed.
 // The buffers remain valid exactly while `lease` remains valid.
-class VulkanGenerationLease final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanGenerationLease final {
 public:
     VulkanGenerationLease() = default;
     explicit operator bool() const noexcept { return bool(lease_); }
@@ -138,7 +139,7 @@ private:
         : lease_(std::move(lease)), planes_(std::move(planes)) {}
     UsdGenDeviceLease lease_;
     std::vector<VulkanSourceGeneration::PlaneView> planes_;
-    friend VulkanGenerationLease AcquireVulkanGeneration(
+    friend USDGEN_CURVES_VULKAN_INTERNAL_API VulkanGenerationLease AcquireVulkanGeneration(
         std::shared_ptr<const UsdGenDeviceGeneration> const&, UsdGenDeviceStream) noexcept;
 };
 
@@ -155,12 +156,12 @@ struct VulkanGenerationAccess {
         return generation && context && queueOwner && domain;
     }
 };
-VulkanGenerationAccess GetVulkanGenerationAccess(
+USDGEN_CURVES_VULKAN_INTERNAL_API VulkanGenerationAccess GetVulkanGenerationAccess(
     std::shared_ptr<const UsdGenDeviceGeneration> const&) noexcept;
 
 // Acquires a Vulkan-native view only from an adapter-created Vulkan
 // generation.  It rejects foreign backends/owners and stream tokens.
-VulkanGenerationLease AcquireVulkanGeneration(
+USDGEN_CURVES_VULKAN_INTERNAL_API VulkanGenerationLease AcquireVulkanGeneration(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     UsdGenDeviceStream queueStream) noexcept;
 

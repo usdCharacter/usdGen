@@ -10,6 +10,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -60,7 +61,7 @@ char const* StyleVkStatusName(StyleVkStatus) noexcept;
 // DecodeError mirror: Ok -> Ok, BadOffsets -> InvalidArgument, NonFinite ->
 // NonFiniteInput, BadValue -> InvalidValue. Any other code maps to
 // VulkanError.
-StyleVkStatus StyleVkStatusForSemantic(StyleVkSemantic) noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API StyleVkStatus StyleVkStatusForSemantic(StyleVkSemantic) noexcept;
 
 // Scalar field codes shared with NoisePipeline.
 struct StyleVkDomain {
@@ -75,7 +76,7 @@ struct StyleVkDomain {
 // CUDA stream order) and Poll proves it.
 // Submits go through the context's VulkanQueueTimeline (timelineSemaphoreEnabled);
 // without it Begin fails with VK_ERROR_FEATURE_NOT_PRESENT.
-class StyleVkPipeline final : public std::enable_shared_from_this<StyleVkPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API StyleVkPipeline final : public std::enable_shared_from_this<StyleVkPipeline> {
 public:
     class Candidate;
 
@@ -171,7 +172,7 @@ private:
 
 // One candidate owns a single style operation. It holds every input buffer
 // so the whole dependency graph stays alive until Poll or destruction.
-class StyleVkPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API StyleVkPipeline::Candidate final {
 public:
     // Result plane: float[pointCount] for WidthRamp, float[3*pointCount]
     // for Length/Grow. Empty geometry yields a 4-byte dummy plane with

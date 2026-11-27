@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 // Queue-owner confined. Inputs must be immutable and have completed upload on
@@ -16,7 +17,7 @@ namespace usdGen::vulkan {
 // host-visible result buffer once the fence proves). Mirrors WidthPipeline's
 // lifecycle: Create(context,spirv,result) / Begin(...)->unique_ptr<Candidate>
 // / Poll / succeeded / output / inputOwner / context.
-class TopologyPipeline final : public std::enable_shared_from_this<TopologyPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API TopologyPipeline final : public std::enable_shared_from_this<TopologyPipeline> {
 public:
     class Candidate;
     // Owner-side admission checkpoint immediately before the first native
@@ -56,7 +57,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class TopologyPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API TopologyPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

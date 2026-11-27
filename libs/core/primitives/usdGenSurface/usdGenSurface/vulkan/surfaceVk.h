@@ -27,6 +27,7 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -37,7 +38,7 @@ namespace usdGen::vulkan {
 // sampleCount/restSamples/posedSamples/rootTargets are written. Returns
 // false with a "Vulkan source-width plan: ..." diagnostic on rejection,
 // using the same messages as ValidateDeform where the check coincides.
-bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
+USDGEN_CURVES_VULKAN_INTERNAL_API bool CompileSurfaceVkDeform(UsdGenCurveSetInputView const& source,
                             UsdGenSurfaceInputView const& surface, int budget,
                             VulkanDeformControls* out,
                             UsdGenDiagnostics* diagnostics);
