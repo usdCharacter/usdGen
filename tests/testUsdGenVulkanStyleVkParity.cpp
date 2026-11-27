@@ -193,7 +193,8 @@ bool SetupVulkan(VulkanLeg* leg, std::vector<uint32_t> const& widthRampSpv,
     ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 8042;
-    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
+    ci.nativeLifetime = native;
+    ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{32} << 20, 0};
     leg->native = native;
     leg->context = DeviceContext::Create(ci);

@@ -25,10 +25,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/cuda/topology.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/width.cu 4
 libs/core/primitives/usdGenExpr/usdGenExpr/cuda/expression.cu 3
 libs/core/primitives/usdGenExpr/usdGenExpr/cuda/expressionContext.cu 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkApply.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkContext.cpp 1
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkEvaluate.cpp 1
 libs/core/primitives/usdGenSurface/usdGenSurface/cuda/rootFrameGather.cu 4
 libs/core/primitives/usdGenSurface/usdGenSurface/cuda/rootFrames.cu 5
 libs/core/primitives/usdGenSurface/usdGenSurface/cuda/surfaceBinding.cu 4
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/rootFramesPipeline.cpp 1

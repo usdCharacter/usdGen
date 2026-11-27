@@ -41,7 +41,7 @@ public:
         // Nonblocking proof; writes the semantic status (0 ok, 1 invalid).
         VkResult Poll(uint32_t* semanticStatus);
         // Blocking proof for synchronous orchestration (mirrors the CUDA
-        // Finish fence wait); a timeout leaves the candidate pending.
+        // Finish fence wait; a queue-timeline wait); a timeout leaves the candidate pending.
         VkResult Wait(uint64_t timeoutNs, uint32_t* semanticStatus);
         std::shared_ptr<const ChargedBuffer> output() const noexcept;
         std::shared_ptr<DeviceContext> context() const noexcept;

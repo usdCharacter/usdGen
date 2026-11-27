@@ -73,7 +73,7 @@ public:
         // 2 channel) once proved.
         VkResult Poll(uint32_t* semanticStatus);
         // Blocking proof for synchronous orchestration (mirrors the CUDA
-        // Finish fence wait); a timeout leaves the candidate pending.
+        // Finish fence wait; a queue-timeline wait); a timeout leaves the candidate pending.
         VkResult Wait(uint64_t timeoutNs, uint32_t* semanticStatus);
         std::shared_ptr<ChargedBuffer> fields() const noexcept;
         std::shared_ptr<const ChargedBuffer> owners() const noexcept;

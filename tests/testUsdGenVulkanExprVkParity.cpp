@@ -251,6 +251,7 @@ std::shared_ptr<VkNative> CreateDevice(bool forceLlvmpipe, bool* nvidiaPending,
         VkPhysicalDeviceFeatures core{};
         core.shaderFloat64 = VK_TRUE;
         core.shaderInt64 = VK_TRUE;
+        // The pipelines submit on the queue timeline (core in Vulkan 1.2).
         VkPhysicalDeviceTimelineSemaphoreFeatures timeline{};
         timeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
         timeline.timelineSemaphore = VK_TRUE;

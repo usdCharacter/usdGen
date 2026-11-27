@@ -2,10 +2,3 @@
 # Counts may only go down. The target is an empty file.
 libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/queueTimeline.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/picktileVk.cpp 10
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkApply.cpp 4
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkContext.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkEvaluate.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkPack.cpp 2
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/mapVkImage.cpp 2
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/rootFrameGatherPipeline.cpp 2
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/rootFramesPipeline.cpp 4

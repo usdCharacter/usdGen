@@ -33,6 +33,9 @@ public:
     // Call before vkQueueSubmit while the scheduled owner holds its queue
     // serialization. `submissionLifetime` keeps the fence unreset/alive.
     VkResult MarkSubmitted(VkFence, std::shared_ptr<const void> submissionLifetime);
+    // Queue-timeline form: call right after the context's computeTimeline()
+    // Submit returned `timelineValue` for work that uses this buffer.
+    VkResult MarkSubmittedAt(uint64_t timelineValue, std::shared_ptr<const void> submissionLifetime);
     // Nonblocking proof: VK_NOT_READY leaves ownership and accounting intact.
     VkResult PollComplete();
     void Quarantine() noexcept;
@@ -49,6 +52,7 @@ private:
     VkBufferUsageFlags usage_ = 0;
     VkMemoryPropertyFlags memoryPropertyFlags_ = 0;
     VkFence fence_ = VK_NULL_HANDLE;
+    uint64_t timelineValue_ = 0;  // MarkSubmittedAt proof (0: none)
     std::shared_ptr<const void> submissionLifetime_;
     UsdGenExecutionResourcePermit permit_;
     // Allocated before first submission so lost-proof quarantine is noexcept.

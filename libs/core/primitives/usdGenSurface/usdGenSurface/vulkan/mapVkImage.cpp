@@ -135,7 +135,7 @@ struct MapVkSamplePipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> output, status;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     bool pending = false, lost = false, proved = false;
     uint32_t count = 0;
     uint32_t semantic = UINT32_MAX;
@@ -144,7 +144,6 @@ struct MapVkSamplePipeline::Candidate::State {
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -262,7 +261,7 @@ VkResult MapVkSamplePipeline::Candidate::Poll(uint32_t* semanticStatus) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         s.pending = false;
@@ -284,6 +283,8 @@ std::unique_ptr<MapVkSamplePipeline::Candidate> MapVkSamplePipeline::BeginIntern
     auto finish = [&](VkResult r) { if (result) *result = r; };
     finish(VK_ERROR_INITIALIZATION_FAILED);
     auto context = native_->context;
+    VulkanQueueTimeline* const timeline = context->computeTimeline();
+    if (!timeline) return {};
     if (!image.texels || !image.payload || !image.payload->IsValid() ||
         image.texels->context() != context || image.texels->unproven() ||
         !image.texels->buffer() ||
@@ -448,10 +449,6 @@ std::unique_ptr<MapVkSamplePipeline::Candidate> MapVkSamplePipeline::BeginIntern
             1, &after, 0, nullptr, 0, nullptr);
         r = vkEndCommandBuffer(command);
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkFenceCreateInfo fi{};
-        fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
         // Admission is checked after every reversible allocation and command
         // recording, immediately before pending state or Vulkan submission.
         // Rejecting here lets local State destruction return every permit.
@@ -465,13 +462,9 @@ std::unique_ptr<MapVkSamplePipeline::Candidate> MapVkSamplePipeline::BeginIntern
             }
             if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
         }
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &command;
         s->pending = true; // Arm retention before native submission.
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+        s->value = timeline->Submit(&command, 1, &r);
+        if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
         finish(VK_SUCCESS);
         return candidate;
     } catch (std::bad_alloc const&) {
