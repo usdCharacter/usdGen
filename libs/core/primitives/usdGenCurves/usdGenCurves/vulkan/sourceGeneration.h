@@ -85,7 +85,7 @@ private:
 
 class VulkanSourceGeneration;
 
-// Mutable only until fence proof. Queue-owner confinement applies to Submit
+// Mutable only until timeline proof. Queue-owner confinement applies to Submit
 // and Poll; no native plane is exposed from this pending candidate.
 class VulkanSourceUpload final {
 public:
