@@ -94,6 +94,14 @@ int main() {
     // Run the consumer: version, engine, empty-spec compile and commit.
     std::string out = cleanEnv + "'" + buildDir + "/consumer' > '" + buildDir + "/out.txt' 2>&1";
     if (Run(out) != 0) {
+        // What the consumer printed (UsdGenEngine::Create names the extension
+        // that failed to load), and how each installed extension resolves its
+        // dependencies without the build tree on the loader path.
+        (void)Run("cat '" + buildDir + "/out.txt'");
+        const std::string libDir = std::string(prefix) + "/" + USDGEN_TEST_LIB_DIR;
+        (void)Run("while read -r f; do case \"$f\" in ''|'#'*) continue;; esac; "
+                  "echo \"== $f\"; " + cleanEnv + "ldd \"" + libDir + "/$f\"; done < '" +
+                  libDir + "/usdGenExtensions.txt'");
         std::printf("FAIL: consumer run failed\n");
         return 1;
     }
