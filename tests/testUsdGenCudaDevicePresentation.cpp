@@ -1,5 +1,6 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
-// with the accepted device generation, including tool point revisions.
+// with the accepted device generation (its host data, usdGenUsd
+// DevicePresentation), including tool point revisions.
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
@@ -77,7 +78,7 @@ struct PresentationPaths {
 
 static PresentationPaths Paths(UsdGenGeneration const &generation)
 {
-    UsdGenDevicePresentationMetadata const &m = *generation.devicePresentation;
+    usdGenUsd::UsdGenDevicePresentationMetadata const m = *usdGenUsd::DevicePresentation(generation);
     PresentationPaths out;
     out.description = usdGenUsd::PrimPath(generation, UsdGenPrimRef{m.description});
     out.renderNamespace = usdGenUsd::RenderNamespace(out.description);
@@ -88,8 +89,8 @@ static PresentationPaths Paths(UsdGenGeneration const &generation)
 }
 
 // Same keys name the same paths (the render namespace follows the description).
-static bool SamePresentation(UsdGenDevicePresentationMetadata const &a,
-                             UsdGenDevicePresentationMetadata const &b)
+static bool SamePresentation(usdGenUsd::UsdGenDevicePresentationMetadata const &a,
+                             usdGenUsd::UsdGenDevicePresentationMetadata const &b)
 {
     return a.description == b.description &&
         a.xformMatrix == b.xformMatrix &&
@@ -120,9 +121,9 @@ int main()
     auto desc = MakeDesc();
     usdGenUsd::SetGraphDesc(session, desc);
     auto first = session.Commit(1.0, UsdGenCommitReason::SetTime);
-    CHECK(first && first->device && first->devicePresentation &&
+    CHECK(first && first->device && usdGenUsd::DevicePresentation(*first) &&
           usdGen::UsdGenCurvePublicationOf(*first).tiles.empty() && !session.LastDiagnostics().HasErrors());
-    auto const initial = *first->devicePresentation;
+    auto const initial = *usdGenUsd::DevicePresentation(*first);
     PresentationPaths const initialPaths = Paths(*first);
     CHECK(initialPaths.description == desc.description &&
           initialPaths.renderNamespace == SdfPath("/Groom/Presentation/__usdGenRender") &&
@@ -140,9 +141,9 @@ int main()
     changed.materialPath = SdfPath("/Looks/HairB");
     usdGenUsd::SetGraphDesc(session, changed);
     auto second = session.Commit(2.0, UsdGenCommitReason::SetTime);
-    CHECK(second && second != first && second->device && second->devicePresentation &&
+    CHECK(second && second != first && second->device && usdGenUsd::DevicePresentation(*second) &&
           !session.LastDiagnostics().HasErrors());
-    auto const changedPresentation = *second->devicePresentation;
+    auto const changedPresentation = *usdGenUsd::DevicePresentation(*second);
     PresentationPaths const changedPaths = Paths(*second);
     CHECK(changedPaths.description == changed.description &&
           changedPaths.renderNamespace == initialPaths.renderNamespace &&
@@ -155,7 +156,7 @@ int main()
           changedPaths.primOrigin == changed.description &&
           changedPaths.dependencySurface == SdfPath("/Scalp"));
     // Retained immutable generations must retain their own descriptor epoch.
-    CHECK(SamePresentation(*first->devicePresentation, initial));
+    CHECK(SamePresentation(*usdGenUsd::DevicePresentation(*first), initial));
 
     auto const baseGeometry = second->device->Geometry();
     CHECK(baseGeometry.tiles.size() == 1 && baseGeometry.tiles[0].boundsValid);
@@ -180,9 +181,9 @@ int main()
     CHECK(tool.Begin(99));
     CHECK(tool.UpdateIndexed({indices.data(), 1}, {positions.data(), 1}));
     auto revised = session.Commit(2.0, UsdGenCommitReason::LiveOverride);
-    CHECK(revised && revised != second && revised->device && revised->devicePresentation &&
+    CHECK(revised && revised != second && revised->device && usdGenUsd::DevicePresentation(*revised) &&
           !session.LastDiagnostics().HasErrors());
-    CHECK(SamePresentation(*revised->devicePresentation, changedPresentation));
+    CHECK(SamePresentation(*usdGenUsd::DevicePresentation(*revised), changedPresentation));
     CHECK(revised->device->Tool().toolId == "pointEdit" &&
           revised->device->Tool().graphVersion == 99);
     auto const& revisedGeometry = revised->device->Geometry();
@@ -195,7 +196,7 @@ int main()
     CHECK(position.x > oldTile.extentMax[0] &&
           revisedTile.extentMax[0] > oldTile.extentMax[0]);
     CHECK(revisedGeometry.topologyVersion == baseGeometry.topologyVersion &&
-          SamePresentation(*revised->devicePresentation, *second->devicePresentation));
+          SamePresentation(*usdGenUsd::DevicePresentation(*revised), *usdGenUsd::DevicePresentation(*second)));
     CHECK(second->device->Geometry().tiles[0].extentMin == oldTile.extentMin &&
           second->device->Geometry().tiles[0].extentMax == oldTile.extentMax &&
           Read(oldLease, &oldAfter, stream) && oldAfter.size() == oldPoints.size() &&

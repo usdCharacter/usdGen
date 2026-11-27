@@ -59,7 +59,7 @@ struct UsdGenRampDesc
     VtVec2fArray knots;          // scalar ramp: (position, value), sorted by x
     VtFloatArray positions;     // colour ramp
     VtVec3fArray colors;        // colour ramp
-    TfToken      interpolation; // linear | catmullRom | bspline | constant (default catmullRom, R11)
+    TfToken      interpolation; // the host's ramp interpolation token (R11)
 };
 
 /// The authored relationship slot which consumes a map. usdGen:map is the
@@ -234,38 +234,18 @@ private:
     UsdGenNodeKey _cacheKey;
 };
 
-/// The description's look block (02-schema.md §2.12 defaults; 07 §1.2 bake
-/// order): base colour, the root->tip ramp and the per-element jitter.
-struct UsdGenLookDesc
-{
-    GfVec3f  rootColor{0.035f, 0.018f, 0.008f};
-    GfVec3f  tipColor{0.210f, 0.115f, 0.045f};
-    VtVec3fArray rampColors;          // usdGen:look:colorRamp:colors (empty == two-colour mix)
-    VtFloatArray rampPositions;       // usdGen:look:colorRamp:positions
-    TfToken  rampInterpolation = UsdGenTokens().catmullRom;
-    float    rampExponent = 1.0f;     // usdGen:look:rampExponent
-    TfToken  bakeMode;                                 // host-filled (the schema's fallback)
-    TfToken  bakeTarget = UsdGenTokens().displayColor;     // displayColor | primvar | none
-    TfToken  bakePrimvar = UsdGenTokens().displayColor;
-    float    hueJitter = 0.0f;
-    float    valueJitter = 0.0f;
-    int      jitterSeed = 0;
-};
-
-/// usdGen:preview:* on the description: a viewport-only colour override that
-/// shows a value on the published geometry (07 §7.3). 'source' is the first authored
-/// target, resolved by the host to a prim and an attribute: a UsdGenExpression
-/// prim, a UsdGenPtexMap prim (the builders add it to 'maps') or an operator
-/// attribute ('attribute' non-empty). The session cooker resolves it against
-/// the compiled graph.
+/// usdGen:preview:* on the description: the value a viewport preview shows on
+/// the published geometry (07 §7.3); how it is coloured is host data.
+/// 'source' is the first authored target, resolved by the host to a prim and
+/// an attribute: a UsdGenExpression prim, a UsdGenPtexMap prim (the builders
+/// add it to 'maps') or an operator attribute ('attribute' non-empty). The
+/// publish desc's previewValues hook resolves it against the compiled graph.
 struct UsdGenPreviewSpec
 {
     UsdGenNodeKey source;                         // invalid == no preview
     TfToken  attribute;                           // the operator attribute; empty for a prim
-    TfToken  colorMap = UsdGenTokens().heat;          // heat | viridis | gray | ids | rgb
-    GfVec2f  range{0.0f, 1.0f};
     TfToken  evaluation = UsdGenTokens().primitive;   // for an expression prim source
-    TfToken  shading = UsdGenTokens().lit;            // lit | flat
+    uint8_t  mapChannels = 1;                     // a map source: 3 reads its first three channels
 
     bool Active() const { return source.IsValid(); }
 };
@@ -292,15 +272,10 @@ struct UsdGenGraphSpec
     /// gprims expressions sample), grouped by ascending kind; builder order
     /// within a kind (a surface's id is its index in its run).
     std::vector<UsdGenInputRecord> inputs;
-    UsdGenLookDesc                 look;
     UsdGenPreviewSpec              preview;
     GfMatrix4d                     xformMatrix{1.0}; // description world matrix (post-flattening, S4)
-    TfToken                        purpose;        // inherited by hand to every tile (C2)
-    TfToken                        visibility;     // inherited by hand to every tile (C2)
-    UsdGenNodeKey                  material;       // the description's bound Material (C2)
     float    defaultWidth = 0.01f;                 // usdGen:width:default
     int      tileTarget = 64;                      // uniform int usdGen:tileTarget
-    TfToken  basis = UsdGenTokens().bspline;           // the published basis (C2)
     double   time = 0.0;
     double   timeCodesPerSecond = 24.0; // USD default; expressions expose seconds
     /// kUsdGenBackendCpu, a registered backend (registries/backend.h), or
@@ -309,10 +284,13 @@ struct UsdGenGraphSpec
     std::vector<std::string> validationErrors;
     /// Sorted by key: the text of every key above.
     std::vector<UsdGenNodeLabel> labels;
-    /// Opaque host data (usdGenUsd: this spec's key -> path table). The engine
-    /// copies it into the generations and routing snapshots it makes from this
-    /// spec and never reads it.
+    /// Opaque host data (usdGenUsd: this spec's key -> path table and its
+    /// presentation). The engine copies it into the generations and routing
+    /// snapshots it makes from this spec and never reads it.
     std::shared_ptr<const void> host;
+    /// The host's digest of what its host data adds to a cook's output (its
+    /// presentation); the execution cache key mixes it.
+    uint64_t hostDigest = 0;
 
     /// The run of 'kind' in 'inputs' (empty when absent).
     UsdGenSpan<const UsdGenInputRecord> Inputs(UsdGenTypeId kind) const noexcept;

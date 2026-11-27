@@ -32,6 +32,8 @@ TfToken InternTileName(UsdGenTileId tile)
 TfToken const kMaterialLit("material_preview");
 TfToken const kMaterialFlat("material_preview_flat");
 TfToken const kShadingFlat("flat");
+TfToken const kScalpShadow("scalpShadow");
+TfToken const kMaterialScalpShadow("material_scalpShadow");
 
 TfToken InstancerName(uint32_t index)
 {
@@ -81,9 +83,9 @@ SdfPath PrimPath(UsdGenPrimRef const &prim, SdfPath const &node)
     case UsdGenPublishRole::Tile:
         return TilePath(node, UsdGenTileId(prim.index));
     case UsdGenPublishRole::ScalpShadow:
-        return RenderNamespace(node).AppendChild(UsdGenTokens().scalpShadow);
+        return RenderNamespace(node).AppendChild(kScalpShadow);
     case UsdGenPublishRole::ScalpShadowMaterial:
-        return RenderNamespace(node).AppendChild(UsdGenTokens().materialScalpShadow);
+        return RenderNamespace(node).AppendChild(kMaterialScalpShadow);
     case UsdGenPublishRole::PreviewMaterial:
         return RenderNamespace(node).AppendChild(kMaterialLit);
     case UsdGenPublishRole::PreviewMaterialFlat:

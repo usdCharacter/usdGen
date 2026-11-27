@@ -25,24 +25,6 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
-/// Scalar scene-presentation state paired with a device generation.  This is
-/// intentionally separate from UsdGenDeviceGeneration: the device payload is
-/// geometry/tool data, while these values are the immutable descriptor
-/// snapshot that a renderer needs to publish that payload.  No geometry or
-/// per-element host mirror is retained here.
-struct UsdGenDevicePresentationMetadata
-{
-    UsdGenNodeKey description;   // the host composes the render namespace under it
-    GfMatrix4d xformMatrix{1.0};
-    TfToken purpose;
-    TfToken visibility;
-    UsdGenPrimRef material;
-    TfToken materialPurpose = UsdGenTokens().allPurpose;
-    int refineLevel = 2;
-    UsdGenPrimRef origin;
-    UsdGenPrimRef dependency;
-};
-
 struct UsdGenGeneration
 {
     int64_t id = -1;
@@ -53,11 +35,9 @@ struct UsdGenGeneration
     // Mutually exclusive with host geometry. Device-aware consumers acquire
     // leases from this immutable payload; never cast its pointers to VtArray.
     std::shared_ptr<const UsdGenDeviceGeneration> device;
-    // Present only for a device publication.  It is built from the same accepted
-    // descriptor snapshot as `device`, never from a later scene read.
-    std::optional<UsdGenDevicePresentationMetadata> devicePresentation;
     // The cooked spec's opaque host data (UsdGenGraphSpec::host): the host
-    // names the keys above through it.
+    // names the keys above through it and keeps the presentation it publishes
+    // them with (a device generation's included: usdGenUsd DevicePresentation).
     std::shared_ptr<const void> host;
 };
 using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;

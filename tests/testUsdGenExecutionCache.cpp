@@ -814,6 +814,56 @@ int main()
     Check(paintChangedResult && cooker.TakeCacheCandidate(),
           "paint-map repaint misses exact cache identity (no stale groom)");
 
+    // Presentation is host data (step 9.3): the spec carries only the host's
+    // digest of it. Every presentation field moves the digest, and a
+    // look-only edit still misses the execution cache.
+    {
+        struct PresentationEdit {
+            char const *name;
+            void (*apply)(UsdGenGraphDesc &);
+        };
+        PresentationEdit const edits[] = {
+            {"look.rootColor", [](UsdGenGraphDesc &d) { d.look.rootColor = GfVec3f(0.5f, 0.1f, 0.1f); }},
+            {"look.tipColor", [](UsdGenGraphDesc &d) { d.look.tipColor = GfVec3f(0.9f, 0.8f, 0.1f); }},
+            {"look.rampColors", [](UsdGenGraphDesc &d) {
+                 d.look.rampColors = VtVec3fArray{GfVec3f(1.0f, 0.0f, 0.0f), GfVec3f(0.0f, 1.0f, 0.0f)};
+             }},
+            {"look.rampPositions", [](UsdGenGraphDesc &d) { d.look.rampPositions = VtFloatArray{0.0f, 1.0f}; }},
+            {"look.rampInterpolation", [](UsdGenGraphDesc &d) { d.look.rampInterpolation = TfToken("linear"); }},
+            {"look.rampExponent", [](UsdGenGraphDesc &d) { d.look.rampExponent = 2.0f; }},
+            {"look.bakeMode", [](UsdGenGraphDesc &d) { d.look.bakeMode = TfToken("perVertex"); }},
+            {"look.bakeTarget", [](UsdGenGraphDesc &d) { d.look.bakeTarget = TfToken("none"); }},
+            {"look.bakePrimvar", [](UsdGenGraphDesc &d) { d.look.bakePrimvar = TfToken("hairColor"); }},
+            {"look.hueJitter", [](UsdGenGraphDesc &d) { d.look.hueJitter = 0.1f; }},
+            {"look.valueJitter", [](UsdGenGraphDesc &d) { d.look.valueJitter = 0.2f; }},
+            {"look.jitterSeed", [](UsdGenGraphDesc &d) { d.look.jitterSeed = 7; }},
+            {"purpose", [](UsdGenGraphDesc &d) { d.purpose = TfToken("proxy"); }},
+            {"visibility", [](UsdGenGraphDesc &d) { d.visibility = TfToken("invisible"); }},
+            {"materialPath", [](UsdGenGraphDesc &d) { d.materialPath = SdfPath("/cache/Looks/other"); }},
+            {"curveBasis", [](UsdGenGraphDesc &d) { d.curveBasis = TfToken("catmullRom"); }},
+            {"preview.colorMap", [](UsdGenGraphDesc &d) { d.preview.colorMap = TfToken("viridis"); }},
+            {"preview.range", [](UsdGenGraphDesc &d) { d.preview.range = GfVec2f(0.1f, 0.9f); }},
+            {"preview.shading", [](UsdGenGraphDesc &d) { d.preview.shading = TfToken("flat"); }},
+        };
+        uint64_t const baseDigest = usdGenUsd::Lower(desc).hostDigest;
+        Check(baseDigest != 0, "a lowered spec carries a host digest");
+        for (PresentationEdit const &edit : edits) {
+            UsdGenGraphDesc changed = desc;
+            edit.apply(changed);
+            Check(usdGenUsd::Lower(changed).hostDigest != baseDigest,
+                  (std::string("a presentation edit moves the host digest: ") + edit.name).c_str());
+        }
+        UsdGenGraphDesc lookChanged = *paintChangedDesc;
+        lookChanged.look.tipColor = GfVec3f(0.9f, 0.1f, 0.1f);
+        auto lookChangedDesc = std::make_shared<const UsdGenGraphDesc>(std::move(lookChanged));
+        UsdGenGenerationConstPtr lookResult = cooker.Cook(
+            usdGenUsd::LowerShared(*lookChangedDesc), UsdGenContext::Interactive, false, {}, 1.0,
+            UsdGenCommitReason::NoticeBatchEnd, paintChangedResult, {}, false,
+            8, 9, -1);
+        Check(lookResult && cooker.TakeCacheCandidate(),
+              "a look-only edit misses exact cache identity (host digest)");
+    }
+
     // Big-key plan identity: a surface whose hashed arrays exceed the 1MB
     // threaded-digest gate must still hit on an exact recook and miss when
     // a single hashed index flips (the parallel segment digests fold back

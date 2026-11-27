@@ -8,6 +8,7 @@
 #pragma once
 
 #include "usdGenHydraCurves/export.h"
+#include "usdGenHydraCurves/tokens.h"
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/primRef.h"
 #include "usdGen/compile/types.h"
@@ -66,7 +67,7 @@ struct UsdGenTilePublication
     TfToken       purpose;                    // inherited by hand from the description
     TfToken       visibility;                 // inherited by hand from the description
     UsdGenPrimRef material;                   // description's Material (or the preview material)
-    TfToken       materialPurpose = UsdGenTokens().allPurpose; // the empty-token container child
+    TfToken       materialPurpose = hydraCurvesTokens::allPurpose(); // the empty-token container child
     UsdGenPrimRef origin;                     // the description prim; absolute outside prototypes
     UsdGenPrimRef dependency;                 // __dependencies: dependedOnPrimPath
 };

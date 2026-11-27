@@ -259,7 +259,8 @@ int main() {
         CHECK(handle);
         auto plan = std::static_pointer_cast<const VulkanSourceWidthPlan>(handle->Payload());
         CHECK(plan->Descriptor()->xformMatrix == desc.xformMatrix);
-        CHECK(plan->Descriptor()->basis == desc.curveBasis);
+        CHECK(usdGenUsd::Presentation(*plan->Descriptor()) &&
+              usdGenUsd::Presentation(*plan->Descriptor())->basis == desc.curveBasis);
         CHECK(plan->Source().basis == curves.basis && plan->Source().wrap == curves.wrap);
         UsdGenParamView params{plan->Descriptor().get(), &plan->Descriptor()->nodes.front()};
         UsdGenCaptureContext capture;
