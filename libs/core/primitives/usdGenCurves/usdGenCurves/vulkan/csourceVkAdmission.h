@@ -13,6 +13,9 @@
 #include "usdGen/authoredNamedChannels.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenCurves/vulkan/vkStages.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 
 #include <cstddef>
 #include <cstdint>

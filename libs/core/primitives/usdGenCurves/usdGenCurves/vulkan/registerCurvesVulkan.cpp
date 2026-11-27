@@ -16,6 +16,8 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGenVulkan/backendId.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <atomic>
 

@@ -3,6 +3,8 @@
 #include "usdGen/clumpMotion.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGenCurves/types/curveSet.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>

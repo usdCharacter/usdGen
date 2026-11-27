@@ -10,6 +10,11 @@
 #include "usdGen/compile/types.h"
 #include "usdGenCurves/export.h"
 #include "usdGen/registries/engineTokens.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 
 #include <cstddef>

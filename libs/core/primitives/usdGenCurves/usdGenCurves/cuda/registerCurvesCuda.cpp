@@ -17,6 +17,7 @@
 #include "usdGen/ops/scatter.h"
 #include "usdGen/ops/width.h"
 #include "usdGen/ops/widthBlend.h"
+#include "usdGen/api/span.h"
 
 namespace usdGen {
 

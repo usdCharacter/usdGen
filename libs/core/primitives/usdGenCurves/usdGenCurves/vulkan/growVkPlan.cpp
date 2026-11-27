@@ -11,6 +11,11 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenCurves/vulkan/vkStages.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>

@@ -7,6 +7,8 @@
 #include "usdGen/api/graphSpec.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 #include <memory>

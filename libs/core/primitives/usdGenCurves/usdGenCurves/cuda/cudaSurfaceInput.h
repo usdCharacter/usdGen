@@ -4,6 +4,7 @@
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/cowArray.h"
 #include <cstdint>
 #include <string>
 #include <vector>

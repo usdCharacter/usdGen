@@ -38,6 +38,7 @@
 #include "usdGenMath/rbf.h"
 
 #include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>

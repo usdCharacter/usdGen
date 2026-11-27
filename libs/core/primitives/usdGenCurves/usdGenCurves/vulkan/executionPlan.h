@@ -10,6 +10,7 @@
 #include "usdGenExpr/vulkan/exprVkProgram.h"
 #include "usdGen/executionBackend.h"
 #include "usdGenCurves/vulkan/vkStages.h"
+#include "usdGen/api/token.h"
 #include <array>
 
 #include <memory>

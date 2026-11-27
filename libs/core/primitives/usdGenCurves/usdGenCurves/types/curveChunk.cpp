@@ -5,6 +5,9 @@
 
 #include "usdGen/exec/chunkView.h"
 #include "usdGen/registries/engineTokens.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 

@@ -6,6 +6,7 @@
 #include "usdGen/registries/op.h"
 #include "usdGenCurves/export.h"
 #include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/api/cowArray.h"
 
 #include <memory>
 

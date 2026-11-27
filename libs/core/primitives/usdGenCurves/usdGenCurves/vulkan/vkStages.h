@@ -7,6 +7,7 @@
 #include "usdGenCurves/vulkan/export.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"
+#include "usdGen/api/token.h"
 
 #include <cstdint>
 

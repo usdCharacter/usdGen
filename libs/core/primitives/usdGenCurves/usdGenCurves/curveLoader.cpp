@@ -4,6 +4,10 @@
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/curveRootCapture.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <cmath>

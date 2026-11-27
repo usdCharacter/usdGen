@@ -1,6 +1,8 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/cuda/cudaSurfaceInput.h"
 #include "usdGenSurface/surfaceInput.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
 #include <cmath>
 #include <limits>

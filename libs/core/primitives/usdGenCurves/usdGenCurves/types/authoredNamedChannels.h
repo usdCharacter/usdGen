@@ -4,6 +4,8 @@
 #include "curveBuffer.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>

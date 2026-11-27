@@ -7,6 +7,7 @@
 #include "usdGen/executionPlan.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/registries/handles.h"
+#include "usdGen/api/token.h"
 
 #include <memory>
 #include <array>

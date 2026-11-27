@@ -11,6 +11,7 @@
 #include "usdGen/api/token.h"
 #include "usdGen/exec/chunkView.h"
 #include "usdGenMath/vec.h"
+#include "usdGenMath/math.h"
 #include <cstddef>
 #include <cstdint>
 

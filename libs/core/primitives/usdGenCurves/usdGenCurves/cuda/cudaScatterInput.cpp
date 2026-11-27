@@ -9,6 +9,9 @@
 #include "usdGen/registries/opRegistry.h"
 
 #include "usdGen/taskScheduler.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>

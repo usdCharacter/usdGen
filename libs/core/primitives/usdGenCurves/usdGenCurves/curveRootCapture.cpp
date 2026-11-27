@@ -5,6 +5,9 @@
 #include "usdGen/surfaceRootBindings.h"
 #include "usdGen/surfaceRootFrames.h"
 #include "usdGen/registries/token.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
 
 #include <cmath>
 #include <cstddef>

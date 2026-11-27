@@ -5,6 +5,8 @@
 
 #include "usdGen/curveBuffer.h"
 #include "usdGenCurves/export.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
 
 #include <cstdint>
 #include <memory>

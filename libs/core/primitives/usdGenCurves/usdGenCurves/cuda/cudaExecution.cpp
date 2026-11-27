@@ -59,6 +59,10 @@ constexpr size_t kCudaWidthBranchStreamCount = 8;
 #include "usdGenCurves/cuda/curveTiles.h"
 #include "usdGenCurves/cuda/curveTileBounds.h"
 #include "usdGenMath/usdGenMath/ramp.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 #endif
 
 namespace usdGen {
