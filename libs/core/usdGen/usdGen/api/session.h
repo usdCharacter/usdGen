@@ -2,6 +2,7 @@
 #define USDGEN_SESSION_H
 
 #include "usdGen/api/pipeline.h"
+#include "usdGen/api/hostData.h"
 #include "usdGen/api/backend.h"
 #include "usdGen/api/generation.h"
 #include "usdGen/api/diagnostics.h"
@@ -130,7 +131,7 @@ public:
         uint64_t sequence = 0;
         double frame = 0.0;
         UsdGenRef<const UsdGenPublication> tile;   // one group
-        std::shared_ptr<const void> host;   // the cooked spec's host data
+        UsdGenHostDataRef host;   // the cooked spec's host data
     };
     using TileProgressPtr = std::shared_ptr<const TileProgress>;
     using TileProgressCallback = std::function<void(TileProgressPtr)>;

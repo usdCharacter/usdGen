@@ -4,6 +4,7 @@
 // is built from (UsdGenSession::Routing(), UsdGenGraph::RoutingSnapshot()).
 #pragma once
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/hostData.h"
 
 #include <cstdint>
 #include <memory>
@@ -53,7 +54,7 @@ struct UsdGenGraphRoutingSnapshot
     std::vector<UsdGenGraphRoutingNode> nodes;
     UsdGenNodeId terminal = kUsdGenInvalidNode;
     /// The compiled spec's opaque host data (UsdGenGraphSpec::host).
-    std::shared_ptr<const void> host;
+    UsdGenHostDataRef host;
 };
 
 }  // namespace usdGen

@@ -141,7 +141,7 @@ std::vector<size_t> MatchCurves(UsdGenCurveSetView const &from, UsdGenCurveSetVi
 
 /// The surface every operator of the description roots on (ADR R15), which is
 /// what ptex() needs to place a strand root on a face.
-std::vector<UsdGenNodeKey> RootSurfaces(UsdGenGraphSpec const &desc)
+UsdGenPoolVector<UsdGenNodeKey> RootSurfaces(UsdGenGraphSpec const &desc)
 {
     for (UsdGenOpNode const &node : desc.nodes)
         if (!node.surfaces.empty()) return node.surfaces;

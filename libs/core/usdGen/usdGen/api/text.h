@@ -23,6 +23,9 @@ public:
     /// NUL-terminated.
     char const *c_str() const noexcept { return _chars.empty() ? "" : _chars.cdata(); }
     bool empty() const noexcept { return _chars.size() <= 1; }
+    char const *data() const noexcept { return c_str(); }
+    size_t size() const noexcept { return _chars.empty() ? 0 : _chars.size() - 1; }
+    operator std::string_view() const noexcept { return View(); }
 
     friend bool operator==(UsdGenText const &a, UsdGenText const &b) noexcept { return a.View() == b.View(); }
     friend bool operator!=(UsdGenText const &a, UsdGenText const &b) noexcept { return !(a == b); }

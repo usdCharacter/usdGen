@@ -1240,8 +1240,8 @@ void UsdGenCompiler::_Build(
     // entries copy from the input. Entry ORDER follows the input (S26).
     // Identity is positional (nodeByDesc) with a linear-scan fallback.
     static_assert(sizeof(UsdGenGraphSpec) ==
-                      232 + sizeof(std::vector<UsdGenInputRecord>) + sizeof(UsdGenPreviewSpec) +
-                      sizeof(std::vector<UsdGenNodeLabel>) + sizeof(std::shared_ptr<const void>),
+                      232 + sizeof(UsdGenPoolVector<UsdGenInputRecord>) + sizeof(UsdGenPreviewSpec) +
+                      sizeof(UsdGenPoolVector<UsdGenNodeLabel>) + sizeof(UsdGenHostDataRef),
         "UsdGenGraphSpec changed size: update the Recompile shell merge below");
     {
         // Double-buffered: the descriptor from two compiles back is
@@ -1534,7 +1534,7 @@ void UsdGenCompiler::_Build(
         node->input = node->inputs.empty() ? kUsdGenInvalidNode : node->inputs.front();
 
         // Relationship targets.
-        node->inputRefs = nd.inputSets;
+        node->inputRefs.assign(nd.inputSets.begin(), nd.inputSets.end());
         PVec<UsdGenMapBinding> bindings;
         std::string bindingError;
         if (!EffectiveMapBindings(nd, &bindings, &bindingError)) {

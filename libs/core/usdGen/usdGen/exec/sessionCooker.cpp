@@ -273,7 +273,7 @@ void _CacheMixShape(uint64_t *hash, expr::ValueShape const &shape)
     _CacheMix(hash, static_cast<uint64_t>(shape.isArray));
 }
 
-void _CacheMixKeys(uint64_t *hash, std::vector<UsdGenNodeKey> const &keys)
+void _CacheMixKeys(uint64_t *hash, UsdGenPoolVector<UsdGenNodeKey> const &keys)
 {
     _CacheMix(hash, static_cast<uint64_t>(keys.size()));
     for (UsdGenNodeKey const key : keys) _CacheMix(hash, key.value);

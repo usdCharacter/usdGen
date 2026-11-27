@@ -155,7 +155,7 @@ bool Prepare(UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     if (!Finite(sparse.worldMatrix) || !Finite(surface->worldMatrix))
         return Fail("surface-cage source or surface transform is non-finite", error);
 
-    std::vector<UsdGenMapBinding> const &bindings = node.mapBindings;
+    auto const &bindings = node.mapBindings;
     if (bindings.size() != 1 || bindings.front().relationship.GetString() != "usdGen:regionMap" ||
         !bindings.front().map.IsValid())
         return Fail("surface-cage requires exactly one usdGen:regionMap binding", error);

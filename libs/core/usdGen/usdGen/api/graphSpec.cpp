@@ -41,14 +41,14 @@ namespace {
 UsdGenText const kNoLabel;
 UsdGenToken const kNoName;
 
-UsdGenNodeLabel const *FindLabel(std::vector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key)
+UsdGenNodeLabel const *FindLabel(UsdGenPoolVector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key)
 {
     auto const it = std::lower_bound(labels.begin(), labels.end(), key,
         [](UsdGenNodeLabel const &l, UsdGenNodeKey k) { return l.key < k; });
     return it != labels.end() && it->key == key ? &*it : nullptr;
 }
 
-void AppendLabel(std::vector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key,
+void AppendLabel(UsdGenPoolVector<UsdGenNodeLabel> const &labels, UsdGenNodeKey key,
                  std::string *out, int depth)
 {
     UsdGenNodeLabel const *label = FindLabel(labels, key);

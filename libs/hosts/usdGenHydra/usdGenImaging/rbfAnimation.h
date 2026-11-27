@@ -19,13 +19,13 @@ struct RbfAnimation {
     std::map<SdfPath, GfRange3d> restBounds;
     SdfPath coefficientsPath;
     std::vector<SdfPath> tilePaths;        // per binding group
-    std::shared_ptr<const void> host;      // the cooked spec's path table
+    usdGen::UsdGenHostDataRef host;      // the cooked spec's path table
 };
 /// groupPrims: the published prim of each binding group, in group order.
 std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
     usdGen::UsdGenRef<const usdGen::UsdGenDeformBinding> const& binding,
     std::vector<usdGen::UsdGenPrimRef> const& groupPrims,
-    std::shared_ptr<const void> const& host, GfMatrix4d const& xform);
+    usdGen::UsdGenHostDataRef const &host, GfMatrix4d const& xform);
 std::shared_ptr<const RbfAnimation> PoseRbfAnimation(
     RbfAnimation const& previous, usdGen::UsdGenGraphDesc const& desc);
 }

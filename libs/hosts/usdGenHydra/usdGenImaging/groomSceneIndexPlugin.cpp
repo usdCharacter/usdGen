@@ -104,7 +104,7 @@ std::atomic<uint64_t> s_testCommandCapacity{4096};
 std::atomic<uint64_t> s_testSequenceCapacity{4096};
 // The path of a prim a cook published: through the cooked spec's table, or
 // under 'description' when the publication carries none (test hooks).
-SdfPath PublishedPath(usdGen::UsdGenPrimRef const& prim, std::shared_ptr<const void> const& host,
+SdfPath PublishedPath(usdGen::UsdGenPrimRef const& prim, usdGen::UsdGenHostDataRef const &host,
                       SdfPath const& description) {
     if (usdGenUsd::PathTable const* table = usdGenUsd::Paths(host))
         return usdGenUsd::PrimPath(prim, table);

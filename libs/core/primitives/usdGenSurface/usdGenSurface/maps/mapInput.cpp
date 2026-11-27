@@ -143,7 +143,7 @@ void ResolveMap(UsdGenInputRecord const &record, UsdGenResolvedMapValue *value)
 {
     UsdGenMapInputView const map = UsdGenMapInputView::Of(record);
     value->type = map.type;
-    value->resolvedAssetPath.assign(map.resolvedAssetPath.data(), map.resolvedAssetPath.size());
+    value->resolvedAssetPath = UsdGenText(std::string_view(map.resolvedAssetPath.data(), map.resolvedAssetPath.size()));
     value->textureGeneration = map.textureGeneration;
     value->identity = MapValueIdentity(map);
 }

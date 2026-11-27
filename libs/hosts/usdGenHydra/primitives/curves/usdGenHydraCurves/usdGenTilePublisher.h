@@ -64,14 +64,14 @@ public:
     /// Resolves a tile's keys through the cooked spec's host data (a
     /// generation's or a progress tile's 'host'); empty paths without it.
     static TilePaths ResolveTilePaths(usdGen::UsdGenTilePublication const &tile,
-                                      std::shared_ptr<const void> const &host);
+                                      usdGen::UsdGenHostDataRef const &host);
     static HdContainerDataSourceHandle BuildTileDataSource(
-        usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host);
+        usdGen::UsdGenTilePublication const &tile, usdGen::UsdGenHostDataRef const &host);
     /// Generation-stamped variant (StormSurgery P0 contract): stamps a
     /// prim-level `generation` int with the publication snapshot id. The
     /// legacy overload above stays unstamped (SI-1 callers).
     static HdContainerDataSourceHandle BuildTileDataSource(
-        usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host,
+        usdGen::UsdGenTilePublication const &tile, usdGen::UsdGenHostDataRef const &host,
         int64_t generation);
 
     /// The C2 data source for a guide prim (06 §4.2): basisCurves,

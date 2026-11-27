@@ -10,6 +10,7 @@
 #include "usdGenUsd/presentation.h"
 
 #include "usdGen/api/graphSpec.h"
+#include "usdGen/api/hostData.h"
 #include "usdGen/api/compile.h"
 #include "usdGen/api/ext/op.h"   // LoweredParams
 #include "usdGen/api/session.h"
@@ -31,7 +32,7 @@ namespace usdGenUsd {
 /// presentation. Immutable once made; a spec carries it as
 /// UsdGenGraphSpec::host, and the engine copies that into the generations and
 /// routing snapshots it makes from the spec.
-class PathTable {
+class PathTable final : public usdGen::UsdGenHostData {
 public:
     explicit PathTable(std::vector<std::pair<usdGen::UsdGenNodeKey, PXR_NS::SdfPath>> entries,
                        UsdGenPresentation presentation = UsdGenPresentation());
@@ -60,7 +61,7 @@ private:
 class PathRecorder {
 public:
     usdGen::UsdGenNodeKey operator()(PXR_NS::SdfPath const &path);
-    std::shared_ptr<const PathTable> Table() const;
+    usdGen::UsdGenRef<const PathTable> Table() const;
 
 private:
     NodeKeyMap _map;
@@ -123,9 +124,9 @@ usdGen::UsdGenNodeKey KeyOf(PXR_NS::SdfPath const &path);
 PathTable const *Paths(usdGen::UsdGenGraphSpec const &spec);
 PathTable const *Paths(usdGen::UsdGenGeneration const &generation);
 PathTable const *Paths(usdGen::UsdGenGraphRoutingSnapshot const &routing);
-PathTable const *Paths(std::shared_ptr<const void> const &host);
+PathTable const *Paths(usdGen::UsdGenHostDataRef const &host);
 /// The presentation a spec, generation or host data carries, or null.
-UsdGenPresentation const *Presentation(std::shared_ptr<const void> const &host);
+UsdGenPresentation const *Presentation(usdGen::UsdGenHostDataRef const &host);
 UsdGenPresentation const *Presentation(usdGen::UsdGenGraphSpec const &spec);
 UsdGenPresentation const *Presentation(usdGen::UsdGenGeneration const &generation);
 /// A device generation's presentation scalars (its spec's presentation);

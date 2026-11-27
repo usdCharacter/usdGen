@@ -250,7 +250,7 @@ bool Pose(RbfAnimation* result, usdGenMath::rbf::CubicField const& field, GfMatr
 std::shared_ptr<const RbfAnimation> BuildRbfAnimation(
     usdGen::UsdGenRef<const usdGen::UsdGenDeformBinding> const& binding,
     std::vector<usdGen::UsdGenPrimRef> const& groupPrims,
-    std::shared_ptr<const void> const& host, GfMatrix4d const& xform) {
+    usdGen::UsdGenHostDataRef const &host, GfMatrix4d const& xform) {
     if (!binding || binding->groups.empty() || groupPrims.size() != binding->groups.size()) return {};
     auto result = std::make_shared<RbfAnimation>();
     result->binding = binding;

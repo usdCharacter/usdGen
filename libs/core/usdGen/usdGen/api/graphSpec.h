@@ -8,8 +8,10 @@
 #define USDGEN_API_GRAPH_SPEC_H
 
 #include "usdGen/api/elementSet.h"
+#include "usdGen/api/hostData.h"
 #include "usdGen/api/inputDesc.h"
 #include "usdGen/api/nodeKey.h"
+#include "usdGen/api/pool.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/types.h"
 #include "usdGen/api/engineTokens.h"
@@ -76,16 +78,16 @@ struct UsdGenOpNode
     UsdGenToken                      mode;         // usdGen:mode, when the type has one
     bool                         enabled = true;
     int                          seed = 0;
-    std::vector<UsdGenNodeKey>   inputs;       // compiler-owned hierarchy dependency edges
-    std::vector<UsdGenNodeKey>   references;   // reference sets the node reads by name
-    std::vector<UsdGenNodeKey>   inputSets;    // input records the node reads as element sets
-    std::vector<UsdGenNodeKey>   surfaces;     // the Description's usdGen:surface targets (ADR R15)
+    UsdGenPoolVector<UsdGenNodeKey> inputs;       // compiler-owned hierarchy dependency edges
+    UsdGenPoolVector<UsdGenNodeKey> references;   // reference sets the node reads by name
+    UsdGenPoolVector<UsdGenNodeKey> inputSets;    // input records the node reads as element sets
+    UsdGenPoolVector<UsdGenNodeKey> surfaces;     // the Description's usdGen:surface targets (ADR R15)
     // Untyped map keys. Builders populate both; mapBindings is the canonical form.
-    std::vector<UsdGenNodeKey>   maps;
-    std::vector<UsdGenMapBinding> mapBindings;
-    std::vector<UsdGenParamValue> params;      // EVERY mapped locator of this prim (S14 pull-all)
-    std::vector<UsdGenParamBinding> expressionBindings;
-    std::vector<UsdGenRampDesc>   ramps;
+    UsdGenPoolVector<UsdGenNodeKey> maps;
+    UsdGenPoolVector<UsdGenMapBinding> mapBindings;
+    UsdGenPoolVector<UsdGenParamValue> params;      // EVERY mapped locator of this prim (S14 pull-all)
+    UsdGenPoolVector<UsdGenParamBinding> expressionBindings;
+    UsdGenPoolVector<UsdGenRampDesc> ramps;
     UsdGenOpId                   opId = UsdGenOpId::Invalid;   // engine-filled at intake (UsdGenResolveDescIds)
 };
 
@@ -97,7 +99,7 @@ struct UsdGenResolvedMapValue
 {
     UsdGenNodeKey key;
     UsdGenToken     type;
-    std::string resolvedAssetPath;
+    UsdGenText  resolvedAssetPath;
     uint64_t    textureGeneration = 0;
     uint64_t    identity = 0;
     UsdGenTypeId typeId = UsdGenTypeId::Invalid;
@@ -115,7 +117,7 @@ struct UsdGenInputRecord
     UsdGenTypeId  kind = UsdGenTypeId::Invalid;
     UsdGenText        label;            // the host path text; diagnostics only
     UsdGenRef<const UsdGenElementSet> data;
-    std::vector<UsdGenParamValue> values;
+    UsdGenPoolVector<UsdGenParamValue> values;
     uint64_t      generation = 0;   // content identity the host bumps on any edit
 
     template <class T>
@@ -226,7 +228,7 @@ private:
     UsdGenInputDesc const *_desc = nullptr;
     std::vector<Staged> _staged;
     std::vector<UsdGenRef<const UsdGenArena>> _sources;   // UseCache: the arenas staged per slot
-    std::vector<UsdGenParamValue> _values;
+    UsdGenPoolVector<UsdGenParamValue> _values;
     UsdGenInputColumnCache *_cache = nullptr;
     UsdGenNodeKey _cacheKey;
 };
@@ -265,11 +267,11 @@ struct UsdGenGraphSpec
 {
     UsdGenNodeKey                  description;   // the UsdGenDescription prim
     UsdGenNodeKey                  terminal;      // hierarchy-derived final operator
-    std::vector<UsdGenOpNode>      nodes;         // composed execution order from the builder
+    UsdGenPoolVector<UsdGenOpNode> nodes;         // composed execution order from the builder
     /// Every external input (element sets, surfaces, maps, expressions, the
     /// gprims expressions sample), grouped by ascending kind; builder order
     /// within a kind (a surface's id is its index in its run).
-    std::vector<UsdGenInputRecord> inputs;
+    UsdGenPoolVector<UsdGenInputRecord> inputs;
     UsdGenPreviewSpec              preview;
     UsdGenMatrix4d                     xformMatrix{1.0}; // description world matrix (post-flattening, S4)
     float    defaultWidth = 0.01f;                 // usdGen:width:default
@@ -279,13 +281,13 @@ struct UsdGenGraphSpec
     /// kUsdGenBackendCpu, a registered backend (registries/backend.h), or
     /// Invalid: a present but unknown request fails closed, never the CPU.
     UsdGenBackendId executionBackend = kUsdGenBackendCpu;
-    std::vector<std::string> validationErrors;
+    UsdGenPoolVector<UsdGenText> validationErrors;
     /// Sorted by key: the text of every key above.
-    std::vector<UsdGenNodeLabel> labels;
+    UsdGenPoolVector<UsdGenNodeLabel> labels;
     /// Opaque host data (usdGenUsd: this spec's key -> path table and its
     /// presentation). The engine copies it into the generations and routing
     /// snapshots it makes from this spec and never reads it.
-    std::shared_ptr<const void> host;
+    UsdGenHostDataRef host;
     /// The host's digest of what its host data adds to a cook's output (its
     /// presentation); the execution cache key mixes it.
     uint64_t hostDigest = 0;

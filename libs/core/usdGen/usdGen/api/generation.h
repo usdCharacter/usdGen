@@ -3,6 +3,7 @@
 // A published generation: immutable once published (03 §6.1/§6.2).
 #pragma once
 #include "usdGen/api/epoch.h"
+#include "usdGen/api/hostData.h"
 #include "usdGen/api/ext/publisher.h"
 
 #include <cstdint>
@@ -25,7 +26,7 @@ struct UsdGenGeneration
     // The cooked spec's opaque host data (UsdGenGraphSpec::host): the host
     // names the keys above through it and keeps the presentation it publishes
     // them with (a device generation's included: usdGenUsd DevicePresentation).
-    std::shared_ptr<const void> host;
+    UsdGenHostDataRef host;
 };
 using UsdGenGenerationConstPtr = std::shared_ptr<const UsdGenGeneration>;
 

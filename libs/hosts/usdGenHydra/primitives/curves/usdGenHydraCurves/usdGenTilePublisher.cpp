@@ -444,7 +444,7 @@ _Assemble(usdGen::UsdGenTilePublication const &tile,
 /*static*/
 UsdGenTilePublisher::TilePaths
 UsdGenTilePublisher::ResolveTilePaths(usdGen::UsdGenTilePublication const &tile,
-                                      std::shared_ptr<const void> const &host)
+                                      usdGen::UsdGenHostDataRef const &host)
 {
     usdGenUsd::PathTable const *table = usdGenUsd::Paths(host);
     TilePaths paths;
@@ -458,7 +458,7 @@ UsdGenTilePublisher::ResolveTilePaths(usdGen::UsdGenTilePublication const &tile,
 /*static*/
 HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildTileDataSource(
-    usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host)
+    usdGen::UsdGenTilePublication const &tile, usdGen::UsdGenHostDataRef const &host)
 {
     return _Assemble(tile, ResolveTilePaths(tile, host), /*isGuide=*/false, TfToken());
 }
@@ -466,7 +466,7 @@ UsdGenTilePublisher::BuildTileDataSource(
 /*static*/
 HdContainerDataSourceHandle
 UsdGenTilePublisher::BuildTileDataSource(
-    usdGen::UsdGenTilePublication const &tile, std::shared_ptr<const void> const &host,
+    usdGen::UsdGenTilePublication const &tile, usdGen::UsdGenHostDataRef const &host,
     int64_t generation)
 {
     TRACE_FUNCTION();

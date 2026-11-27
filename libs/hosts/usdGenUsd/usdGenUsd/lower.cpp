@@ -76,9 +76,9 @@ UsdGenNodeKey PathRecorder::operator()(SdfPath const &path)
     return key;
 }
 
-std::shared_ptr<const PathTable> PathRecorder::Table() const
+UsdGenRef<const PathTable> PathRecorder::Table() const
 {
-    return std::make_shared<PathTable>(_entries);
+    return UsdGenRef<const PathTable>(new PathTable(_entries));
 }
 
 namespace {
@@ -104,7 +104,7 @@ public:
     }
     void Finish(UsdGenGraphSpec *spec, UsdGenPresentation presentation = UsdGenPresentation())
     {
-        auto table = std::make_shared<PathTable>(std::move(_entries), std::move(presentation));
+        UsdGenRef<const PathTable> table(new PathTable(std::move(_entries), std::move(presentation)));
         spec->labels.clear();
         spec->labels.reserve(table->Size());
         for (auto const &entry : table->Entries())
@@ -165,6 +165,13 @@ UsdGenInputRecord LowerGeometry(UsdGenGeometryDesc const &geometry, Lowering &ke
                                 keys.Columns());
 }
 
+/// Copies a host container into an engine pool vector.
+template <class T, class S>
+void AssignTo(UsdGenPoolVector<T> *out, S const &in)
+{
+    out->assign(in.begin(), in.end());
+}
+
 UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
 {
     UsdGenOpNode out;
@@ -173,15 +180,15 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
     out.mode = ToToken(node.mode);
     out.enabled = node.enabled;
     out.seed = node.seed;
-    out.inputs = keys.Keys(node.inputs);
-    out.references = keys.Keys(node.references);
-    out.inputSets = keys.Keys(node.curves);
-    out.surfaces = keys.Keys(node.surfaces);
-    out.maps = keys.Keys(node.maps);
+    AssignTo(&out.inputs, keys.Keys(node.inputs));
+    AssignTo(&out.references, keys.Keys(node.references));
+    AssignTo(&out.inputSets, keys.Keys(node.curves));
+    AssignTo(&out.surfaces, keys.Keys(node.surfaces));
+    AssignTo(&out.maps, keys.Keys(node.maps));
     out.mapBindings.reserve(node.mapBindings.size());
     for (UsdGenMapBindingDesc const &binding : node.mapBindings)
         out.mapBindings.push_back(UsdGenMapBinding{keys.Key(binding.map), ToToken(binding.relationship)});
-    out.params = node.params;
+    AssignTo(&out.params, node.params);
     out.expressionBindings.reserve(node.expressionBindings.size());
     for (UsdGenExpressionBinding const &binding : node.expressionBindings) {
         UsdGenParamBinding b;
@@ -194,7 +201,7 @@ UsdGenOpNode LowerNode(UsdGenNodeDesc const &node, Lowering &keys)
         b.literal = ToEngineValue(binding.literal);
         out.expressionBindings.push_back(std::move(b));
     }
-    out.ramps = node.ramps;
+    AssignTo(&out.ramps, node.ramps);
     out.opId = node.opId;
     return out;
 }
@@ -261,7 +268,8 @@ UsdGenGraphSpec Lower(UsdGenGraphDesc const &desc, NodeKeyMap &map)
     spec.time = desc.time;
     spec.timeCodesPerSecond = desc.timeCodesPerSecond;
     spec.executionBackend = desc.executionBackend;
-    spec.validationErrors = desc.validationErrors;
+    spec.validationErrors.clear();
+    for (std::string const &error : desc.validationErrors) spec.validationErrors.emplace_back(error);
     presentation.description = spec.description;
     presentation.xformMatrix = ToHost(spec.xformMatrix);
     presentation.dependency = SourceDependencySurface(spec);
@@ -351,13 +359,13 @@ UsdGenNodeKey KeyOf(SdfPath const &path)
     }
 }
 
-PathTable const *Paths(std::shared_ptr<const void> const &host)
+PathTable const *Paths(UsdGenHostDataRef const &host)
 {
-    return static_cast<PathTable const *>(host.get());
+    return static_cast<PathTable const *>(host.Get());
 }
 PathTable const *Paths(UsdGenGraphSpec const &spec) { return Paths(spec.host); }
 
-UsdGenPresentation const *Presentation(std::shared_ptr<const void> const &host)
+UsdGenPresentation const *Presentation(UsdGenHostDataRef const &host)
 {
     PathTable const *table = Paths(host);
     return table ? &table->Presentation() : nullptr;
