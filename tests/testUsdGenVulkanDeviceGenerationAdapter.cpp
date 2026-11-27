@@ -23,12 +23,6 @@
 #include <algorithm>
 #include <string>
 
-#include "pxr/pxr.h"
-#include "pxr/base/tf/token.h"
-#include "pxr/base/vt/types.h"
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
 using namespace usdGen;
 using namespace usdGen::vulkan;
 #define CHECK(x) do { if (!(x)) { std::fprintf(stderr, "Vulkan adapter check failed: %s (%d)\n", #x, __LINE__); std::abort(); } } while (false)

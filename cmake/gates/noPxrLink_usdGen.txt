@@ -1,6 +1,1 @@
 # pxr libraries usdGen may link. Only shrinks; the target is an empty list.
-tf
-gf
-vt
-arch
-trace

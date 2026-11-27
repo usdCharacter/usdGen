@@ -145,7 +145,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
     add_library(usdGenCurvesVulkan SHARED ${_usdgen_curves_vulkan_sources})
     target_link_libraries(usdGenCurvesVulkan
         PUBLIC usdGen
-        PRIVATE usdGenVulkan usdGenSurface usdGenExpr usdGenCurves usdGenMath arch ${CMAKE_DL_LIBS})
+        PRIVATE usdGenVulkan usdGenSurface usdGenExpr usdGenCurves usdGenMath ${CMAKE_DL_LIBS})
     foreach(_usdgen_gpu_object usdGenSurface usdGenExpr)
         file(GLOB_RECURSE _usdgen_gpu_object_sources
             "${CMAKE_CURRENT_SOURCE_DIR}/libs/core/primitives/${_usdgen_gpu_object}/${_usdgen_gpu_object}/vulkan/*.cpp")
@@ -154,7 +154,7 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
             # Same includes and deps as usdGenVulkan; its symbols resolve
             # through usdGenCurvesVulkan, which links it.
             target_link_libraries(${_usdgen_gpu_object}Vulkan PRIVATE
-                usdGen Vulkan::Vulkan Threads::Threads usdGenSurface usdGenExpr usdGenCurves usdGenMath arch)
+                usdGen Vulkan::Vulkan Threads::Threads usdGenSurface usdGenExpr usdGenCurves usdGenMath)
             target_include_directories(${_usdgen_gpu_object}Vulkan PRIVATE
                 ${USDGEN_PRIMITIVE_INCLUDE_DIRS}
                 ${CMAKE_CURRENT_SOURCE_DIR}/libs/core/backends/usdGenVulkan)

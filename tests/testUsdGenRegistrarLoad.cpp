@@ -15,15 +15,12 @@
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/typeRegistry.h"
 
-#include "pxr/base/tf/token.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
 
 namespace {

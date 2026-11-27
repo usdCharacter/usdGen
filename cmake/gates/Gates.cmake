@@ -105,12 +105,31 @@ add_test(NAME testUsdGenNoPxrUsdImagingBelowHosts
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
 set_tests_properties(testUsdGenNoPxrUsdImagingBelowHosts PROPERTIES LABELS "T0;build;gate;gate:no-pxr")
 
-# 8.6f: the runtimes and primitives join (baselines noPxrLink_<t>.txt).
-foreach(_t usdGen usdGenMath usdGenCuda usdGenVulkan usdGenSurface usdGenExpr usdGenCurves
-        usdGenCurvesCuda usdGenCurvesVulkan)
-    if(NOT TARGET ${_t})
+# 8.6f, 11.8: every library with a source under libs/base or libs/core
+# (engine, math, runtimes, primitives, their GPU targets) links no pxr
+# library. Baselines noPxrLink_<t>.txt are empty; a missing one is empty.
+set(_usdgen_below_link_targets)
+get_property(_usdgen_dir_targets DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_t IN LISTS _usdgen_dir_targets)
+    get_target_property(_type ${_t} TYPE)
+    if(NOT _type MATCHES "^(SHARED|STATIC|MODULE|OBJECT)_LIBRARY$")
         continue()
     endif()
+    get_target_property(_srcs ${_t} SOURCES)
+    foreach(_s IN LISTS _srcs)
+        if(NOT _s MATCHES "^[$]<" AND _s MATCHES "(^|/)libs/(base|core)/")
+            list(APPEND _usdgen_below_link_targets ${_t})
+            break()
+        endif()
+    endforeach()
+endforeach()
+foreach(_t usdGen usdGenMath usdGenSurface usdGenExpr usdGenCurves usdGenCuda usdGenCurvesCuda)
+    if(NOT _t IN_LIST _usdgen_below_link_targets)
+        message(FATAL_ERROR "Gates.cmake: ${_t} is missing from the below-hosts link gate")
+    endif()
+endforeach()
+message(STATUS "usdGen link gate: ${_usdgen_below_link_targets}")
+foreach(_t IN LISTS _usdgen_below_link_targets)
     add_test(NAME testUsdGenNoPxrLink_${_t}
         COMMAND ${CMAKE_COMMAND}
             -DNAME=no-pxr-link-below-hosts
@@ -128,8 +147,8 @@ endforeach()
 # usdGenCurves either (publication lives in usdGenHydraCurves).
 # usdGenPomade (app layer) may link usdGenCuda (one block cache, D12).
 set(_usdgen_link_gate_rows
-    "usdGenCuda|ALLOW|^(usdGen|CUDA::(cudart|cuda_driver|cusolver)|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
-    "usdGenVulkan|ALLOW|^(usdGen|Vulkan::Vulkan|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
+    "usdGenCuda|ALLOW|^(usdGen|CUDA::(cudart|cuda_driver|cusolver)|Threads::Threads|Synchronization|dl)$"
+    "usdGenVulkan|ALLOW|^(usdGen|Vulkan::Vulkan|Threads::Threads|Synchronization|dl)$"
     "usdGen|DENY|^(usdGen(Cuda|Vulkan|Curves|Surface|Expr|Gpu|WithPrimitives|_ptex|_seexpr|ExprFrontend)|CUDA::.*|Vulkan::.*|pxOsd|hio)$"
     "usdGenImaging|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan|Curves|WithPrimitives))$"
     "usdGenHydraCurves|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan|Curves|WithPrimitives))$")

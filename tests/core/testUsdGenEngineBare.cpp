@@ -19,14 +19,11 @@
 #include "usdGen/registries/token.h"
 #include "usdGen/registries/typeRegistry.h"
 
-#include "pxr/base/tf/token.h"
-
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 using namespace usdGen;
 
 namespace {
