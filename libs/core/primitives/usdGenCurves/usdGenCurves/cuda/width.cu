@@ -500,6 +500,7 @@ StyleStatus CudaWidth::CommitFreshFinish() {
 
 StyleStatus CudaWidth::finishPublication(cudaStream_t stream) {
     if (pointCount_ == 0) {
+        // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
         if (CudaFenceStream(stream) != cudaSuccess) {
             unprovenWork_ = true;
             return StyleStatus::CudaError;
@@ -507,6 +508,7 @@ StyleStatus CudaWidth::finishPublication(cudaStream_t stream) {
     } else if (cudaMemcpyAsync(output_.data, staging_.data(),
                                pointCount_ * sizeof(float),
                                cudaMemcpyDeviceToDevice, stream) != cudaSuccess ||
+               // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
                CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         return StyleStatus::CudaError;
@@ -539,6 +541,7 @@ StyleStatus CudaWidth::Finish(cudaStream_t stream) {
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code),
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
         CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         return StyleStatus::CudaError;

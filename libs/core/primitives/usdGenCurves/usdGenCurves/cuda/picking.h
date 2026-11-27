@@ -58,6 +58,7 @@ public:
                             PickQuery query, cudaStream_t stream);
     PickingStatus ApplyFootprint(DeviceCurveGeometryView geometry,
                                  PickQuery query, cudaStream_t stream);
+    // Blocks on `stream`: interactive tool path (CudaToolSession), not a cook.
     PickingStatus Finish(cudaStream_t stream);
 
     bool pending() const noexcept { return pending_; }

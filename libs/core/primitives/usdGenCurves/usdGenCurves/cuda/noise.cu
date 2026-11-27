@@ -556,9 +556,24 @@ StyleStatus CudaNoise::begin(DeviceCurveGeometryView geometry,
         ? cudaMemsetAsync(error_.data(), 0, sizeof(int), stream) : cudaErrorMemoryAllocation;
     if (errorAllocation != cudaSuccess || stagingAllocation != cudaSuccess ||
         clearStatus != cudaSuccess) {
+        // Fresh: never wait. After a failed allocation nothing of ours is
+        // queued (ApplyFresh requires proven prior work), so release; a failed
+        // clear leaves the stream unproven and the relay quarantines.
+        if (freshPreparing_) {
+            if (clearStatus != cudaSuccess && stagingAllocation == cudaSuccess) {
+                staging_.quarantine();
+                error_.quarantine();
+                unprovenWork_ = true;
+            } else {
+                staging_.reset(0);
+                error_.reset(0);
+            }
+            return StyleStatus::CudaError;
+        }
         // A failed asynchronous clear may follow work on this stream.  Fence
         // before releasing, and abandon allocations if completion is not
         // provable; Apply has not yet borrowed caller output at this point.
+        // shutdown wait: test hook (synchronous Apply).
         if (CudaFenceStream(stream) != cudaSuccess) {
             staging_.quarantine();
             error_.quarantine();
@@ -649,7 +664,14 @@ StyleStatus CudaNoise::Apply(DeviceCurveGeometryView geometry,
     status = begin(geometry, output, stream, reservation);
     if (status != StyleStatus::Ok) return status;
     auto abortSubmission = [&] {
-        if (CudaFenceStream(stream) != cudaSuccess) {
+        // Fresh never waits: queued launches stay unproven and the relay
+        // quarantines.
+        bool proven = false;
+        if (!freshPreparing_) {
+            // shutdown wait: test hook (synchronous Apply).
+            proven = CudaFenceStream(stream) == cudaSuccess;
+        }
+        if (!proven) {
             staging_.quarantine();
             error_.quarantine();
             unprovenWork_ = true;
@@ -680,6 +702,7 @@ StyleStatus CudaNoise::finishPublication(cudaStream_t stream) {
         : cudaSuccess;
     // Fence unconditionally, including after a copy-submission error: work
     // before the failed call is still queued on this stream.
+    // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
     const cudaError_t fenceStatus = CudaFenceStream(stream);
     if (copyStatus != cudaSuccess || fenceStatus != cudaSuccess) {
         // Do not leave a pending object holding borrowed caller output after
@@ -708,7 +731,9 @@ StyleStatus CudaNoise::Finish(cudaStream_t stream) {
         (stream && streamDevice != deviceIndex_)) return StyleStatus::InvalidArgument;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
         CudaFenceStream(stream) != cudaSuccess) {
+        // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
         if (CudaFenceStream(stream) != cudaSuccess) {
             staging_.quarantine();
             error_.quarantine();

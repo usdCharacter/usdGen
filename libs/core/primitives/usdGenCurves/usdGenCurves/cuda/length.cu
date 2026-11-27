@@ -519,6 +519,7 @@ StyleStatus CudaLength::Finish(cudaStream_t stream) {
     int code = 0;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
         cudaMemcpyAsync(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
         CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         pending_ = false;
@@ -532,6 +533,7 @@ StyleStatus CudaLength::Finish(cudaStream_t stream) {
                                     cudaMemcpyDeviceToDevice, stream) != cudaSuccess) ||
         (curves_ && cudaMemcpyAsync(keep_.data, keepStaging_.data(), curves_*sizeof(uint8_t),
                                      cudaMemcpyDeviceToDevice, stream) != cudaSuccess) ||
+        // shutdown wait: test hook (synchronous Finish; the cook uses FinishFreshAsync).
         CudaFenceStream(stream) != cudaSuccess) {
         unprovenWork_ = true;
         pending_ = false;
