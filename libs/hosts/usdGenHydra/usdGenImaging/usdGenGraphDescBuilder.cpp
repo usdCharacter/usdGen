@@ -464,12 +464,12 @@ _HForwardAuthoredPlanes(HdContainerDataSourceHandle const &primDs,
         if (value.IsHolding<VtFloatArray>()) {
             plane.type = usdGen::UsdGenAuthoredPlaneType::Float32;
             plane.arity = 1;
-            plane.floatValues = value.UncheckedGet<VtFloatArray>();
+            plane.floatValues = usdGenUsd::ToCow(value.UncheckedGet<VtFloatArray>());
             elements = plane.floatValues.size();
         } else if (value.IsHolding<VtIntArray>()) {
             plane.type = usdGen::UsdGenAuthoredPlaneType::Int32;
             plane.arity = 1;
-            plane.intValues = value.UncheckedGet<VtIntArray>();
+            plane.intValues = usdGenUsd::ToCow(value.UncheckedGet<VtIntArray>());
             elements = plane.intValues.size();
         } else {
             auto const flatten = [&](auto const &array, auto *values, uint8_t arity) {
@@ -808,7 +808,8 @@ _HBuildSurface(HdSceneIndexBase &input, SdfPath const &path, double time,
         bool valid = _HGetTyped(rest, 0.0, &out->restPoints, {"points"}) &&
             _HGetTyped(rest, 0.0, &restCounts, {"faceVertexCounts"}) &&
             _HGetTyped(rest, 0.0, &restIndices, {"faceVertexIndices"});
-        if (!valid || restCounts != out->faceVertexCounts || restIndices != out->faceVertexIndices) {
+        if (!valid || restCounts != usdGenUsd::ToVt(out->faceVertexCounts) ||
+            restIndices != usdGenUsd::ToVt(out->faceVertexIndices)) {
             errors->push_back(path.GetString() + ": missing rest data or animated/rest topology mismatch");
             out->restFromCurrentPoints = true;
         }
@@ -945,7 +946,7 @@ _HBuildSubsetSurface(HdSceneIndexBase &input, SdfPath const &path,
         UsdGenAppendSubsetFaces(indices, faceCount, member, meshPath, &faces,
                                 errors);
     }
-    out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount);
+    out->subsetFaces = usdGenUsd::ToCow(UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount));
 }
 
 template <class T>
@@ -1208,7 +1209,7 @@ _HBuildGeometry(HdSceneIndexBase &input, SdfPath const &path, _HdTime t,
             std::vector<int> faces;
             UsdGenAppendSubsetFaces(indices, out->counts.size(), path, meshPath,
                                     &faces, errors);
-            out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), false, 0);
+            out->subsetFaces = usdGenUsd::ToCow(UsdGenFinalizeSubsetFaces(std::move(faces), false, 0));
         }
         out->generation = UsdGenGeometryContentHash(*out);
         return;
@@ -1536,7 +1537,7 @@ _HCapturePaintMap(HdSceneIndexBase &input,
     map->paintSurface = meshPath;
     map->paintPrimvar = usdGenUsd::ToToken(primvarName);
     map->paintInterpolation = usdGenUsd::ToToken(interp);
-    map->paintValues = folded;
+    map->paintValues = usdGenUsd::ToCow(folded);
 }
 
 }  // namespace

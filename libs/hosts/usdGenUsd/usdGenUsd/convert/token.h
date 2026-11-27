@@ -4,6 +4,7 @@
 // first and interns (as a compile-phase intern) only text the engine has
 // never seen. ToTf returns an immortal TfToken cached per token Id().
 #pragma once
+#include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGenUsd/convert/math.h"
 
@@ -24,19 +25,14 @@ PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
 
 usdGen::UsdGenTokenVector ToTokens(std::vector<PXR_NS::TfToken> const &t);
 std::vector<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenVector const &t);
-PXR_NS::VtArray<usdGen::UsdGenToken> ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t);
-PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(PXR_NS::VtArray<usdGen::UsdGenToken> const &t);
+usdGen::UsdGenTokenArray ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t);
+PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenArray const &t);
 
 /// Engine token fields read a host value as TfToken (convert/math.h HostRep).
 template <>
 struct HostRep<usdGen::UsdGenToken> {
     using Type = PXR_NS::TfToken;
     static usdGen::UsdGenToken In(Type const &h) { return ToToken(h); }
-};
-template <>
-struct HostRep<PXR_NS::VtArray<usdGen::UsdGenToken>> {
-    using Type = PXR_NS::VtArray<PXR_NS::TfToken>;
-    static PXR_NS::VtArray<usdGen::UsdGenToken> In(Type const &h) { return ToTokens(h); }
 };
 
 }  // namespace usdGenUsd

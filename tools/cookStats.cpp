@@ -14,6 +14,7 @@
 // lengths, clump ids in generation order) for comparison with its build log.
 #include "usdGen/compiler.h"
 #include "usdGenTestUtils/hydraPublishers.h"
+#include "usdGenUsd/convert/array.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/graph.h"
 #include "usdGen/op.h"
@@ -246,7 +247,7 @@ int main(int argc, char **argv)
             curves.CreatePointsAttr(VtValue(points));
             curves.CreateCurveVertexCountsAttr(VtValue(VtIntArray(counts.begin(), counts.end())));
             if (b.width.size() == b.totalCvs) {
-                curves.CreateWidthsAttr(VtValue(b.width));
+                curves.CreateWidthsAttr(VtValue(usdGenUsd::ToVt(b.width)));
                 curves.SetWidthsInterpolation(UsdGeomTokens->vertex);
             } else {
                 curves.CreateWidthsAttr(VtValue(VtFloatArray(1, desc.defaultWidth)));
@@ -255,7 +256,7 @@ int main(int argc, char **argv)
             if (clump && clump->type == TfToken("int") && clump->i.size() == b.totalCurves)
                 UsdGeomPrimvarsAPI(curves.GetPrim()).CreatePrimvar(
                     TfToken("clumpId"), SdfValueTypeNames->IntArray, UsdGeomTokens->uniform)
-                    .Set(clump->i);
+                    .Set(usdGenUsd::ToVt(clump->i));
         }
     }
     std::printf("total: strands=%zu cvs=%zu failures=%d\n", totalStrands, totalCvs, failures);

@@ -190,7 +190,7 @@ UsdGenInputRecord UsdGenInputRecordWriter::Finish(UsdGenNodeKey key, UsdGenNodeK
         sources = _staged;
         for (UsdGenSlot s = 0; s < _staged.size(); ++s) {
             Staged &st = _staged[s];
-            if (!st.data || _sources[s].IsEmpty()) continue;
+            if (!st.data || !_sources[s]) continue;
             auto const it = _cache->_entries.find(cacheId(s));
             if (it == _cache->_entries.end()) continue;
             UsdGenInputColumnCache::Entry const &e = it->second;
@@ -223,7 +223,7 @@ UsdGenInputRecord UsdGenInputRecordWriter::Finish(UsdGenNodeKey key, UsdGenNodeK
     record.data->Export();
     if (_cache) {
         for (UsdGenSlot s = 0; s < _sources.size(); ++s) {
-            if (_sources[s].IsEmpty() || !record.data->Has(s)) continue;
+            if (!_sources[s] || !record.data->Has(s)) continue;
             UsdGenInputColumnCache::Entry &e = _cache->_entries[cacheId(s)];
             e.key = _cacheKey;
             e.kind = _kind;

@@ -36,6 +36,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -397,7 +398,7 @@ _CapturePaintMap(UsdStageRefPtr const &stage, UsdPrim const &prim,
     map->paintSurface = meshPath;
     map->paintPrimvar = usdGenUsd::ToToken(primvarName);
     map->paintInterpolation = usdGenUsd::ToToken(interp);
-    map->paintValues = folded;
+    map->paintValues = usdGenUsd::ToCow(folded);
 }
 
 // Follows usdGen:input edges back from the terminal, collecting the operator
@@ -556,12 +557,16 @@ _BuildSurface(UsdStageRefPtr const &stage, SdfPath const &path, double time,
     getToken(mesh.GetInterpolateBoundaryAttr(), &out->interpolateBoundary);
     getToken(mesh.GetFaceVaryingLinearInterpolationAttr(), &out->faceVaryingLinearInterpolation);
     getToken(mesh.GetTriangleSubdivisionRuleAttr(), &out->triangleSubdivisionRule);
-    mesh.GetHoleIndicesAttr().Get(&out->holeIndices);
-    mesh.GetCreaseIndicesAttr().Get(&out->creaseIndices);
-    mesh.GetCreaseLengthsAttr().Get(&out->creaseLengths);
-    mesh.GetCreaseSharpnessesAttr().Get(&out->creaseSharpnesses);
-    mesh.GetCornerIndicesAttr().Get(&out->cornerIndices);
-    mesh.GetCornerSharpnessesAttr().Get(&out->cornerSharpnesses);
+    auto getArray = [](UsdAttribute const &attr, auto *field) {
+        typename usdGenUsd::HostRep<std::decay_t<decltype(*field)>>::Type value;
+        if (attr.Get(&value)) *field = usdGenUsd::ToCow(value);
+    };
+    getArray(mesh.GetHoleIndicesAttr(), &out->holeIndices);
+    getArray(mesh.GetCreaseIndicesAttr(), &out->creaseIndices);
+    getArray(mesh.GetCreaseLengthsAttr(), &out->creaseLengths);
+    getArray(mesh.GetCreaseSharpnessesAttr(), &out->creaseSharpnesses);
+    getArray(mesh.GetCornerIndicesAttr(), &out->cornerIndices);
+    getArray(mesh.GetCornerSharpnessesAttr(), &out->cornerSharpnesses);
     _GetTyped(mesh.GetFaceVertexCountsAttr(), UsdTimeCode::Default(),
               &out->faceVertexCounts);
     _GetTyped(mesh.GetFaceVertexIndicesAttr(), UsdTimeCode::Default(),
@@ -648,7 +653,7 @@ _BuildSubsetSurface(UsdStageRefPtr const &stage, SdfPath const &path,
         UsdGenAppendSubsetFaces(indices, faceCount, member, meshPath, &faces,
                                 errors);
     }
-    out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount);
+    out->subsetFaces = usdGenUsd::ToCow(UsdGenFinalizeSubsetFaces(std::move(faces), whole, faceCount));
 }
 
 // Built at library load, not on first use (no guarded function statics).
@@ -747,7 +752,8 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
     }
     UsdGeomPrimvar widthsPrimvar = UsdGeomPrimvarsAPI(prim).GetPrimvar(TfToken("widths"));
     if (widthsPrimvar && widthsPrimvar.HasValue()) {
-        widthsPrimvar.Get(&out->widths, UsdTimeCode(time));
+        VtFloatArray widths;
+        if (widthsPrimvar.Get(&widths, UsdTimeCode(time))) out->widths = usdGenUsd::ToCow(widths);
         out->widthsInterpolation = usdGenUsd::ToToken(widthsPrimvar.GetInterpolation());
     } else {
         _GetTyped(curves.GetWidthsAttr(), UsdTimeCode(time), &out->widths);
@@ -835,12 +841,12 @@ _BuildCurveSet(UsdStageRefPtr const &stage, SdfPath const &path,
         if (gotValue && value.IsHolding<VtFloatArray>()) {
             plane.type = usdGen::UsdGenAuthoredPlaneType::Float32;
             plane.arity = 1;
-            plane.floatValues = value.UncheckedGet<VtFloatArray>();
+            plane.floatValues = usdGenUsd::ToCow(value.UncheckedGet<VtFloatArray>());
             elements = plane.floatValues.size();
         } else if (gotValue && value.IsHolding<VtIntArray>()) {
             plane.type = usdGen::UsdGenAuthoredPlaneType::Int32;
             plane.arity = 1;
-            plane.intValues = value.UncheckedGet<VtIntArray>();
+            plane.intValues = usdGenUsd::ToCow(value.UncheckedGet<VtIntArray>());
             elements = plane.intValues.size();
         } else {
             auto const flatten = [&](auto const &array, auto *values, uint8_t arity) {
@@ -1008,7 +1014,7 @@ _BuildGeometry(UsdStageRefPtr const &stage, SdfPath const &path, double time,
             std::vector<int> faces;
             UsdGenAppendSubsetFaces(indices, out->counts.size(), path, meshPath,
                                     &faces, errors);
-            out->subsetFaces = UsdGenFinalizeSubsetFaces(std::move(faces), false, 0);
+            out->subsetFaces = usdGenUsd::ToCow(UsdGenFinalizeSubsetFaces(std::move(faces), false, 0));
         }
         out->generation = UsdGenGeometryContentHash(*out);
         return;

@@ -46,7 +46,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     VulkanSourceGenerationCreateInfo info; info.context = std::move(context);
     auto& s = info.source;
     s.totalCurves = 4; s.totalCvs = 8; s.topologyVersion = 41; s.valueVersion = 42;
-    s.px = {0,1, 0,1, 0,1, 0,1}; s.py = VtFloatArray(8, 0.f); s.pz = VtFloatArray(8, 0.f);
+    s.px = {0,1, 0,1, 0,1, 0,1}; s.py = usdGen::UsdGenFloatArray(8, 0.f); s.pz = usdGen::UsdGenFloatArray(8, 0.f);
     s.rest.reserve(8); s.width.reserve(8); s.hairT.reserve(8);
     for (uint32_t i = 0; i != 8; ++i) {
         s.rest.push_back(usdGen::UsdGenVec3f(float(i), 0, 0)); s.width.push_back(float(i) + .5f);

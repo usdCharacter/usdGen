@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT
 // Host and engine math. The usdGenMath types have Gf's bytes, so single
 // values convert implicitly (in) and explicitly (out) through
-// UsdGenHostMath; arrays and values convert explicitly here. ToEngine
-// adopts the host buffer without copying (the engine array pins a copy of
-// the host VtArray), so an unchanged host array keeps its address.
+// UsdGenHostMath; values convert explicitly here and arrays in
+// convert/array.h (included at the end).
 #pragma once
 #include "usdGenMath/math.h"
 
@@ -80,23 +79,6 @@ namespace convert_detail {
 template <class T> struct EngineOfImpl { using Type = typename usdGen::UsdGenHostMath<T>::Type; };
 template <> struct EngineOfImpl<PXR_NS::GfHalf> { using Type = usdGen::UsdGenHalf; };
 
-/// Keeps a host (or engine) VtArray alive under an array of the other type.
-template <class Src>
-struct ArrayPin final : PXR_NS::Vt_ArrayForeignDataSource {
-    explicit ArrayPin(Src s) : PXR_NS::Vt_ArrayForeignDataSource(&Detached), source(std::move(s)) {}
-    static void Detached(PXR_NS::Vt_ArrayForeignDataSource *self) { delete static_cast<ArrayPin *>(self); }
-    Src source;
-};
-
-template <class To, class From>
-PXR_NS::VtArray<To> Rebind(PXR_NS::VtArray<From> const &a)
-{
-    static_assert(sizeof(To) == sizeof(From) && std::is_trivially_copyable<From>::value, "same bytes");
-    if (a.empty()) return PXR_NS::VtArray<To>();
-    auto *pin = new ArrayPin<PXR_NS::VtArray<From>>(a);
-    To *data = reinterpret_cast<To *>(const_cast<From *>(pin->source.cdata()));
-    return PXR_NS::VtArray<To>(pin, data, pin->source.size());
-}
 }  // namespace convert_detail
 
 /// The engine type with a host type's bytes (void when none).
@@ -107,7 +89,6 @@ template <class Engine> using HostMathOf = typename HostMath<Engine>::Type;
 /// reach Hydra or USD unconverted (they read Gf types). Data-source helpers
 /// static_assert on it.
 template <class T> struct IsEngineMath : std::integral_constant<bool, !std::is_void<HostMathOf<T>>::value> {};
-template <class E> struct IsEngineMath<PXR_NS::VtArray<E>> : IsEngineMath<E> {};
 template <class T> constexpr bool kIsEngineMath = IsEngineMath<std::decay_t<T>>::value;
 
 /// Single values.
@@ -117,12 +98,6 @@ template <class H, class E = EngineMathOf<H>, std::enable_if_t<!std::is_void<E>:
 E ToEngine(H const &h) noexcept { E e; std::memcpy(static_cast<void *>(&e), static_cast<void const *>(&h), sizeof(E)); return e; }
 template <class E, class H = HostMathOf<E>, std::enable_if_t<!std::is_void<H>::value, int> = 0>
 H ToHost(E const &e) noexcept { H h; std::memcpy(static_cast<void *>(&h), static_cast<void const *>(&e), sizeof(H)); return h; }
-
-/// Arrays: zero copy both ways.
-template <class H, class E = EngineMathOf<H>, std::enable_if_t<!std::is_void<E>::value, int> = 0>
-PXR_NS::VtArray<E> ToEngine(PXR_NS::VtArray<H> const &a) { return convert_detail::Rebind<E>(a); }
-template <class E, class H = HostMathOf<E>, std::enable_if_t<!std::is_void<H>::value, int> = 0>
-PXR_NS::VtArray<H> ToHost(PXR_NS::VtArray<E> const &a) { return convert_detail::Rebind<H>(a); }
 
 /// A copy of a host array of math values as engine values (std::vector).
 template <class E, class H>
@@ -146,18 +121,16 @@ struct HostRep<E, std::enable_if_t<!std::is_void<HostMathOf<E>>::value>> {
     using Type = HostMathOf<E>;
     static E In(Type const &h) noexcept { return ToEngine(h); }
 };
-template <class E>
-struct HostRep<PXR_NS::VtArray<E>, std::enable_if_t<!std::is_void<HostMathOf<E>>::value>> {
-    using Type = PXR_NS::VtArray<HostMathOf<E>>;
-    static PXR_NS::VtArray<E> In(Type const &h) { return ToEngine(h); }
-};
-
-/// VtValues: a held Gf math value or array becomes the usdGenMath one
-/// (ToEngineValue), and back (ToHostValue); TfToken and token arrays become
-/// UsdGenToken ones and back (convert/token.h). Anything else is unchanged.
-/// Every value the engine reads goes through ToEngineValue (UsdGenValue is
-/// VtValue until the value swap, and IsHolding is exact).
+/// VtValues: a held Gf math value becomes the usdGenMath one (ToEngineValue),
+/// and back (ToHostValue); a TfToken becomes a UsdGenToken and back
+/// (convert/token.h); a VtArray of a convertible element becomes a
+/// UsdGenCowArray and back (convert/array.h), and a string array a
+/// std::vector<std::string>. Anything else is unchanged. Every value the
+/// engine reads goes through ToEngineValue (UsdGenValue is VtValue until the
+/// value swap, and IsHolding is exact).
 PXR_NS::VtValue ToEngineValue(PXR_NS::VtValue const &v);
 PXR_NS::VtValue ToHostValue(PXR_NS::VtValue const &v);
 
 }  // namespace usdGenUsd
+
+#include "usdGenUsd/convert/array.h"

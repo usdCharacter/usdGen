@@ -76,7 +76,7 @@ static VulkanSourcePrepareInfo SourceFixture() {
     auto& b = in.source;
     b.totalCurves = 2; b.totalCvs = 4; b.topologyVersion = 11; b.valueVersion = 23;
     b.px = {0,1,2,3}; b.py = {0,1,0,1}; b.pz = {0,0,1,1};
-    b.rest = usdGen::UsdGenVec3fArray(4, usdGen::UsdGenVec3f(2,3,4)); b.width = VtFloatArray(4, 1.f);
+    b.rest = usdGen::UsdGenVec3fArray(4, usdGen::UsdGenVec3f(2,3,4)); b.width = usdGen::UsdGenFloatArray(4, 1.f);
     b.hairT = {0,.5f,.5f,1}; b.curveId = {5,9}; b.cvOffsets = {0,2,4};
     b.rootPrim = {3,7}; b.rootUV = {usdGen::UsdGenVec2f(.2f,.3f),usdGen::UsdGenVec2f(.4f,.5f)};
     b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(1,0,0));

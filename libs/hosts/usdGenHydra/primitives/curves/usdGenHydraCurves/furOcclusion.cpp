@@ -549,7 +549,7 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
             plane.interpolation=UsdGenTokens().vertex;
             plane.type=UsdGenTokens().float_;
             plane.arity=3;
-            plane.f=which?tauN:tauP;
+            plane.f=usdGenUsd::ToCow(which?tauN:tauP);
             out->extraUniform.push_back(std::move(plane));
         }
         GfVec3f lo=points[0], hi=points[0];
@@ -1548,9 +1548,9 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     }
 
     auto plane=[](UsdGenScalpShadowPublication const& cap,char const* name)
-        -> VtFloatArray const& {
+        -> VtFloatArray {
         for(UsdGenPlane const& p:cap.extraUniform)
-            if(usdGenUsd::ToTf(p.name)==NameToken(name)) return p.f;
+            if(usdGenUsd::ToTf(p.name)==NameToken(name)) return usdGenUsd::ToVt(p.f);
         return kNoPlane;
     };
     bool sameAlbedo=true;

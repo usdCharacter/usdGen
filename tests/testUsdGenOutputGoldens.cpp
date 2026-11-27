@@ -124,6 +124,13 @@ std::string ArrayValue(VtArray<T> const &a)
         Hex(a.empty() ? kFnvOffset : Fnv(a.cdata(), a.size() * sizeof(T)));
 }
 
+template <class T>
+std::string ArrayValue(usdGen::UsdGenCowArray<T> const &a)
+{
+    return "n=" + std::to_string(a.size()) + " " +
+        Hex(a.empty() ? kFnvOffset : Fnv(a.cdata(), a.size() * sizeof(T)));
+}
+
 /// One cook's output: ordered (plane, value) rows.
 struct Rows
 {

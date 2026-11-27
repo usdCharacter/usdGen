@@ -305,9 +305,9 @@ _Assemble(usdGen::UsdGenTilePublication const &tile,
             continue;
         }
         if (plane.type == "int") {
-            values = _Samp(plane.i);
+            values = _Samp(usdGenUsd::ToVt(plane.i));
         } else {
-            values = _Samp(plane.f);
+            values = _Samp(usdGenUsd::ToVt(plane.f));
         }
         _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),
              _Primvar(values, usdGenUsd::ToTf(plane.interpolation), TfToken(), plane.arity));

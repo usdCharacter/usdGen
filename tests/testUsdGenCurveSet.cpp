@@ -55,6 +55,12 @@ bool Same(VtArray<T> const &a, VtArray<T> const &b)
 }
 
 template <class T>
+bool Same(usdGen::UsdGenCowArray<T> const &a, usdGen::UsdGenCowArray<T> const &b)
+{
+    return a.size() == b.size() && (a.empty() || std::memcmp(a.cdata(), b.cdata(), a.size() * sizeof(T)) == 0);
+}
+
+template <class T>
 bool Same(UsdGenSpan<const T> a, UsdGenSpan<const T> b)
 {
     return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(T)) == 0);

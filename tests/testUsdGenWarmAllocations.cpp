@@ -239,6 +239,13 @@ bool SameBits(VtArray<T> const &a, VtArray<T> const &b)
         (a.empty() || std::memcmp(a.cdata(), b.cdata(), a.size() * sizeof(T)) == 0);
 }
 
+template <class T>
+bool SameBits(usdGen::UsdGenCowArray<T> const &a, usdGen::UsdGenCowArray<T> const &b)
+{
+    return a.size() == b.size() &&
+        (a.empty() || std::memcmp(a.cdata(), b.cdata(), a.size() * sizeof(T)) == 0);
+}
+
 bool SameOutput(UsdGenCurveBuffer const &a, UsdGenCurveBuffer const &b)
 {
     return a.totalCurves == b.totalCurves && a.totalCvs == b.totalCvs &&

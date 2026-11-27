@@ -100,7 +100,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     // Lengths are exactly 1, 0, 2, and 3.  The equality case is deliberately
     // curve zero: threshold 1 must retain it, preserving source order 0,2,3.
     source.px = {0,1, 4,4,4, 0,2, 0,0,0,0};
-    source.py = VtFloatArray(11, 0); source.pz = {0,0, 0,0,0, 0,0, 0,1,2,3};
+    source.py = usdGen::UsdGenFloatArray(11, 0); source.pz = {0,0, 0,0,0, 0,0, 0,1,2,3};
     source.rest.reserve(11); source.width.reserve(11); source.hairT.reserve(11);
     for (uint32_t i = 0; i != 11; ++i) {
         source.rest.push_back(usdGen::UsdGenVec3f(float(i), float(i + 10), float(i + 20)));
@@ -156,7 +156,7 @@ static VulkanSourceGenerationCreateInfo LargeFixture(std::shared_ptr<DeviceConte
     }
     uint32_t const points = s.cvOffsets.back();
     s.totalCvs = points;
-    s.px.reserve(points); s.py = VtFloatArray(points, 0.f); s.pz = VtFloatArray(points, 0.f);
+    s.px.reserve(points); s.py = usdGen::UsdGenFloatArray(points, 0.f); s.pz = usdGen::UsdGenFloatArray(points, 0.f);
     s.rest.reserve(points); s.width.reserve(points); s.hairT.reserve(points);
     for (uint32_t c = 0; c != curves; ++c) for (uint32_t j = 0; j != c % 5; ++j) {
         s.px.push_back(float(j)); s.rest.push_back(usdGen::UsdGenVec3f(float(c), float(j), 0));

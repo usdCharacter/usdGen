@@ -69,12 +69,12 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> c,
     s.cvOffsets = {0, 3, 7}; s.curveId = {401, 907}; s.rootPrim = {12, 44};
     s.rootUV = {{.2f,.3f},{.7f,.8f}}; s.rootT = {{1,0,0},{0,1,0}};
     s.rootB = {{0,1,0},{0,0,1}}; s.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.25f,.75f}};
-    s.px = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,2,2, 10,10,13,13};
-    s.py = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,2, 10,12,12,12};
-    s.pz = VtFloatArray(7, 0.f);
+    s.px = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,2,2, 10,10,13,13};
+    s.py = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,0,2, 10,12,12,12};
+    s.pz = usdGen::UsdGenFloatArray(7, 0.f);
     s.rest = {usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,10,0),usdGen::UsdGenVec3f(0,20,0),
               usdGen::UsdGenVec3f(9,9,9),usdGen::UsdGenVec3f(9,19,9),usdGen::UsdGenVec3f(39,19,9),usdGen::UsdGenVec3f(39,19,9)};
-    s.width = VtFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.4f,.8f,1};
+    s.width = usdGen::UsdGenFloatArray(7, 1.f); s.hairT = {0,.5f,1,0,.4f,.8f,1};
     UsdGenChunkDesc chunk; chunk.firstCurve = 0; chunk.curveCount = 2; chunk.liveCount = 2;
     chunk.firstCv = 0; chunk.cvCount = 0; chunk.tile = 3; chunk.surface = 1; s.chunks = {chunk};
     UsdGenPlane p; p.name = TestToken("privateVertex"); p.interpolation = TestToken("vertex");
@@ -243,7 +243,7 @@ int main(int argc, char** argv) {
     Packet cutAfter; CHECK(Capture(native, context, cutChild, &cutAfter) && cutAfter == cutPacket);
     auto tinyInfo = Source(context);
     tinyInfo.source.px = {0.f, 1e-13f, 2e-13f, 0.f, 1e-13f, 2e-13f, 3e-13f};
-    tinyInfo.source.py = VtFloatArray(7, 0.f);
+    tinyInfo.source.py = usdGen::UsdGenFloatArray(7, 0.f);
     auto tiny = Upload(native, std::move(tinyInfo)); CHECK(tiny);
     Packet tinyBefore, tinyAfter;
     CHECK(Capture(native, context, tiny, &tinyBefore));
@@ -262,19 +262,19 @@ int main(int argc, char** argv) {
     };
     auto quotientOverflow = Source(context);
     quotientOverflow.source.px = {0.f, 5e-11f, 1e-10f, 0.f, 5e-11f, 1e-10f, 1e-10f};
-    quotientOverflow.source.py = VtFloatArray(7, 0.f);
+    quotientOverflow.source.py = usdGen::UsdGenFloatArray(7, 0.f);
     numericRejected(std::move(quotientOverflow), 1e30f, true, 26);
     auto productOverflow = Source(context);
     productOverflow.source.px = {0.f, 5e9f, 1e10f, 0.f, 5e9f, 1e10f, 1e10f};
-    productOverflow.source.py = VtFloatArray(7, 0.f);
+    productOverflow.source.py = usdGen::UsdGenFloatArray(7, 0.f);
     numericRejected(std::move(productOverflow), 1e30f, false, 27);
     auto arcSquareOverflow = Source(context);
     arcSquareOverflow.source.px = {0.f, .5f, 1.f, 0.f, .5f, 1.f, 1.f};
-    arcSquareOverflow.source.py = VtFloatArray(7, 0.f);
+    arcSquareOverflow.source.py = usdGen::UsdGenFloatArray(7, 0.f);
     numericRejected(std::move(arcSquareOverflow), 1e20f, true, 28);
     auto currentArcOverflow = Source(context);
     currentArcOverflow.source.px = {-1e30f, 0.f, 1e30f, -1e30f, 0.f, 1e30f, 1e30f};
-    currentArcOverflow.source.py = VtFloatArray(7, 0.f);
+    currentArcOverflow.source.py = usdGen::UsdGenFloatArray(7, 0.f);
     numericRejected(std::move(currentArcOverflow), 2.f, true, 29);
     auto zero = Upload(native, Source(context, true)); CHECK(zero);
     auto rejected = run(zero, 2.f, true); CHECK(rejected.first && rejected.second != 0 && !rejected.first->succeeded() &&

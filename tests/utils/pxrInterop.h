@@ -5,12 +5,17 @@
 // and usdGenUsd::ToEngine / ToEngineValue convert arrays and VtValues the
 // engine reads. Tokens (step 11.5): TfToken and UsdGenToken convert
 // implicitly both ways (usdGenUsd::ToToken / ToTf), and mixed comparisons
-// compare text. Hosts never include this header.
+// compare text. Arrays (step 11.6): a VtArray converts implicitly both ways
+// to the UsdGenCowArray of its engine element (usdGenUsd::ToCow / ToVt, zero
+// copy where the bytes match), and mixed comparisons compare elements.
+// Hosts never include this header.
 #pragma once
+#include "usdGenUsd/convert/array.h"
 #include "usdGenUsd/convert/math.h"
 #include "usdGenUsd/convert/token.h"
 
 #include "pxr/base/tf/token.h"
+#include "pxr/base/vt/array.h"
 #include "pxr/base/vt/types.h"
 
 #include <string_view>
@@ -33,11 +38,38 @@ inline bool operator!=(PXR_NS::TfToken const &a, UsdGenToken b) { return !(a == 
 inline bool operator!=(UsdGenToken a, PXR_NS::TfToken const &b) { return !(b == a); }
 inline bool operator<(PXR_NS::TfToken const &a, UsdGenToken b) { return a < PXR_NS::TfToken(usdGenUsd::ToTf(b)); }
 inline bool operator<(UsdGenToken a, PXR_NS::TfToken const &b) { return usdGenUsd::ToTf(a) < b; }
+
+template <class H>
+struct UsdGenHostArray<PXR_NS::VtArray<H>>
+    : std::integral_constant<bool, !std::is_void<usdGenUsd::EngineElemOf<H>>::value> {
+    using Element = usdGenUsd::EngineElemOf<H>;
+    static UsdGenCowArray<Element> In(PXR_NS::VtArray<H> const &h) { return usdGenUsd::ToCow(h); }
+    static PXR_NS::VtArray<H> Out(UsdGenCowArray<Element> const &a) { return usdGenUsd::ToVt(a); }
+};
+
+namespace pxr_interop_detail {
+template <class E, class H>
+using IfSameElem = std::enable_if_t<std::is_same<usdGenUsd::EngineElemOf<H>, E>::value, bool>;
+}  // namespace pxr_interop_detail
+
+template <class E, class H>
+pxr_interop_detail::IfSameElem<E, H> operator==(UsdGenCowArray<E> const &a, PXR_NS::VtArray<H> const &b)
+{
+    return a == UsdGenCowArray<E>(usdGenUsd::ToCow(b));
+}
+template <class E, class H>
+pxr_interop_detail::IfSameElem<E, H> operator==(PXR_NS::VtArray<H> const &b, UsdGenCowArray<E> const &a) { return a == b; }
+template <class E, class H>
+pxr_interop_detail::IfSameElem<E, H> operator!=(UsdGenCowArray<E> const &a, PXR_NS::VtArray<H> const &b) { return !(a == b); }
+template <class E, class H>
+pxr_interop_detail::IfSameElem<E, H> operator!=(PXR_NS::VtArray<H> const &b, UsdGenCowArray<E> const &a) { return !(a == b); }
 }  // namespace usdGen
 
+using usdGenUsd::ToCow;
 using usdGenUsd::ToEngine;
 using usdGenUsd::ToEngineValue;
 using usdGenUsd::ToHost;
 using usdGenUsd::ToHostValue;
 using usdGenUsd::ToTf;
 using usdGenUsd::ToToken;
+using usdGenUsd::ToVt;

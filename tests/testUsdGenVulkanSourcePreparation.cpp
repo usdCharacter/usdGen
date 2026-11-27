@@ -90,6 +90,12 @@ template <class T> static std::vector<uint8_t> Bytes(VtArray<T> const& values) {
     return bytes;
 }
 
+template <class T> static std::vector<uint8_t> Bytes(usdGen::UsdGenCowArray<T> const& values) {
+    std::vector<uint8_t> bytes(values.size() * sizeof(T));
+    if (!bytes.empty()) std::memcpy(bytes.data(), values.cdata(), bytes.size());
+    return bytes;
+}
+
 int main() {
     std::string reason;
     auto input = Source();

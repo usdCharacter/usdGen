@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstring>
 #include <string>
+#include <vector>
 
 
 namespace usdGen::expr {
@@ -169,7 +170,7 @@ constexpr UsdGenValueTypeInfo kTypes[] = {
     {"quath", ScalarType::Float16, 1, 4, 0, false, &_Identity<UsdGenQuath>},
     {"quath[]", ScalarType::Float16, 1, 4, 0, true, &_Array<UsdGenQuath>},
     {"string", ScalarType::Invalid, 0, 0, 0, false, &_Value<std::string>},
-    {"string[]", ScalarType::Invalid, 0, 0, 0, true, &_Array<std::string>},
+    {"string[]", ScalarType::Invalid, 0, 0, 0, true, &_Value<std::vector<std::string>>},
     {"texCoord2d", ScalarType::Float64, 1, 2, 0, false, &_Value<UsdGenVec2d>},
     {"texCoord2d[]", ScalarType::Float64, 1, 2, 0, true, &_Array<UsdGenVec2d>},
     {"texCoord2f", ScalarType::Float32, 1, 2, 0, false, &_Value<UsdGenVec2f>},

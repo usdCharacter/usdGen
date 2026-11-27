@@ -87,7 +87,7 @@ inline bool ConvertAuthoredPlane(TfToken const &planeName, VtValue const &value,
         VtIntArray const &a = value.UncheckedGet<VtIntArray>();
         plane.type = UsdGenAuthoredPlaneType::Int32;
         plane.arity = 1;
-        plane.intValues = a;
+        plane.intValues = usdGenUsd::ToCow(a);
         count = a.size();
     } else if (value.IsHolding<VtBoolArray>()) {
         VtBoolArray const &a = value.UncheckedGet<VtBoolArray>();

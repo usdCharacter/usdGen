@@ -1204,7 +1204,7 @@ UsdGenInstancer::BuildInstancerDataSource(
             if (plane.type == TfToken("int")) {
                 // Scalar ints ride through flat; hdMoonray reads them, and
                 // only Storm honors elementSize on multi-arity int planes.
-                sampled = _Samp(plane.i);
+                sampled = _Samp(usdGenUsd::ToVt(plane.i));
                 elementSize = plane.arity;
             } else if (plane.arity == 3 && plane.f.size() % 3 == 0) {
                 // hdMoonray ignores elementSize, so pack float3: a flat
@@ -1236,7 +1236,7 @@ UsdGenInstancer::BuildInstancerDataSource(
                               });
                 sampled = _Samp(packed);
             } else {
-                sampled = _Samp(plane.f);
+                sampled = _Samp(usdGenUsd::ToVt(plane.f));
                 elementSize = plane.arity;
             }
             _Add(&pvNames, &pvValues, usdGenUsd::ToTf(plane.name),

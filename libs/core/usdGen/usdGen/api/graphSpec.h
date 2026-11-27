@@ -136,11 +136,12 @@ struct UsdGenInputRecord
 };
 
 /// Host-owned memo of the columns a host packed. A column whose source
-/// VtArray is the same buffer as at the last packing of that input is shared
+/// array is the same buffer as at the last packing of that input is shared
 /// from the previous record instead of copied, so an unchanged input keeps
 /// its column addresses across lowerings and identity-keyed caches hit. It
-/// holds each source array (a held buffer is immutable, so the same address
-/// is the same bytes) and the set its column lives in. Not thread-safe; one
+/// pins each source array's arena (an adopted host buffer or a pool arena;
+/// a pinned buffer is immutable, so the same address is the same bytes) and
+/// the set its column lives in. Not thread-safe; one
 /// per host builder.
 class UsdGenInputColumnCache
 {
@@ -160,7 +161,7 @@ private:
         UsdGenSlot slot = kUsdGenNoSlot;
         void const *data = nullptr;
         size_t bytes = 0;
-        UsdGenValue source;                            // holds the source buffer
+        UsdGenRef<const UsdGenArena> source;       // pins the source buffer
         UsdGenRef<const UsdGenElementSet> set;     // holds the column
         uint64_t used = 0;
     };
@@ -190,7 +191,7 @@ public:
     void Array(UsdGenSlot slot, UsdGenCowArray<T> const &array)
     {
         Column(slot, array.cdata(), array.size());
-        if (_cache && !array.empty() && slot < _sources.size()) _sources[slot] = UsdGenValue(array);
+        if (_cache && !array.empty() && slot < _sources.size()) _sources[slot] = array.ArenaRef();
     }
     template <class T>
     void Array(UsdGenSlot slot, UsdGenSpan<T> array)
@@ -224,7 +225,7 @@ private:
     UsdGenElementLayout const *_layout = nullptr;
     UsdGenInputDesc const *_desc = nullptr;
     std::vector<Staged> _staged;
-    std::vector<UsdGenValue> _sources;   // UseCache: the host arrays staged per slot
+    std::vector<UsdGenRef<const UsdGenArena>> _sources;   // UseCache: the arenas staged per slot
     std::vector<UsdGenParamValue> _values;
     UsdGenInputColumnCache *_cache = nullptr;
     UsdGenNodeKey _cacheKey;

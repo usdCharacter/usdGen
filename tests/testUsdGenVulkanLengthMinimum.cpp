@@ -71,10 +71,10 @@ static VulkanSourceGenerationCreateInfo Source(std::shared_ptr<DeviceContext> co
     source.cvOffsets = {0, 3, 7}; source.curveId = {401, 907}; source.rootPrim = {12, 44};
     source.rootUV = {{.2f,.3f},{.7f,.8f}}; source.rootT = {{1,0,0},{0,1,0}};
     source.rootB = {{0,1,0},{0,0,1}}; source.rootN = {{0,0,1},{1,0,0}}; UsdGenPlane maskPlane; maskPlane.name = TestToken("curveMask"); maskPlane.interpolation = TestToken("uniform"); maskPlane.type = TestToken("float"); maskPlane.f = {{.25f,.75f}};
-    source.px = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,1,1,10,11,12,14};
-    source.py = zero ? VtFloatArray(7, 0.f) : VtFloatArray{0,0,3,0,0,0,0}; source.pz = VtFloatArray(7, 0.f);
+    source.px = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,1,1,10,11,12,14};
+    source.py = zero ? usdGen::UsdGenFloatArray(7, 0.f) : usdGen::UsdGenFloatArray{0,0,3,0,0,0,0}; source.pz = usdGen::UsdGenFloatArray(7, 0.f);
     source.rest = {usdGen::UsdGenVec3f(0,0,0),usdGen::UsdGenVec3f(0,10,0),usdGen::UsdGenVec3f(0,30,0),usdGen::UsdGenVec3f(9,9,9),usdGen::UsdGenVec3f(19,9,9),usdGen::UsdGenVec3f(29,9,9),usdGen::UsdGenVec3f(49,9,9)};
-    source.width = VtFloatArray(7, 1.f); source.hairT = {0,.75f,1,.5f,0,.75f,.25f};
+    source.width = usdGen::UsdGenFloatArray(7, 1.f); source.hairT = {0,.75f,1,.5f,0,.75f,.25f};
     UsdGenChunkDesc chunk; chunk.firstCurve=0; chunk.curveCount=2; chunk.liveCount=2; chunk.firstCv=0; chunk.cvCount=0; chunk.tile=3; chunk.surface=1; source.chunks={chunk};
     UsdGenPlane vertex; vertex.name=TestToken("privateVertex"); vertex.interpolation=TestToken("vertex"); vertex.type=TestToken("float"); vertex.arity=1; vertex.f={3,4,5,6,7,8,9}; source.extraCv={vertex};
     UsdGenPlane uniform; uniform.name=TestToken("privateUniform"); uniform.interpolation=TestToken("uniform"); uniform.type=TestToken("int"); uniform.i={18,19}; source.extraCurve={maskPlane, uniform};

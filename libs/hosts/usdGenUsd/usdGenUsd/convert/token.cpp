@@ -76,20 +76,24 @@ std::vector<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenVector const &t)
     return out;
 }
 
-PXR_NS::VtArray<usdGen::UsdGenToken> ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t)
+usdGen::UsdGenTokenArray ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t)
 {
-    PXR_NS::VtArray<usdGen::UsdGenToken> out(t.size());
+    usdGen::UsdGenTokenArray out(t.size());
     usdGen::UsdGenToken *dst = out.data();
     for (size_t i = 0; i < t.size(); ++i) dst[i] = ToToken(t.cdata()[i]);
     return out;
 }
 
-PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(PXR_NS::VtArray<usdGen::UsdGenToken> const &t)
+PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenArray const &t)
 {
     PXR_NS::VtArray<PXR_NS::TfToken> out(t.size());
     PXR_NS::TfToken *dst = out.data();
     for (size_t i = 0; i < t.size(); ++i) dst[i] = ToTf(t.cdata()[i]);
     return out;
 }
+
+usdGen::UsdGenTokenArray ToCow(PXR_NS::VtArray<PXR_NS::TfToken> const &a) { return ToTokens(a); }
+
+PXR_NS::VtArray<PXR_NS::TfToken> ToVt(usdGen::UsdGenTokenArray const &a) { return ToTfs(a); }
 
 }  // namespace usdGenUsd

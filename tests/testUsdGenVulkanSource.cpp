@@ -52,7 +52,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     auto& b = info.source;
     b.totalCurves = 2; b.totalCvs = 8; b.topologyVersion = 3; b.valueVersion = 5;
     b.px = {0,1,2,3,4,5,6,7}; b.py = {1,2,1,2,1,2,1,2}; b.pz = {2,2,2,2,2,2,2,2};
-    b.rest = usdGen::UsdGenVec3fArray(8, usdGen::UsdGenVec3f(3,4,5)); b.width = VtFloatArray(8, 3.f);
+    b.rest = usdGen::UsdGenVec3fArray(8, usdGen::UsdGenVec3f(3,4,5)); b.width = usdGen::UsdGenFloatArray(8, 3.f);
     b.hairT = {0,.25f,.75f,1,0,.25f,.75f,1}; b.curveId = {7,19}; b.cvOffsets = {0,4,8};
     b.rootPrim = {3,7}; b.rootUV = {usdGen::UsdGenVec2f(.2f,.4f), usdGen::UsdGenVec2f(.7f,.8f)};
     b.rootT = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,1,0)); b.rootB = usdGen::UsdGenVec3fArray(2, usdGen::UsdGenVec3f(0,0,1));
@@ -61,7 +61,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     chunk.tile = 9; chunk.surface = 2; chunk.boundsRest = usdGen::UsdGenRange3f(usdGen::UsdGenVec3f(0), usdGen::UsdGenVec3f(8));
     b.chunks = {chunk};
     UsdGenPlane vf; vf.name = TestToken("vFloat"); vf.interpolation = TestToken("vertex");
-    vf.type = TestToken("float"); vf.arity = 3; vf.f = VtFloatArray(24, 1.25f);
+    vf.type = TestToken("float"); vf.arity = 3; vf.f = usdGen::UsdGenFloatArray(24, 1.25f);
     UsdGenPlane vi; vi.name = TestToken("vInt"); vi.interpolation = TestToken("vertex");
     vi.type = TestToken("int"); vi.i = {1,2,3,4,5,6,7,8}; b.extraCv = {vf,vi};
     UsdGenPlane cf; cf.name = TestToken("constantFloat"); cf.interpolation = TestToken("constant");
