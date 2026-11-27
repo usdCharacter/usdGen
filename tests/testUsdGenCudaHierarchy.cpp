@@ -163,9 +163,9 @@ int main() {
                                     usdGen::UsdGenVec3f(0, 0, 1));
     usdGen::UsdGenVec3fArray posedNormals(rbfDesc.surfaces[0].restPoints.size(),
                               usdGen::UsdGenVec3f(0, 1, 0));
-    CHECK(scalp.CreateNormalsAttr(VtValue(defaultRestNormals)));
+    CHECK(scalp.CreateNormalsAttr(VtValue(ToHost(defaultRestNormals))));
     CHECK(scalp.SetNormalsInterpolation(TfToken("vertex")));
-    CHECK(scalp.GetNormalsAttr().Set(VtValue(posedNormals), UsdTimeCode(24)));
+    CHECK(scalp.GetNormalsAttr().Set(VtValue(ToHost(posedNormals)), UsdTimeCode(24)));
     rbfIndices.stageSceneIndex->ApplyPendingUpdates();
     usdGenImaging::UsdGenGraphDescBuildOptions normalOptions;
     normalOptions.time = 24.0;

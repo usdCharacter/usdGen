@@ -40,6 +40,26 @@ UsdGenCurveTokenTable *MakeCurveTokens()
     t->onError = i("onError");
     t->always = i("always");
     t->sourceColor = i("usdGenSourceColor");
+    t->strandSeed = i("strandSeed");
+    t->strandIndex = i("strandIndex");
+    t->tubeId = i("tubeId");
+    t->regionId = i("regionId");
+    t->hierarchyLevel = i("hierarchyLevel");
+    t->cudaScatterGrow = i("CudaScatterGrow");
+    t->cudaPublication = i("CudaPublication");
+    t->previewDestination = i("usdGenPreview");
+    t->groom = i("groom");
+    t->point = i("point");
+    t->map = i("map");
+    t->mapChannel = i("map:channel");
+    t->mapFirstChannel = i("map:firstChannel");
+    t->mapChannelCount = i("map:channelCount");
+    t->previewChannels[0] = i("previewR");
+    t->previewChannels[1] = i("previewG");
+    t->previewChannels[2] = i("previewB");
+    t->rgbChannels[0] = i("r");
+    t->rgbChannels[1] = i("g");
+    t->rgbChannels[2] = i("b");
     return t;
 }
 

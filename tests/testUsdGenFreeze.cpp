@@ -593,10 +593,10 @@ static void CheckAliasingKernel()
     Check(bool(cap->Output()), "frozen capture owns its buffer");
     FrozenCopy const snap = SnapshotOf(UsdGenCaptureBuffer(*cap));
     usdGen::UsdGenVec3fArray const restSnap = PrivateCopy(UsdGenCaptureBuffer(*cap).rest);
-    VtFloatArray const cvSnap = UsdGenCaptureBuffer(*cap).extraCv.empty()
-        ? VtFloatArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCv[0].f);
-    VtIntArray const curveSnap = UsdGenCaptureBuffer(*cap).extraCurve.empty()
-        ? VtIntArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCurve[0].i);
+    usdGen::UsdGenFloatArray const cvSnap = UsdGenCaptureBuffer(*cap).extraCv.empty()
+        ? usdGen::UsdGenFloatArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCv[0].f);
+    usdGen::UsdGenIntArray const curveSnap = UsdGenCaptureBuffer(*cap).extraCurve.empty()
+        ? usdGen::UsdGenIntArray() : PrivateCopy(UsdGenCaptureBuffer(*cap).extraCurve[0].i);
     float *wx = const_cast<float *>(upstream.px.cdata());
     float *wy = const_cast<float *>(upstream.py.cdata());
     float *wz = const_cast<float *>(upstream.pz.cdata());

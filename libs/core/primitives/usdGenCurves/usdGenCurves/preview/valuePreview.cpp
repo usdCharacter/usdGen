@@ -13,6 +13,7 @@
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGen/api/span.h"
 
 #include <algorithm>
@@ -41,18 +42,9 @@ namespace {
 
 using Domain = expr::Domain;
 
-// Made at load, not on first use: no function-local static to guard.
-UsdGenToken const kPreviewDestination = UsdGenInternToken("usdGenPreview");
-UsdGenToken const kGroom = UsdGenInternToken("groom"), kPoint = UsdGenInternToken("point");
-UsdGenToken const kMapInput = UsdGenInternToken("map");
-UsdGenToken const kMapChannel = UsdGenInternToken("map:channel"),
-    kMapFirstChannel = UsdGenInternToken("map:firstChannel"),
-    kMapChannelCount = UsdGenInternToken("map:channelCount");
-// Per-channel destinations of a map preview, and the channel each one reads.
-UsdGenToken const kPreviewChannels[] = {UsdGenInternToken("previewR"), UsdGenInternToken("previewG"),
-                                    UsdGenInternToken("previewB")};
-UsdGenToken const kRgbChannels[] = {UsdGenInternToken("r"), UsdGenInternToken("g"),
-                                UsdGenInternToken("b")};
+// Preview names live in UsdGenCurveTokens (interned at registration, never at
+// load). previewChannels are the per-channel destinations of a map preview,
+// rgbChannels the channel each one reads.
 
 /// Text of a property name without `usdGen:`.
 std::string_view CanonicalText(UsdGenToken const &name)
@@ -64,7 +56,7 @@ std::string_view CanonicalText(UsdGenToken const &name)
 
 UsdGenToken const &PreviewDestination()
 {
-    return kPreviewDestination;
+    return UsdGenCurveTokens().previewDestination;
 }
 
 uint64_t Mix(uint64_t h, uint64_t value)
@@ -239,9 +231,9 @@ bool UsdGenValuePreview::FromExpression(UsdGenGraphSpec const &desc,
         return false;
     }
     Domain domain = Domain::None;
-    if (preview.evaluation == kGroom) domain = Domain::Groom;
+    if (preview.evaluation == UsdGenCurveTokens().groom) domain = Domain::Groom;
     else if (preview.evaluation == UsdGenTokens().primitive) domain = Domain::Primitive;
-    else if (preview.evaluation == kPoint) domain = Domain::Point;
+    else if (preview.evaluation == UsdGenCurveTokens().point) domain = Domain::Point;
     else {
         *warning = "usdGen:preview:evaluation \"" + preview.evaluation.GetString() +
             "\" is not groom, primitive or point";
@@ -314,24 +306,24 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
         for (unsigned k = 0; k < channels; ++k) {
             UsdGenMapData copy;
             UsdGenCopyMapData(*map, &copy);
-            UsdGenNodeKey const copyKey = _mapDesc.DeriveKey(map->key, kPreviewChannels[k]);
+            UsdGenNodeKey const copyKey = _mapDesc.DeriveKey(map->key, UsdGenCurveTokens().previewChannels[k]);
             if (colour) {
-                SetParam(&copy, kMapChannel, UsdGenValue(kRgbChannels[k]));
-                SetParam(&copy, kMapFirstChannel, UsdGenValue(0));
-                SetParam(&copy, kMapChannelCount, UsdGenValue(3));
+                SetParam(&copy, UsdGenCurveTokens().mapChannel, UsdGenValue(UsdGenCurveTokens().rgbChannels[k]));
+                SetParam(&copy, UsdGenCurveTokens().mapFirstChannel, UsdGenValue(0));
+                SetParam(&copy, UsdGenCurveTokens().mapChannelCount, UsdGenValue(3));
                 EraseParam(&copy, "map:scale");
                 EraseParam(&copy, "map:offset");
                 EraseParam(&copy, "map:clamp");
             }
             UsdGenExpressionData expression;
             expression.source = "ptex(\"map\")";
-            expression.inputs.push_back({kMapInput, {copyKey}, {}, {copyKey}});
+            expression.inputs.push_back({UsdGenCurveTokens().map, {copyKey}, {}, {copyKey}});
             expression.outputs.push_back({UsdGenTokens().result, UsdGenTokens().float_, floatShape});
             UsdGenParamBinding binding;
             binding.expression = copyKey;
             binding.output = UsdGenTokens().result;
             binding.nativeType = UsdGenTokens().float_;
-            binding.destination = kPreviewChannels[k];
+            binding.destination = UsdGenCurveTokens().previewChannels[k];
             binding.destinationShape = floatShape;
             binding.domain = Domain::Primitive;
             binding.literal = UsdGenValue(0.0f);
@@ -352,7 +344,7 @@ bool UsdGenValuePreview::FromMap(UsdGenGraphSpec const &desc,
         size_t const curves = terminal.totalCurves;
         _scratch.assign(curves * channels, 0.0);
         for (unsigned k = 0; k < channels; ++k) {
-            UsdGenExpressionValue const *value = _parameters.Find(kPreviewChannels[k]);
+            UsdGenExpressionValue const *value = _parameters.Find(UsdGenCurveTokens().previewChannels[k]);
             if (!value || value->count != curves) {
                 *warning = SourceText(desc) + " produced no value per strand";
                 return false;

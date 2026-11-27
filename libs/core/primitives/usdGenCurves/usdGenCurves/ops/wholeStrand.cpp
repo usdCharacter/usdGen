@@ -7,6 +7,7 @@
 
 #include "usdGen/ops/opUtil.h"
 #include "usdGen/api/token.h"
+#include "usdGenCurves/types/curveTokens.h"
 
 #include <algorithm>
 #include <cmath>
@@ -63,9 +64,6 @@ UsdGenPlaneView const *FindPlane(UsdGenCurveSetView const &v, bool perCv, UsdGen
     return nullptr;
 }
 
-const UsdGenToken sStrandSeed = UsdGenInternToken("strandSeed");
-const UsdGenToken sStrandIndex = UsdGenInternToken("strandIndex");
-
 }  // namespace
 
 int const *UsdGenStrandSet::CurveInt(UsdGenToken const &name) const
@@ -102,13 +100,13 @@ float const *UsdGenStrandSet::CvFloat(UsdGenToken const &name) const
 
 uint32_t UsdGenStrandSet::Seed(uint32_t c) const
 {
-    if (int const *s = CurveInt(sStrandSeed)) return uint32_t(s[c]);
+    if (int const *s = CurveInt(UsdGenCurveTokens().strandSeed)) return uint32_t(s[c]);
     return Index(c);
 }
 
 uint32_t UsdGenStrandSet::Index(uint32_t c) const
 {
-    if (int const *s = CurveInt(sStrandIndex)) return uint32_t(s[c]);
+    if (int const *s = CurveInt(UsdGenCurveTokens().strandIndex)) return uint32_t(s[c]);
     return c;
 }
 

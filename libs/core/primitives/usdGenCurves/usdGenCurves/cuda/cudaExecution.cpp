@@ -94,12 +94,9 @@ bool CudaIs(UsdGenOpNode const& node, UsdGenCudaStage stage) noexcept {
     UsdGenKernelDef const* kernel = UsdGenCudaKernel(node);
     return kernel && IsCudaWidthValueNode(UsdGenCudaStage(kernel->stage));
 }
-// usdGen:rebind's default (curveRootCapture.cpp), interned at load.
-[[maybe_unused]] UsdGenToken const kCudaRebindOnError = UsdGenInternToken("onError");
-// Plan task types, not op names: backend-prefixed like the Vulkan plan's
-// "VulkanPublication" (asserted by the CUDA plan tests).
-[[maybe_unused]] UsdGenToken const kCudaScatterGrowTask = UsdGenInternToken("CudaScatterGrow");
-UsdGenToken const kCudaPublicationTask = UsdGenInternToken("CudaPublication");
+// Plan task types (UsdGenCurveTokens cudaScatterGrow, cudaPublication) are not
+// op names: backend-prefixed like the Vulkan plan's "VulkanPublication"
+// (asserted by the CUDA plan tests).
 // A token-valued literal with exactly this text (UsdGenValue(UsdGenToken(text)) ==).
 [[maybe_unused]] bool HoldsTokenText(UsdGenValue const& value, char const* text) {
     return value.IsHolding<UsdGenToken>() && value.UncheckedGet<UsdGenToken>().GetString() == text;
@@ -3010,7 +3007,7 @@ bool ValidateCudaGraph(UsdGenGraphSpec const& desc, UsdGenDiagnostics* diagnosti
             UsdGenCurveRootCaptureResult roots;
             std::string error;
             if (!UsdGenCaptureCurveRoots(*source, surface,
-                    params.GetToken(sourceParams.Slot(cudaP::kSrcRebind), kCudaRebindOnError),
+                    params.GetToken(sourceParams.Slot(cudaP::kSrcRebind), UsdGenCurveTokens().onError),
                     &roots,&error))
                 return Fail(diagnostics, "CUDA Noise root admission failed: " + error);
             if (roots.frames.size() != source->curveVertexCounts.size())
@@ -3157,7 +3154,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         producer.id=0; producer.semanticNode=layout.scatterGrowOutput;
         producer.authoredOrderKey=layout.scatterGrowOutput;
         producer.key=desc.nodes[layout.scatterGrowOutput].key;
-        producer.type=kCudaScatterGrowTask;
+        producer.type=UsdGenCurveTokens().cudaScatterGrow;
         producer.kind=UsdGenExecutionTaskKind::Source;
         producer.topologyBarrier=true;
         producer.exclusiveWorkspace=true;
@@ -3292,7 +3289,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
         }
         UsdGenExecutionTaskMetadata publication; publication.id=static_cast<uint32_t>(tasks.size()); publication.kind=UsdGenExecutionTaskKind::Publication;
         publication.authoredOrderKey=desc.nodes.size();
-        publication.key=desc.nodes[layout.terminal].key; publication.type=kCudaPublicationTask;
+        publication.key=desc.nodes[layout.terminal].key; publication.type=UsdGenCurveTokens().cudaPublication;
         publication.topologyBarrier=true;
         publication.resourceHazards.push_back({UsdGenExecutionDataKind::ExecutionWorkspace,
             0, UsdGenExecutionResourceHazardAccess::ReadWrite});
@@ -3990,7 +3987,7 @@ std::shared_ptr<const UsdGenCudaExecutionPlan> CompileCudaGraph(
     terminal.authoredOrderKey = static_cast<uint64_t>(desc.nodes.size());
     terminal.kind = UsdGenExecutionTaskKind::Publication;
     terminal.key = desc.nodes[layout.terminal].key;
-    terminal.type = kCudaPublicationTask;
+    terminal.type = UsdGenCurveTokens().cudaPublication;
     // Publication consumes the declared terminal value, while this explicit
     // lifetime join proves every launched relay has completed before any
     // job-owned stream/value can be moved or released.  It is not a hidden
@@ -8141,7 +8138,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     // A connected groom scalar is the effective value. Do not reject its
     // authored literal fallback before the evaluator has had a chance to
     // override it; source preparation itself never host-resamples.
-    UsdGenToken const& rebind = params.GetToken(SourceSlot(plan, cudaP::kSrcRebind), kCudaRebindOnError);
+    UsdGenToken const& rebind = params.GetToken(SourceSlot(plan, cudaP::kSrcRebind), UsdGenCurveTokens().onError);
     options.rebind = rebind.GetString();
     UsdGenSurfaceInputView surfaceView;
     const UsdGenSurfaceInputView* surface = nullptr;

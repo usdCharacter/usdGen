@@ -27,10 +27,6 @@
 namespace usdGen {
 namespace {
 
-// Ownership plane names of the dense curve set, interned at load.
-UsdGenToken const kTubeId = UsdGenInternToken("tubeId");
-UsdGenToken const kRegionId = UsdGenInternToken("regionId");
-UsdGenToken const kHierarchyLevel = UsdGenInternToken("hierarchyLevel");
 
 bool Fail(std::string const &message, std::string *error)
 {
@@ -464,12 +460,12 @@ bool UsdGenBuildSurfaceCageCurveSet(
         return true;
     };
     UsdGenAuthoredPlaneDesc ownership;
-    ownership.name = kTubeId; ownership.type = UsdGenAuthoredPlaneType::Int32;
+    ownership.name = UsdGenCurveTokens().tubeId; ownership.type = UsdGenAuthoredPlaneType::Int32;
     ownership.domain = UsdGenAuthoredPlaneDomain::Primitive; ownership.arity = 1;
     ownership.intValues = dense.ownerTubeId;
     candidate.authoredPlanes.push_back(std::move(ownership));
-    if (!appendOwnerPlane(kRegionId, prepared.ownerRegion) ||
-        !appendOwnerPlane(kHierarchyLevel, prepared.ownerHierarchy))
+    if (!appendOwnerPlane(UsdGenCurveTokens().regionId, prepared.ownerRegion) ||
+        !appendOwnerPlane(UsdGenCurveTokens().hierarchyLevel, prepared.ownerHierarchy))
         return false;
     *out = std::move(candidate);
     return true;
