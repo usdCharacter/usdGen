@@ -56,7 +56,7 @@ struct RootFrameGatherPipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> status;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue-timeline value of the submit
     VkCommandBuffer cb = VK_NULL_HANDLE;
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;
@@ -64,7 +64,6 @@ struct RootFrameGatherPipeline::Candidate::State {
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (cb) vkFreeCommandBuffers(d, commands, 1, &cb);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
@@ -168,7 +167,7 @@ VkResult RootFrameGatherPipeline::Candidate::Poll(RootFrameGatherSemantic* seman
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (s.pending && !s.proved) {
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         s.pending = false;
@@ -190,6 +189,8 @@ std::unique_ptr<RootFrameGatherPipeline::Candidate> RootFrameGatherPipeline::Beg
     auto finish = [&](VkResult r) { if (result) *result = r; };
     finish(VK_ERROR_INITIALIZATION_FAILED);
     auto context = native_->context;
+    VulkanQueueTimeline* const timeline = context->computeTimeline();
+    if (!timeline) return {};
 
     // Validate inputs.
     const uint32_t baseN = info.baseCount;
@@ -333,7 +334,7 @@ std::unique_ptr<RootFrameGatherPipeline::Candidate> RootFrameGatherPipeline::Beg
     }
     vkUpdateDescriptorSets(d, 15, writes, 0, nullptr);
 
-    // Command pool + fence.
+    // Command pool.
     VkCommandPoolCreateInfo pc{}; pc.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     pc.queueFamilyIndex = context->computeQueueFamily();
     r = vkCreateCommandPool(d, &pc, nullptr, &s->commands);
@@ -343,9 +344,6 @@ std::unique_ptr<RootFrameGatherPipeline::Candidate> RootFrameGatherPipeline::Beg
     if (vkAllocateCommandBuffers(d, &ca, &s->cb) != VK_SUCCESS) {
         finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {};
     }
-    VkFenceCreateInfo fi{}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    r = vkCreateFence(d, &fi, nullptr, &s->fence);
-    if (r != VK_SUCCESS) { finish(r); return {}; }
 
     // Record: fill status=0, barrier, dispatch gather.
     VkCommandBufferBeginInfo begin{}; begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -384,11 +382,9 @@ std::unique_ptr<RootFrameGatherPipeline::Candidate> RootFrameGatherPipeline::Beg
         catch (...) { finish(VK_ERROR_UNKNOWN); return {}; }
         if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
     }
-    VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1; submit.pCommandBuffers = &s->cb;
     s->pending = true;
-    r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-    if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+    s->value = timeline->Submit(&s->cb, 1, &r);
+    if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
     finish(VK_SUCCESS); return candidate;
 }
 

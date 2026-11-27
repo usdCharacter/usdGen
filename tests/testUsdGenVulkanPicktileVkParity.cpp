@@ -216,7 +216,7 @@ std::shared_ptr<NativeOwner> CreateNativeRetry(bool* unavailable) {
     *unavailable = false;
     for (int attempt = 0; attempt < 5; ++attempt) {
         bool local = false;
-        auto native = CreateNative(&local);
+        auto native = CreateTimelineNative(&local);
         if (native) return native;
         if (local) {
             *unavailable = true;
@@ -486,6 +486,7 @@ int main(int argc, char** argv) {
     ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 8011;
     ci.nativeLifetime = native;
+    ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{64} << 20, 0};
     auto context = DeviceContext::Create(ci);
     CHECK(bool(context));

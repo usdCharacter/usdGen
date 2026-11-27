@@ -5,6 +5,7 @@
 #define USDGEN_VULKAN_COMPLETION_SERVICE_H
 
 #include "deviceContext.h"
+#include "queueTimeline.h"
 #include "usdGen/executionPipeline.h"
 
 #include <cstdint>
@@ -16,10 +17,12 @@
 
 namespace usdGen::vulkan {
 
-// Device-local, event-driven proof delivery.  It is not an execution backend
-// or a general-purpose reactor: its one native waiter observes only its two
-// private timeline semaphores.  The bound pipeline owner serializes all queue
-// submission and watch mutation.
+// Device-local, event-driven proof delivery. It is not an execution backend
+// or a general-purpose reactor: its one native waiter (a driver wait, one per
+// service; the default provider makes one service per VkDevice) blocks in
+// vkWaitSemaphores on the context's VulkanQueueTimeline and a private
+// host-control semaphore. A watch completes when the queue timeline passes
+// its value. The bound pipeline owner serializes watch mutation.
 class VulkanCompletionService final : public std::enable_shared_from_this<VulkanCompletionService> {
 public:
     enum class DeliveryResult : uint8_t { Posted, Stale, LostProof };
@@ -31,7 +34,6 @@ public:
         std::shared_ptr<DeviceContext> context;
         UsdGenExecutionPipeline* queueOwner = nullptr;
         uint32_t maxWatches = 0;
-        uint64_t maxProofWaitNs = 10000000000ull;
     };
 
     class Watch final {
@@ -54,6 +56,9 @@ public:
         bool Retire() noexcept;
     private:
         friend class VulkanCompletionService;
+        friend uint64_t SubmitOnTimeline(VulkanCompletionService&, VkCommandBuffer const*, uint32_t,
+                                         std::shared_ptr<const void>, Delivery, VkResult*,
+                                         Failure) noexcept;
         Watch(std::shared_ptr<VulkanCompletionService>, uint32_t) noexcept;
         std::shared_ptr<VulkanCompletionService> service_;
         uint32_t slot_ = UINT32_MAX;
@@ -74,9 +79,14 @@ public:
                                    Delivery delivery, Failure failure = {}) noexcept;
     std::shared_ptr<DeviceContext> const& context() const noexcept { return context_; }
     UsdGenExecutionPipeline* queueOwner() const noexcept { return queueOwner_; }
-    // Owner-only. Records the expected job epoch, submits a same-queue GPU
-    // timeline signal after phase work, then publishes and wakes the waiter.
+    // Owner-only. Records the expected job epoch, signals the queue timeline
+    // after phase work (an empty same-queue batch), then publishes and wakes
+    // the waiter. *completionEpoch receives the timeline value.
     bool Arm(Watch&, uint64_t jobEpoch, uint64_t* completionEpoch = nullptr) noexcept;
+    // Owner-only. As Arm, at a value the queue timeline already handed out:
+    // every phase submission of the watch went through the timeline and
+    // `timelineValue` is the last one. Submits nothing.
+    bool ArmAt(Watch&, uint64_t timelineValue, uint64_t jobEpoch) noexcept;
     // Owner-only; only an unmarked reservation may be released normally.
     bool CancelBeforeSubmit(Watch&) noexcept;
     // External boundary only. The caller must first stop/join registration
@@ -89,7 +99,13 @@ public:
 
 private:
     struct Slot;
+    friend uint64_t SubmitOnTimeline(VulkanCompletionService&, VkCommandBuffer const*, uint32_t,
+                                     std::shared_ptr<const void>, Delivery, VkResult*,
+                                     Failure) noexcept;
     explicit VulkanCompletionService(CreateInfo);
+    bool Publish(Watch&, uint64_t timelineValue, uint64_t jobEpoch, uint64_t* completionEpoch) noexcept;
+    bool Unsubmit(Watch&) noexcept;
+    void Detach(Watch&) noexcept;
     bool Mark(Watch&) noexcept;
     bool Retire(Watch&) noexcept;
     void Abandon(Watch&) noexcept;
@@ -102,16 +118,33 @@ private:
     std::shared_ptr<DeviceContext> context_;
     UsdGenExecutionPipeline* queueOwner_ = nullptr;
     std::vector<std::unique_ptr<Slot>> slots_;
-    VkSemaphore completion_ = VK_NULL_HANDLE;
+    VulkanQueueTimeline* timeline_ = nullptr;  // owned by context_
     VkSemaphore control_ = VK_NULL_HANDLE;
     std::thread waiter_;
     std::unique_ptr<std::shared_ptr<VulkanCompletionService>> quarantine_;
     std::atomic<bool> quarantined_{false};  // elects the one quarantine writer
     std::atomic<bool> closing_{false}, lost_{false};
     bool waiterJoined_ = false; // Serialized external lifecycle calls only.
-    uint64_t nextGpuEpoch_ = 0;
-    uint64_t maxProofWaitNs_ = 0;
     std::atomic<uint64_t> publishedControlEpoch_{0};
 };
+
+// SubmitOnTimeline: the one submit path for a phase whose completion runs a
+// continuation. Owner-only (call it inside a queueOwner command).
+//   uint64_t v = SubmitOnTimeline(*service, &cmd, 1, lifetime,
+//       [state](VkResult proof) { /* continue on the owner */
+//           return VulkanCompletionService::DeliveryResult::Posted; }, &r);
+// It reserves a watch slot, submits `commands` (1..kMaxBatches) through the
+// context's VulkanQueueTimeline and arms the slot at the returned value; no
+// VkFence, no wait. `lifetime` (command buffer, buffers, pipeline state)
+// stays alive until `delivery` has returned on the owner. `delivery` runs
+// exactly once: VK_SUCCESS after the GPU passed the value, or an error on
+// device loss / close. The slot frees itself unless delivery says LostProof.
+// Returns 0 when nothing was queued (*result says why; no free slot is
+// VK_ERROR_TOO_MANY_OBJECTS): `delivery` is dropped unrun, unless a device
+// loss raced it. Keep `v` for a non-blocking computeTimeline()->Check(v).
+uint64_t SubmitOnTimeline(VulkanCompletionService& service, VkCommandBuffer const* commands,
+                          uint32_t count, std::shared_ptr<const void> lifetime,
+                          VulkanCompletionService::Delivery delivery, VkResult* result = nullptr,
+                          VulkanCompletionService::Failure failure = {}) noexcept;
 } // namespace usdGen::vulkan
 #endif

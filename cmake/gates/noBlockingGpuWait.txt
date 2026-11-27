@@ -4,7 +4,6 @@ libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.cpp 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaCompletionLane.h 1
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/cudaFence.cpp 2
 libs/core/backends/usdGenCuda/usdGenCuda/gpu/deviceBufferImpl.h 1
-libs/core/backends/usdGenVulkan/usdGenVulkan/vulkan/completionService.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaExecution.cpp 7
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaParameters.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaTools.cpp 3
@@ -24,14 +23,8 @@ libs/core/primitives/usdGenCurves/usdGenCurves/cuda/scatterGrow.cu 2
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/styleOps.cu 4
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/topology.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/width.cu 4
-libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/noisePipeline.cpp 1
-libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/pointOverridePipeline.cpp 1
 libs/core/primitives/usdGenExpr/usdGenExpr/cuda/expression.cu 3
 libs/core/primitives/usdGenExpr/usdGenExpr/cuda/expressionContext.cu 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkApply.cpp 2
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkContext.cpp 1
-libs/core/primitives/usdGenExpr/usdGenExpr/vulkan/exprVkEvaluate.cpp 1
 libs/core/primitives/usdGenSurface/usdGenSurface/cuda/rootFrameGather.cu 4
 libs/core/primitives/usdGenSurface/usdGenSurface/cuda/rootFrames.cu 5
 libs/core/primitives/usdGenSurface/usdGenSurface/cuda/surfaceBinding.cu 4
-libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/rootFramesPipeline.cpp 1

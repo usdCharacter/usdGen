@@ -32,7 +32,7 @@ struct PointOverridePipeline::Candidate::State {
     std::shared_ptr<ChargedBuffer> output, status, occupancy;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // queue timeline value of the last submission
     VkCommandBuffer cb1 = VK_NULL_HANDLE, cb2 = VK_NULL_HANDLE, cb3 = VK_NULL_HANDLE;
     bool pending = false, lost = false, proved = false;
     uint32_t semantic = UINT32_MAX;   // PointOverridePipeline::Semantic ordinal
@@ -40,7 +40,6 @@ struct PointOverridePipeline::Candidate::State {
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (cb3) vkFreeCommandBuffers(d, commands, 1, &cb3);
         if (cb2) vkFreeCommandBuffers(d, commands, 1, &cb2);
         if (cb1) vkFreeCommandBuffers(d, commands, 1, &cb1);
@@ -74,6 +73,8 @@ std::shared_ptr<PointOverridePipeline> PointOverridePipeline::Create(
     auto finish = [&](VkResult r) { if (result) *result = r; };
     finish(VK_ERROR_INITIALIZATION_FAILED);
     if (!context || code.size() < 5 || code.front() != 0x07230203u) return {};
+    // Submissions go through the queue timeline.
+    if (!context->computeTimeline()) { finish(VK_ERROR_FEATURE_NOT_PRESENT); return {}; }
     VkPhysicalDeviceProperties physical{};
     vkGetPhysicalDeviceProperties(context->physicalDevice(), &physical);
     if (physical.limits.maxComputeWorkGroupInvocations < 256 ||
@@ -139,10 +140,10 @@ VkResult PointOverridePipeline::Candidate::Poll(Semantic* status) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (s.pending && !s.proved) {
-        // Phase 3 scatter; probe the fence. The status buffer (error) is left
+        // Phase 3 scatter; check its timeline value. The status buffer (error) is left
         // at 0 after clean validation; reading it keeps publication proof on
         // the same path as the synchronous validation readbacks.
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         s.pending = false;
@@ -267,22 +268,17 @@ std::unique_ptr<PointOverridePipeline::Candidate> PointOverridePipeline::BeginIn
     if (vkAllocateCommandBuffers(d, &ca, &s->cb1) != VK_SUCCESS ||
         vkAllocateCommandBuffers(d, &ca, &s->cb2) != VK_SUCCESS ||
         vkAllocateCommandBuffers(d, &ca, &s->cb3) != VK_SUCCESS) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
-    VkFenceCreateInfo fi{}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    r = vkCreateFence(d, &fi, nullptr, &s->fence);
-    if (r != VK_SUCCESS) { finish(r); return {}; }
+    VulkanQueueTimeline* const timeline = context->computeTimeline();
     auto submitAndWait = [&](VkCommandBuffer cb) -> VkResult {
-        VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1; submit.pCommandBuffers = &cb;
         s->pending = true;
-        if (vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence) != VK_SUCCESS)
-            return VK_ERROR_DEVICE_LOST;
-        // Synchronous wait: required to gate phase 3 on phases 1-2 before any
-        // output write is recorded (strict-ORDER parity).
-        if (vkWaitForFences(d, 1, &s->fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
+        s->value = timeline->Submit(&cb, 1, &r);
+        if (!s->value) return VK_ERROR_DEVICE_LOST;
+        // Synchronous API boundary (no cook-path caller): Begin reports
+        // validation synchronously and gates the phase-3 record on phases
+        // 1-2 (strict-ORDER parity).
+        if (timeline->Wait(s->value, UINT64_MAX) != VK_SUCCESS)
             return VK_ERROR_DEVICE_LOST;
         s->pending = false;
-        if (vkResetFences(d, 1, &s->fence) != VK_SUCCESS)
-            return VK_ERROR_DEVICE_LOST;
         return VK_SUCCESS;
     };
     auto readError = [&](uint32_t* out) -> VkResult {
@@ -397,11 +393,9 @@ std::unique_ptr<PointOverridePipeline::Candidate> PointOverridePipeline::BeginIn
     vkCmdPipelineBarrier(s->cb3, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &outputBarrier, 0, nullptr, 0, nullptr);
     if (vkEndCommandBuffer(s->cb3) != VK_SUCCESS) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
-    VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1; submit.pCommandBuffers = &s->cb3;
     s->pending = true;   // arm retention before native submission
-    r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-    if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+    s->value = timeline->Submit(&s->cb3, 1, &r);
+    if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
     finish(VK_SUCCESS); return candidate;
 }
 } // namespace usdGen::vulkan

@@ -496,7 +496,11 @@ bool VulkanSourceWidthJob::Suppressed() const noexcept {
 }
 void VulkanSourceWidthJob::Terminal(std::shared_ptr<const VulkanSourceGeneration> result,
                                     State state, VkResult status) noexcept {
-    failurePhase_.store(state_.load(std::memory_order_acquire), std::memory_order_release);
+    Terminal(std::move(result), state, status, state_.load(std::memory_order_acquire));
+}
+void VulkanSourceWidthJob::Terminal(std::shared_ptr<const VulkanSourceGeneration> result,
+                                    State state, VkResult status, State phase) noexcept {
+    failurePhase_.store(phase, std::memory_order_release);
     relay_->Settle(std::move(result), state, status, false);
 }
 void VulkanSourceWidthJob::FailOnOwner(VkResult status) {
@@ -1949,33 +1953,14 @@ void VulkanSourceWidthJob::BeginDeform() {
         BeginRbfVkDeform();
         return;
     }
+    // Launch submits the evaluate proof without waiting; AdvanceDeform
+    // watches its timeline value and submits the apply once it is proven.
     VkResult status = VK_ERROR_INITIALIZATION_FAILED;
-    if (info_.completionService && base_->pointCount()) {
-        auto self = shared_from_this();
-        watch_ = info_.completionService->Reserve(
-            self,
-            [self](VkResult proof) -> VulkanCompletionService::DeliveryResult {
-                if (proof == VK_SUCCESS) {
-                    self->watchProofReady_ = true;
-                    return self->NotifyCompletion()
-                               ? VulkanCompletionService::DeliveryResult::Posted
-                               : VulkanCompletionService::DeliveryResult::Stale;
-                }
-                self->NotifyFailure(proof);
-                return VulkanCompletionService::DeliveryResult::LostProof;
-            },
-            [self](VkResult proof) { self->NotifyFailure(proof); });
-        if (!watch_) {
-            RouteFailure();
-            return;
-        }
-    }
-    bool phaseMarked = false;
     DeformPipeline::BeforeSubmit beforeSubmit;
-    if (watch_)
-        beforeSubmit = [this, &phaseMarked] {
-            phaseMarked = watch_ && watch_->MarkPhaseSubmitted();
-            return phaseMarked;
+    if (info_.completionService && base_->pointCount())
+        beforeSubmit = [this] {
+            deformMarked_ = watch_ && watch_->MarkPhaseSubmitted();
+            return deformMarked_;
         };
     auto const &stage = info_.stages[stageIndex_];
     DeformPipeline::BeginInfo info;
@@ -2003,19 +1988,70 @@ void VulkanSourceWidthJob::BeginDeform() {
     bind("enabled", info.enabled);
     bind("lockRoots", info.lockRoots);
     DeformSemantic beginSemantic = DeformSemantic::Ok;
-    deform_ = info_.deformPipeline->Begin(std::move(info), &status, &beginSemantic,
-                                          std::move(beforeSubmit));
+    deformMarked_ = false;
+    deform_ = info_.deformPipeline->Launch(std::move(info), &status, &beginSemantic,
+                                           std::move(beforeSubmit));
     if (!deform_) {
-        if (watch_) {
-            if (!phaseMarked)
-                info_.completionService->CancelBeforeSubmit(*watch_);
-            watch_.reset();
-        }
-        Terminal({}, phaseMarked ? State::LostProof : State::Failed, status);
+        Terminal({}, State::Failed, status);
         return;
     }
+    AdvanceDeform();
+}
+void VulkanSourceWidthJob::AdvanceDeform() {
+    // Proof stage, never blocking: Advance checks the proof on the queue
+    // timeline. Still running: arm a watch at its value and return. Proven:
+    // Advance submitted the apply (beforeSubmit marked the watch); arm it.
+    if (info_.completionService && base_->pointCount()) {
+        auto self = shared_from_this();
+        watch_ = info_.completionService->Reserve(
+            self,
+            [self](VkResult proof) -> VulkanCompletionService::DeliveryResult {
+                if (proof == VK_SUCCESS) {
+                    self->watchProofReady_ = true;
+                    return self->NotifyCompletion()
+                               ? VulkanCompletionService::DeliveryResult::Posted
+                               : VulkanCompletionService::DeliveryResult::Stale;
+                }
+                self->NotifyFailure(proof);
+                return VulkanCompletionService::DeliveryResult::LostProof;
+            },
+            [self](VkResult proof) { self->NotifyFailure(proof); });
+        if (!watch_) {
+            RouteFailure();
+            return;
+        }
+    }
+    if (deform_->ProofValue()) {
+        deformMarked_ = false;
+        DeformSemantic semantic = DeformSemantic::Ok;
+        VkResult status = deform_->Advance(&semantic);
+        if (status == VK_NOT_READY) {
+            if (watch_ && (!watch_->MarkPhaseSubmitted() ||
+                           !info_.completionService->ArmAt(*watch_, deform_->ProofValue(),
+                                                           uint64_t(State::DeformPending)))) {
+                watch_.reset();
+                RouteFailure();
+                return;
+            }
+            auto expected = stageFrom_;
+            state_.compare_exchange_strong(expected, State::DeformPending, std::memory_order_acq_rel);
+            return;
+        }
+        if (status != VK_SUCCESS || semantic != DeformSemantic::Ok) {
+            // As the synchronous Begin: a rejected evaluation fails the stage.
+            bool const marked = deformMarked_;
+            if (watch_) {
+                if (!marked)
+                    info_.completionService->CancelBeforeSubmit(*watch_);
+                watch_.reset();
+            }
+            Terminal({}, marked ? State::LostProof : State::Failed,
+                     status == VK_SUCCESS ? VK_ERROR_INITIALIZATION_FAILED : status, stageFrom_);
+            return;
+        }
+    }
     if (watch_ &&
-        (!phaseMarked || !info_.completionService->Arm(*watch_, uint64_t(State::DeformPending)))) {
+        (!deformMarked_ || !info_.completionService->Arm(*watch_, uint64_t(State::DeformPending)))) {
         watch_.reset();
         RouteFailure();
         return;
@@ -2041,6 +2077,10 @@ void VulkanSourceWidthJob::FinishDeform() {
         }
         watch_.reset();
         watchProofReady_ = false;
+    }
+    if (deform_->ProofValue()) {
+        AdvanceDeform();
+        return;
     }
     DeformSemantic semantic = DeformSemantic::Ok;
     auto proof = deform_->Poll(&semantic);

@@ -47,7 +47,7 @@ struct LengthCompactionPipeline::Native {
 };
 struct LengthCompactionPipeline::Candidate::State : std::enable_shared_from_this<State> {
     struct Phase { VkDescriptorPool descriptors=VK_NULL_HANDLE; VkCommandPool commands=VK_NULL_HANDLE;
-        VkCommandBuffer command=VK_NULL_HANDLE; VkFence fence=VK_NULL_HANDLE; };
+        VkCommandBuffer command=VK_NULL_HANDLE; uint64_t value=0; };  // value: queue timeline
     std::shared_ptr<Native> native;
     std::shared_ptr<const VulkanSourceGeneration> base;
     std::vector<std::shared_ptr<ChargedBuffer>> owned;
@@ -65,7 +65,6 @@ struct LengthCompactionPipeline::Candidate::State : std::enable_shared_from_this
     ~State() {
         auto d=native->context->device();
         for(auto& p:phases) {
-            if(p.fence) vkDestroyFence(d,p.fence,nullptr);
             if(p.commands) vkDestroyCommandPool(d,p.commands,nullptr);
             if(p.descriptors) vkDestroyDescriptorPool(d,p.descriptors,nullptr);
         }
@@ -109,8 +108,6 @@ struct LengthCompactionPipeline::Candidate::State : std::enable_shared_from_this
         VkCommandBufferAllocateInfo ca{}; ca.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         ca.commandPool=p.commands;ca.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ca.commandBufferCount=1;
         r=vkAllocateCommandBuffers(d,&ca,&p.command);if(r!=VK_SUCCESS)return false;
-        VkFenceCreateInfo f{}; f.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r=vkCreateFence(d,&f,nullptr,&p.fence);if(r!=VK_SUCCESS)return false;
         VkCommandBufferBeginInfo begin{}; begin.sType=VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         r=vkBeginCommandBuffer(p.command,&begin);if(r!=VK_SUCCESS)return false;
         Barrier(p.command); vkCmdBindPipeline(p.command,VK_PIPELINE_BIND_POINT_COMPUTE,native->pipeline);
@@ -153,13 +150,13 @@ struct LengthCompactionPipeline::Candidate::State : std::enable_shared_from_this
             try {admitted=before();}catch(...){r=VK_ERROR_UNKNOWN;return false;}
             if(!admitted){r=VK_ERROR_OUT_OF_DEVICE_MEMORY;return false;}
         }
-        VkSubmitInfo info{};info.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;info.commandBufferCount=1;info.pCommandBuffers=&p.command;
-        pending=true;r=vkQueueSubmit(native->context->computeQueue(),1,&info,p.fence);
-        if(r!=VK_SUCCESS){Retain();return false;}return true;
+        pending=true;p.value=native->context->computeTimeline()->Submit(&p.command,1,&r);
+        if(!p.value){Retain();return false;}return true;
     }
     VkResult Prove(unsigned which) {
         if(lost)return VK_ERROR_DEVICE_LOST;
-        VkResult r=vkGetFenceStatus(native->context->device(),phases[which].fence);
+        if(!phases[which].value)return VK_NOT_READY;  // not submitted
+        VkResult r=native->context->computeTimeline()->Check(phases[which].value);
         if(r==VK_NOT_READY)return r;
         if(r!=VK_SUCCESS){Retain();return r;}
         pending=false;void* data=nullptr;
@@ -177,6 +174,8 @@ std::shared_ptr<LengthCompactionPipeline> LengthCompactionPipeline::Create(
     std::shared_ptr<DeviceContext> context,std::vector<uint32_t> const& code,VkResult* result) {
     VkResult r=VK_ERROR_INITIALIZATION_FAILED; if(result)*result=r;
     if(!context||code.size()<5||code[0]!=0x07230203u)return {};
+    // Submissions go through the queue timeline.
+    if(!context->computeTimeline()){if(result)*result=VK_ERROR_FEATURE_NOT_PRESENT;return {};}
     try {
         auto n=std::make_shared<Native>();n->context=std::move(context);
         VkPhysicalDeviceProperties properties{};vkGetPhysicalDeviceProperties(n->context->physicalDevice(),&properties);

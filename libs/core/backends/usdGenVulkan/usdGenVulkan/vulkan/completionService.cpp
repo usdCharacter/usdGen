@@ -8,15 +8,15 @@
 
 namespace usdGen::vulkan {
 namespace {
-enum class SlotState : uint8_t { Free, Reserved, Marked, Arming, Armed, Proving, OwnerQueued, Delivered, Quarantined };
+enum class SlotState : uint8_t { Free, Reserved, Marked, Arming, Armed, OwnerQueued, Delivered, Quarantined };
 }
 
 struct VulkanCompletionService::Slot {
     std::atomic<SlotState> state{SlotState::Free};
     std::atomic<uint64_t> generation{0};
     uint64_t jobEpoch = 0;
-    uint64_t completionEpoch = 0;
-    VkFence proof = VK_NULL_HANDLE;
+    uint64_t completionEpoch = 0;  // queue timeline value
+    bool oneShot = false;          // SubmitOnTimeline: frees itself after delivery
     std::shared_ptr<const void> lifetime;
     Delivery delivery;
     Failure failure;
@@ -47,12 +47,13 @@ bool VulkanCompletionService::Watch::Retire() noexcept {
 }
 
 VulkanCompletionService::VulkanCompletionService(CreateInfo info)
-    : context_(std::move(info.context)), queueOwner_(info.queueOwner), maxProofWaitNs_(info.maxProofWaitNs) {}
+    : context_(std::move(info.context)), queueOwner_(info.queueOwner),
+      timeline_(context_ ? context_->computeTimeline() : nullptr) {}
 
 std::shared_ptr<VulkanCompletionService> VulkanCompletionService::Create(CreateInfo info, VkResult* result) {
     if (result) *result = VK_ERROR_INITIALIZATION_FAILED;
-    if (!info.context || !info.queueOwner || !info.maxWatches || !info.maxProofWaitNs ||
-        info.maxProofWaitNs == UINT64_MAX || !info.context->timelineSemaphoreEnabled()) return {};
+    if (!info.context || !info.queueOwner || !info.maxWatches ||
+        !info.context->timelineSemaphoreEnabled() || !info.context->computeTimeline()) return {};
     try {
         auto service = std::shared_ptr<VulkanCompletionService>(new VulkanCompletionService(std::move(info)));
         service->quarantine_ = std::make_unique<std::shared_ptr<VulkanCompletionService>>();
@@ -60,10 +61,6 @@ std::shared_ptr<VulkanCompletionService> VulkanCompletionService::Create(CreateI
         for (uint32_t i = 0; i != info.maxWatches; ++i) {
             auto slot = std::make_unique<Slot>();
             slot->quarantine = std::make_unique<std::shared_ptr<VulkanCompletionService>>();
-            VkFenceCreateInfo fence{};
-            fence.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            VkResult status = vkCreateFence(service->context_->device(), &fence, nullptr, &slot->proof);
-            if (status != VK_SUCCESS) { if (result) *result = status; return {}; }
             service->slots_.push_back(std::move(slot));
         }
         VkSemaphoreTypeCreateInfo type{};
@@ -72,9 +69,7 @@ std::shared_ptr<VulkanCompletionService> VulkanCompletionService::Create(CreateI
         VkSemaphoreCreateInfo create{};
         create.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
         create.pNext = &type;
-        VkResult status = vkCreateSemaphore(service->context_->device(), &create, nullptr, &service->completion_);
-        if (status != VK_SUCCESS) { if (result) *result = status; return {}; }
-        status = vkCreateSemaphore(service->context_->device(), &create, nullptr, &service->control_);
+        VkResult status = vkCreateSemaphore(service->context_->device(), &create, nullptr, &service->control_);
         if (status != VK_SUCCESS) { if (result) *result = status; return {}; }
         // The waiter owns a service reference until explicit external Close
         // wakes and joins it. Destruction is therefore never an implicit join.
@@ -88,12 +83,8 @@ std::shared_ptr<VulkanCompletionService> VulkanCompletionService::Create(CreateI
 VulkanCompletionService::~VulkanCompletionService() {
     // Explicit CloseAndJoin releases the waiter's self-reference before this
     // point. A lost-proof service holds a permanent self-reference instead.
-    if (!lost_.load(std::memory_order_acquire)) {
-        if (completion_) vkDestroySemaphore(context_->device(), completion_, nullptr);
-        if (control_) vkDestroySemaphore(context_->device(), control_, nullptr);
-        for (auto const& slot : slots_)
-            if (slot->proof) vkDestroyFence(context_->device(), slot->proof, nullptr);
-    }
+    if (!lost_.load(std::memory_order_acquire) && control_)
+        vkDestroySemaphore(context_->device(), control_, nullptr);
 }
 
 std::unique_ptr<VulkanCompletionService::Watch> VulkanCompletionService::Reserve(
@@ -111,6 +102,7 @@ std::unique_ptr<VulkanCompletionService::Watch> VulkanCompletionService::Reserve
             slot.delivery = std::move(delivery);
             slot.failure = std::move(failure);
             slot.ticket = std::move(ticket);
+            slot.oneShot = false;
             slot.generation.fetch_add(1, std::memory_order_relaxed);
             return std::unique_ptr<Watch>(new Watch(shared_from_this(), i));
         } catch (...) {
@@ -141,9 +133,6 @@ bool VulkanCompletionService::Retire(Watch& watch) noexcept {
     if (!slot.state.compare_exchange_strong(expected, SlotState::OwnerQueued, std::memory_order_acq_rel)) return false;
     // This owner-confined acknowledgement, never the waiter thread, is the
     // last-drop boundary for native work and callback captures.
-    if (vkResetFences(context_->device(), 1, &slot.proof) != VK_SUCCESS) {
-        Quarantine(watch.slot_); return false;
-    }
     slot.lifetime.reset(); slot.delivery = {}; slot.failure = {}; slot.ticket = {};
     slot.state.store(SlotState::Free, std::memory_order_release);
     watch.service_.reset(); watch.slot_ = UINT32_MAX;
@@ -167,44 +156,66 @@ bool VulkanCompletionService::Arm(Watch& watch, uint64_t jobEpoch, uint64_t* com
     auto& slot = *slots_[watch.slot_];
     auto marked = SlotState::Marked;
     if (!slot.state.compare_exchange_strong(marked, SlotState::Arming, std::memory_order_acq_rel)) return false;
-    uint64_t const epoch = ++nextGpuEpoch_;
-    if (vkResetFences(context_->device(), 1, &slot.proof) != VK_SUCCESS) {
+    // An empty batch on the same queue: its timeline signal proves every
+    // earlier submission, including phase work submitted without the timeline.
+    uint64_t const value = timeline_->Signal();
+    if (!value) {
         slot.state.store(SlotState::Marked, std::memory_order_release);
         Quarantine(UINT32_MAX);
         for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, VK_ERROR_DEVICE_LOST);
         (void)Wake(); return false;
     }
-    VkTimelineSemaphoreSubmitInfo timeline{};
-    timeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    timeline.signalSemaphoreValueCount = 1;
-    timeline.pSignalSemaphoreValues = &epoch;
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.pNext = &timeline;
-    submit.signalSemaphoreCount = 1;
-    submit.pSignalSemaphores = &completion_;
-    if (vkQueueSubmit(context_->computeQueue(), 1, &submit, slot.proof) != VK_SUCCESS) {
-        slot.state.store(SlotState::Marked, std::memory_order_release);
-        Quarantine(UINT32_MAX);
-        for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, VK_ERROR_DEVICE_LOST);
-        (void)Wake(); return false;
-    }
+    return Publish(watch, value, jobEpoch, completionEpoch);
+}
+
+bool VulkanCompletionService::ArmAt(Watch& watch, uint64_t timelineValue, uint64_t jobEpoch) noexcept {
+    if (!queueOwner_->IsExecutingOwner() || watch.service_.get() != this || watch.slot_ >= slots_.size() ||
+        !watch.marked_ || watch.armed_ || !timelineValue || timelineValue > timeline_->Submitted() ||
+        closing_.load(std::memory_order_acquire) || lost_.load(std::memory_order_acquire)) return false;
+    auto marked = SlotState::Marked;
+    if (!slots_[watch.slot_]->state.compare_exchange_strong(marked, SlotState::Arming,
+                                                            std::memory_order_acq_rel)) return false;
+    return Publish(watch, timelineValue, jobEpoch, nullptr);
+}
+
+bool VulkanCompletionService::Publish(Watch& watch, uint64_t value, uint64_t jobEpoch,
+                                      uint64_t* completionEpoch) noexcept {
+    auto& slot = *slots_[watch.slot_];
     // Publish the fixed immutable record before controlEpoch is released and
     // host-signaled.  The waiter loads the control epoch before scanning.
     slot.jobEpoch = jobEpoch;
-    slot.completionEpoch = epoch;
+    slot.completionEpoch = value;
     slot.state.store(SlotState::Armed, std::memory_order_release);
     watch.armed_ = true;
     if (closing_.load(std::memory_order_acquire) || lost_.load(std::memory_order_acquire)) {
         RouteFailure(watch.slot_, VK_ERROR_DEVICE_LOST); return false;
     }
-    if (completionEpoch) *completionEpoch = epoch;
+    if (completionEpoch) *completionEpoch = value;
     if (!Wake()) {
         Quarantine(UINT32_MAX);
         for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, VK_ERROR_DEVICE_LOST);
         return false;
     }
     return true;
+}
+
+bool VulkanCompletionService::Unsubmit(Watch& watch) noexcept {
+    // A marked reservation whose submission queued nothing.
+    if (watch.service_.get() != this || watch.slot_ >= slots_.size() || !watch.marked_ || watch.armed_)
+        return false;
+    auto& slot = *slots_[watch.slot_];
+    auto expected = SlotState::Marked;
+    if (!slot.state.compare_exchange_strong(expected, SlotState::Free, std::memory_order_acq_rel)) return false;
+    slot.lifetime.reset(); slot.delivery = {}; slot.failure = {}; slot.ticket = {};
+    slot.oneShot = false;
+    Detach(watch);
+    return true;
+}
+
+void VulkanCompletionService::Detach(Watch& watch) noexcept {
+    // The slot owns its route from here; the handle goes inert without Abandon.
+    watch.service_.reset(); watch.slot_ = UINT32_MAX;
+    watch.marked_ = watch.armed_ = false;
 }
 
 bool VulkanCompletionService::CancelBeforeSubmit(Watch& watch) noexcept {
@@ -241,7 +252,7 @@ void VulkanCompletionService::RouteFailure(uint32_t index, VkResult status) noex
     if (index >= slots_.size()) return;
     auto& slot = *slots_[index];
     auto state = slot.state.load(std::memory_order_acquire);
-    while (state == SlotState::Marked || state == SlotState::Armed || state == SlotState::Proving) {
+    while (state == SlotState::Marked || state == SlotState::Armed) {
         if (slot.state.compare_exchange_weak(state, SlotState::OwnerQueued, std::memory_order_acq_rel)) {
             uint64_t const generation = slot.generation.load(std::memory_order_acquire);
             auto self = shared_from_this();
@@ -275,7 +286,7 @@ void VulkanCompletionService::Abandon(Watch& watch) noexcept {
         // owns the callback path and this destructor must not touch it.
         SlotState prior = slot.state.load(std::memory_order_acquire);
         bool claimed = false;
-        while (prior == SlotState::Marked || prior == SlotState::Armed || prior == SlotState::Proving) {
+        while (prior == SlotState::Marked || prior == SlotState::Armed) {
             if (slot.state.compare_exchange_weak(prior, SlotState::Quarantined, std::memory_order_acq_rel)) {
                 claimed = true;
                 break;
@@ -325,6 +336,14 @@ void VulkanCompletionService::DeliverOnOwner(uint32_t index, uint64_t generation
         for (uint32_t i = 0; i != slots_.size(); ++i)
             RouteFailure(i, VK_ERROR_DEVICE_LOST);
         if (!closing_.load(std::memory_order_acquire)) (void)Wake();
+    } else if (unchanged && slot.oneShot) {
+        // No watch to Retire: free the slot now; the captures drop with this
+        // owner frame.
+        auto delivered = SlotState::Delivered;
+        if (slot.state.compare_exchange_strong(delivered, SlotState::OwnerQueued, std::memory_order_acq_rel)) {
+            slot.ticket = {}; slot.oneShot = false;
+            slot.state.store(SlotState::Free, std::memory_order_release);
+        }
     } else if (unchanged && slot.state.load(std::memory_order_acquire) == SlotState::Delivered) {
         slot.delivery = std::move(delivery);
         slot.lifetime = std::move(lifetime);
@@ -356,35 +375,30 @@ void VulkanCompletionService::FailOnOwner(uint32_t index, uint64_t generation, V
 }
 
 void VulkanCompletionService::WaitMain() noexcept {
+    auto failAll = [this](VkResult status) {
+        Quarantine(UINT32_MAX);
+        for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, status);
+    };
     while (!closing_.load(std::memory_order_acquire) && !lost_.load(std::memory_order_acquire)) {
         uint64_t gpu = 0;
-        if (vkGetSemaphoreCounterValue(context_->device(), completion_, &gpu) != VK_SUCCESS) {
-            Quarantine(UINT32_MAX);
-            for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, VK_ERROR_DEVICE_LOST);
-            return;
-        }
+        if (VkResult status = timeline_->Poll(&gpu); status != VK_SUCCESS) { failAll(status); return; }
         // Acquire control publication before looking at armed records; Arm
         // publishes record -> control epoch -> host signal in that order.
         uint64_t const controlTarget = publishedControlEpoch_.load(std::memory_order_acquire) + 1;
         bool delivered = false;
+        uint64_t gpuTarget = UINT64_MAX;
         for (uint32_t i = 0; i != slots_.size(); ++i) {
             auto& slot = *slots_[i];
             // Completion fields are immutable only after this acquire load.
-            if (slot.state.load(std::memory_order_acquire) != SlotState::Armed || slot.completionEpoch > gpu)
+            if (slot.state.load(std::memory_order_acquire) != SlotState::Armed) continue;
+            if (slot.completionEpoch > gpu) {
+                gpuTarget = slot.completionEpoch < gpuTarget ? slot.completionEpoch : gpuTarget;
                 continue;
-            auto expected = SlotState::Armed;
-            if (!slot.state.compare_exchange_strong(expected, SlotState::Proving, std::memory_order_acq_rel)) continue;
-            // The timeline says the follow-up signal became visible; the
-            // per-slot fence is the bounded proof that the ordered queue work
-            // (including every prior phase submission) actually completed.
-            VkResult proof = vkWaitForFences(context_->device(), 1, &slot.proof, VK_TRUE, maxProofWaitNs_);
-            if (proof != VK_SUCCESS) {
-                Quarantine(UINT32_MAX);
-                for (uint32_t j = 0; j != slots_.size(); ++j) RouteFailure(j, proof);
-                delivered = true; continue;
             }
+            // The queue timeline passed the value: every submission up to it,
+            // the watch's phase work included, has completed.
             uint64_t const generation = slot.generation.load(std::memory_order_acquire);
-            expected = SlotState::Proving;
+            auto expected = SlotState::Armed;
             if (!slot.state.compare_exchange_strong(expected, SlotState::OwnerQueued, std::memory_order_acq_rel)) {
                 delivered = true; continue;
             }
@@ -404,36 +418,58 @@ void VulkanCompletionService::WaitMain() noexcept {
         // An Arm signal can complete before this waiter reaches its first
         // blocking wait. Consume it now rather than waiting for another event.
         if (delivered || lost_.load(std::memory_order_acquire)) continue;
-        uint64_t gpuTarget = gpu + 1;
-        for (auto const& entry : slots_) {
-            if (entry->state.load(std::memory_order_acquire) == SlotState::Armed &&
-                entry->completionEpoch > gpu && entry->completionEpoch < gpuTarget)
-                gpuTarget = entry->completionEpoch;
-        }
-        VkSemaphore semaphores[] = {completion_, control_};
-        uint64_t values[] = {gpuTarget, controlTarget};
+        // Wait for the earliest armed value or a control wake. Nothing armed:
+        // control only, so unrelated timeline submits do not wake us.
+        VkSemaphore semaphores[] = {control_, timeline_->semaphore()};
+        uint64_t values[] = {controlTarget, gpuTarget};
         VkSemaphoreWaitInfo wait{};
         wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait.flags = VK_SEMAPHORE_WAIT_ANY_BIT;
-        wait.semaphoreCount = 2; wait.pSemaphores = semaphores; wait.pValues = values;
+        wait.semaphoreCount = gpuTarget == UINT64_MAX ? 1 : 2;
+        wait.pSemaphores = semaphores; wait.pValues = values;
         // Close may have signaled control before this iteration captured its
         // next target. Recheck after that capture: otherwise we can wait for
         // a second shutdown signal that will never come, deadlocking Join.
         if (closing_.load(std::memory_order_acquire) || lost_.load(std::memory_order_acquire)) break;
-        VkResult status = vkWaitSemaphores(context_->device(), &wait, UINT64_MAX);
-        if (status != VK_SUCCESS) {
-            Quarantine(UINT32_MAX);
-            for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, status);
-            return;
-        }
-        if (vkGetSemaphoreCounterValue(context_->device(), completion_, &gpu) != VK_SUCCESS) {
-            Quarantine(UINT32_MAX);
-            for (uint32_t i = 0; i != slots_.size(); ++i) RouteFailure(i, VK_ERROR_DEVICE_LOST);
-            return;
+        if (VkResult status = vkWaitSemaphores(context_->device(), &wait, UINT64_MAX); status != VK_SUCCESS) {
+            failAll(status); return;
         }
         // Re-enter the top of the loop, which claims only Armed records after
         // acquiring their immutable completion fields.
     }
+}
+
+uint64_t SubmitOnTimeline(VulkanCompletionService& service, VkCommandBuffer const* commands,
+                          uint32_t count, std::shared_ptr<const void> lifetime,
+                          VulkanCompletionService::Delivery delivery, VkResult* result,
+                          VulkanCompletionService::Failure failure) noexcept {
+    auto finish = [&](VkResult r) { if (result) *result = r; };
+    if (!commands || !count || count > VulkanQueueTimeline::kMaxBatches) {
+        finish(VK_ERROR_INITIALIZATION_FAILED); return 0;
+    }
+    auto watch = service.Reserve(std::move(lifetime), std::move(delivery), std::move(failure));
+    if (!watch) { finish(VK_ERROR_TOO_MANY_OBJECTS); return 0; }
+    service.slots_[watch->slot_]->oneShot = true;
+    if (!service.Mark(*watch)) {
+        (void)service.CancelBeforeSubmit(*watch);
+        finish(VK_ERROR_INITIALIZATION_FAILED); return 0;
+    }
+    VkResult status = VK_SUCCESS;
+    uint64_t const value = service.timeline_->Submit(commands, count, &status);
+    if (!value) {
+        // Nothing queued. A device loss that already claimed the slot owns
+        // its failure delivery; leave the handle inert then.
+        if (!service.Unsubmit(*watch)) service.Detach(*watch);
+        finish(status == VK_SUCCESS ? VK_ERROR_UNKNOWN : status); return 0;
+    }
+    uint32_t const slot = watch->slot_;
+    bool const armed = service.ArmAt(*watch, value, 0);
+    service.Detach(*watch);
+    // Not armed: close or loss raced. Route the queued work's failure (a
+    // no-op when another path already claimed the slot).
+    if (!armed) service.RouteFailure(slot, VK_ERROR_DEVICE_LOST);
+    finish(VK_SUCCESS);
+    return value;
 }
 
 bool VulkanCompletionService::CloseAndJoin() noexcept {

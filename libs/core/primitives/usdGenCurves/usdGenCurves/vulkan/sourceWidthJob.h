@@ -145,6 +145,7 @@ class VulkanSourceWidthJob final : public std::enable_shared_from_this<VulkanSou
     void BeginNoise();
     void FinishNoise();
     void BeginDeform();
+    void AdvanceDeform();
     void FinishDeform();
     void BeginRbfVkDeform();
     void FinishRbfVkDeform();
@@ -169,6 +170,8 @@ class VulkanSourceWidthJob final : public std::enable_shared_from_this<VulkanSou
     void RouteFailure(VkResult = VK_ERROR_DEVICE_LOST) noexcept;
     bool Suppressed() const noexcept;
     void Terminal(std::shared_ptr<const VulkanSourceGeneration>, State, VkResult) noexcept;
+    // `phase` is the failure phase to report (default: the current state).
+    void Terminal(std::shared_ptr<const VulkanSourceGeneration>, State, VkResult, State phase) noexcept;
     CreateInfo info_;
     std::shared_ptr<VulkanSourceUpload> upload_;
     std::shared_ptr<const VulkanSourceGeneration> base_;
@@ -185,6 +188,7 @@ class VulkanSourceWidthJob final : public std::enable_shared_from_this<VulkanSou
     std::unique_ptr<NonWidthComparePipeline::Candidate> compare_;
     std::unique_ptr<NoisePipeline::Candidate> noise_;
     std::unique_ptr<DeformPipeline::Candidate> deform_;
+    bool deformMarked_ = false;  // the apply submit marked watch_
     std::unique_ptr<RbfVkDeformPipeline::Candidate> rbfVkDeform_;
     std::unique_ptr<ResampleVkPipeline::Candidate> resample_;
     std::unique_ptr<GrowVkPipeline::Candidate> grow_;

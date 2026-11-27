@@ -292,7 +292,7 @@ bool RunVulkanLeg(std::vector<uint32_t> const &validateSpv,
     *unavailable = false;
     VkPhysicalDeviceFeatures fp64 = {};
     fp64.shaderFloat64 = VK_TRUE;
-    auto native = CreateNative(unavailable, {}, nullptr, &fp64);
+    auto native = CreateTimelineNative(unavailable, &fp64);
     if (*unavailable)
         return false;
     if (!native)
@@ -312,7 +312,7 @@ bool RunVulkanLeg(std::vector<uint32_t> const &validateSpv,
     ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex;
     ci.resourceDeviceId = 8020;
-    ci.nativeLifetime = native;
+    ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{32} << 20, 0};
     ci.shaderFloat64Enabled = true;
     auto context = DeviceContext::Create(ci);

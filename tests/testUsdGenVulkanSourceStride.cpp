@@ -84,14 +84,14 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
 }
 
 int main() {
-    bool unavailable = false; auto native = CreateNative(&unavailable);
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
     DeviceContext::CreateInfo ci;
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue;
     ci.computeQueueFamily = native->family; ci.physicalIndex = native->physicalIndex;
-    ci.resourceDeviceId = 7013; ci.nativeLifetime = native; ci.resources = {size_t{8} << 20, 0};
+    ci.resourceDeviceId = 7013; ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true; ci.resources = {size_t{8} << 20, 0};
     VkResult result = VK_ERROR_UNKNOWN; std::string reason;
     auto context = DeviceContext::Create(ci, &result); CHECK(context && result == VK_SUCCESS);
     std::vector<uint8_t> expected{1,2,3,4,5,6,7,8,9};

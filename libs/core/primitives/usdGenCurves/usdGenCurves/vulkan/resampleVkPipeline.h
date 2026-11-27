@@ -27,6 +27,8 @@ class VulkanSourceGeneration;
 // Validation runs on-device before any payload write (a compute barrier plus
 // an in-shader status gate), so a malformed input fails closed with a nonzero
 // semantic status instead of producing a partial packet.
+// Submits go through the context's VulkanQueueTimeline (timelineSemaphoreEnabled);
+// without it Begin fails with VK_ERROR_FEATURE_NOT_PRESENT.
 class ResampleVkPipeline final
     : public std::enable_shared_from_this<ResampleVkPipeline> {
 public:

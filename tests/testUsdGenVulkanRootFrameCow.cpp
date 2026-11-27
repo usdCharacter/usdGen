@@ -183,11 +183,11 @@ int main(int argc, char** argv) {
     CHECK(NearVec(GfVec3f(equalRooted.px[0], equalRooted.py[0], equalRooted.pz[0]), {.7f,.1f,0}) &&
           equalRooted.rest[0] == GfVec3f(.7f,.1f,0));
 
-    bool unavailable = false; auto native = CreateNative(&unavailable); if (unavailable) return 77;
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable); if (unavailable) return 77;
     CHECK(native);
-    DeviceContext::CreateInfo ci; ci.instance = native->instance; ci.physicalDevice = native->physical;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
-    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7027; ci.nativeLifetime = native;
+    ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7027; ci.nativeLifetime = native; ci.timelineSemaphoreEnabled = true;
     ci.resources = {size_t{8} << 20, 0}; auto context = DeviceContext::Create(ci); CHECK(context);
     VkResult status = VK_SUCCESS; std::string reason;
     auto upload = [&](UsdGenCurveBuffer const& source) {

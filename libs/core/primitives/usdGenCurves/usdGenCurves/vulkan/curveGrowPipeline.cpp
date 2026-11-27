@@ -359,14 +359,13 @@ struct CurveGrowPipeline::Candidate::State {
         rootPrim, rootUV, rootT, rootB, rootN, status;
     VkDescriptorPool descriptors = VK_NULL_HANDLE;
     VkCommandPool commands = VK_NULL_HANDLE;
-    VkFence fence = VK_NULL_HANDLE;
+    uint64_t value = 0;  // the submit's queue-timeline value
     bool pending = false, lost = false, proved = false;
     uint32_t curveCount = 0, pointCount = 0;
     uint32_t semantic = UINT32_MAX;
     std::unique_ptr<std::shared_ptr<State>> quarantine;
     ~State() {
         auto d = native->context->device();
-        if (fence) vkDestroyFence(d, fence, nullptr);
         if (commands) vkDestroyCommandPool(d, commands, nullptr);
         if (descriptors) vkDestroyDescriptorPool(d, descriptors, nullptr);
     }
@@ -486,7 +485,7 @@ VkResult CurveGrowPipeline::Candidate::Poll(Semantic* semanticStatus) {
     auto& s = *state_;
     if (s.lost) return VK_ERROR_DEVICE_LOST;
     if (!s.proved) {
-        VkResult r = vkGetFenceStatus(s.native->context->device(), s.fence);
+        VkResult r = s.native->context->computeTimeline()->Check(s.value);
         if (r == VK_NOT_READY) return r;
         if (r != VK_SUCCESS) { Quarantine(); return r; }
         s.pending = false;
@@ -705,9 +704,8 @@ std::unique_ptr<CurveGrowPipeline::Candidate> CurveGrowPipeline::BeginInternal(
             VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &after, 0, nullptr, 0, nullptr);
         r = vkEndCommandBuffer(command);
         if (r != VK_SUCCESS) { finish(r); return {}; }
-        VkFenceCreateInfo fi{}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        r = vkCreateFence(d, &fi, nullptr, &s->fence);
-        if (r != VK_SUCCESS) { finish(r); return {}; }
+        VulkanQueueTimeline* const timeline = context->computeTimeline();
+        if (!timeline) { finish(VK_ERROR_FEATURE_NOT_PRESENT); return {}; }
         if (beforeSubmit) {
             bool admitted = false;
             try { admitted = beforeSubmit(); }
@@ -715,10 +713,8 @@ std::unique_ptr<CurveGrowPipeline::Candidate> CurveGrowPipeline::BeginInternal(
             if (!admitted) { finish(VK_ERROR_OUT_OF_DEVICE_MEMORY); return {}; }
         }
         s->pending = true;   // arm retention before native submission
-        VkSubmitInfo submit{}; submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1; submit.pCommandBuffers = &command;
-        r = vkQueueSubmit(context->computeQueue(), 1, &submit, s->fence);
-        if (r != VK_SUCCESS) { candidate->Quarantine(); finish(r); return {}; }
+        s->value = timeline->Submit(&command, 1u, &r);
+        if (!s->value) { candidate->Quarantine(); finish(r); return {}; }
         finish(VK_SUCCESS); return candidate;
     } catch (std::bad_alloc const&) { finish(VK_ERROR_OUT_OF_HOST_MEMORY); return {}; }
 }

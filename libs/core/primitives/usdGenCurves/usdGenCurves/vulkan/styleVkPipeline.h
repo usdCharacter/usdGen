@@ -73,6 +73,8 @@ struct StyleVkDomain {
 // on this queue before Begin. Neither Begin nor Poll waits for device
 // completion: Begin records one submit (validate phase + compute phase, in
 // CUDA stream order) and Poll proves it.
+// Submits go through the context's VulkanQueueTimeline (timelineSemaphoreEnabled);
+// without it Begin fails with VK_ERROR_FEATURE_NOT_PRESENT.
 class StyleVkPipeline final : public std::enable_shared_from_this<StyleVkPipeline> {
 public:
     class Candidate;

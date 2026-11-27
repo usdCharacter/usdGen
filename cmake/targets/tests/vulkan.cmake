@@ -76,6 +76,18 @@ if(USDGEN_BUILD_VULKAN_TESTS)
             LABELS "T1;vulkan;session;default-provider" RESOURCE_LOCK usdgen_gpu
             TIMEOUT 120 SKIP_RETURN_CODE 77
             FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
+        # Warm cooks and the asynchronous deform begin make no timeline Wait.
+        add_executable(testUsdGenVulkanAsyncCook tests/testUsdGenVulkanAsyncCook.cpp
+            "${_usdgen_vulkan_deform_evaluate_spv}" "${_usdgen_vulkan_deform_apply_spv}")
+        target_link_libraries(testUsdGenVulkanAsyncCook PRIVATE usdGenUsd usdGenVulkanNative usdGenMath)
+        add_dependencies(testUsdGenVulkanAsyncCook usdGenVulkanShaders)
+        add_test(NAME testUsdGenVulkanAsyncCook COMMAND testUsdGenVulkanAsyncCook
+            "${_usdgen_vulkan_width_spv}" "${_usdgen_vulkan_deform_evaluate_spv}"
+            "${_usdgen_vulkan_deform_apply_spv}")
+        set_tests_properties(testUsdGenVulkanAsyncCook PROPERTIES
+            LABELS "T1;vulkan;session;deform;scheduling" RESOURCE_LOCK usdgen_gpu
+            TIMEOUT 120 SKIP_RETURN_CODE 77
+            FAIL_REGULAR_EXPRESSION "Validation Error;VUID-;SYNC-HAZARD")
         if(USDGEN_ENABLE_CUDA)
             add_executable(testUsdGenCudaVulkanSessionParity tests/testUsdGenCudaVulkanSessionParity.cpp)
             target_link_libraries(testUsdGenCudaVulkanSessionParity PRIVATE usdGenUsd usdGenVulkanNative usdGenCurvesCuda usdGen_ptex CUDA::cudart)
