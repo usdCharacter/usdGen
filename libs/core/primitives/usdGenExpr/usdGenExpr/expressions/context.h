@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "usdGenExpr/export.h"
 
 namespace usdGen::expr {
 
@@ -49,7 +50,7 @@ struct VariableInfo {
     const char *doc;
 };
 
-class Registry {
+class USDGEN_EXPR_API Registry {
 public:
     static const Registry &Get();
     const VariableInfo *Find(const char *name) const noexcept;
@@ -75,8 +76,8 @@ public:
 // which is how the polymorphic $value is recorded. DomainName takes ONE domain
 // bit and returns "groom" | "primitive" | "point" (or "" for anything else) --
 // the spellings used by the usdGen:evaluation customData.
-const char *ScalarTypeName(ScalarType type) noexcept;
-const char *DomainName(Domain domain) noexcept;
+USDGEN_EXPR_API const char *ScalarTypeName(ScalarType type) noexcept;
+USDGEN_EXPR_API const char *DomainName(Domain domain) noexcept;
 
 struct Context {
     double frame = 0.0;
@@ -88,8 +89,8 @@ struct Context {
     Domain domain = Domain::Groom;
 };
 
-uint32_t DescriptionId(const char *descriptionPath) noexcept;
-bool ValidateValueShape(ValueView const &value, ValueShape const &expected,
+USDGEN_EXPR_API uint32_t DescriptionId(const char *descriptionPath) noexcept;
+USDGEN_EXPR_INTERNAL_API bool ValidateValueShape(ValueView const &value, ValueShape const &expected,
                         std::string *diagnostic = nullptr);
 
 } // namespace usdGen::expr

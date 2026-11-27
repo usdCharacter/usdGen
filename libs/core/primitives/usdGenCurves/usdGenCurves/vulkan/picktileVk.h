@@ -30,6 +30,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -87,7 +88,7 @@ struct PicktileVkTileRequirements {
 // (GetCurveTileRequirements minus device/stream
 // binding). Zero selects the 512/64 tile defaults; other values clamp
 // chunkSize to [128,1024] and tileTarget to [32,256].
-bool GetPicktileVkTileRequirements(uint32_t chunkSize, uint32_t tileTarget,
+USDGEN_CURVES_VULKAN_INTERNAL_API bool GetPicktileVkTileRequirements(uint32_t chunkSize, uint32_t tileTarget,
     size_t captureCurveCount, size_t survivorCurveCount, size_t survivorPointCount,
     PicktileVkTileRequirements* result) noexcept;
 
@@ -101,7 +102,7 @@ bool GetPicktileVkTileRequirements(uint32_t chunkSize, uint32_t tileTarget,
 // bounds-host-finalize inside Bounds Poll (pure host compute, <= 256 tiles).
 // ---------------------------------------------------------------------------
 
-class PicktileVkPickPipeline final : public std::enable_shared_from_this<PicktileVkPickPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkPickPipeline final : public std::enable_shared_from_this<PicktileVkPickPipeline> {
 public:
     class Candidate;
     // Mirrors gpu::PickingStatus ordering for the reachable codes.
@@ -136,7 +137,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class PicktileVkPickPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkPickPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;
@@ -160,7 +161,7 @@ private:
     friend class PicktileVkPickPipeline;
 };
 
-class PicktileVkFootprintPipeline final : public std::enable_shared_from_this<PicktileVkFootprintPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkFootprintPipeline final : public std::enable_shared_from_this<PicktileVkFootprintPipeline> {
 public:
     class Candidate;
     enum class Semantic : uint32_t { Ok = 0, InvalidArgument = 1, NonFiniteInput = 2 };
@@ -184,7 +185,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class PicktileVkFootprintPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkFootprintPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;
@@ -209,7 +210,7 @@ private:
     friend class PicktileVkFootprintPipeline;
 };
 
-class PicktileVkTilesPipeline final : public std::enable_shared_from_this<PicktileVkTilesPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkTilesPipeline final : public std::enable_shared_from_this<PicktileVkTilesPipeline> {
 public:
     class Candidate;
     using BeforeSubmit = std::function<bool()>;
@@ -239,7 +240,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class PicktileVkTilesPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkTilesPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;
@@ -262,7 +263,7 @@ private:
     friend class PicktileVkTilesPipeline;
 };
 
-class PicktileVkBoundsPipeline final : public std::enable_shared_from_this<PicktileVkBoundsPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkBoundsPipeline final : public std::enable_shared_from_this<PicktileVkBoundsPipeline> {
 public:
     class Candidate;
     using BeforeSubmit = std::function<bool()>;
@@ -291,7 +292,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class PicktileVkBoundsPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkBoundsPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;
@@ -358,14 +359,14 @@ private:
     VulkanGenerationLease lease_;
     PicktileVkGeometryView view_{};
     bool valid_ = false;
-    friend PicktileVkGeometryLease AcquirePicktileVkGeometry(
+    friend USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkGeometryLease AcquirePicktileVkGeometry(
         std::shared_ptr<const UsdGenDeviceGeneration> const&, UsdGenDeviceStream) noexcept;
 };
 
 // Acquires a validated Vulkan-native geometry view. Fails closed (invalid
 // lease) for null/foreign-backend generations, stream-token mismatch, missing
 // or misshapen required planes (points/curveOffsets), or unreadable state.
-PicktileVkGeometryLease AcquirePicktileVkGeometry(
+USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkGeometryLease AcquirePicktileVkGeometry(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     UsdGenDeviceStream queueStream) noexcept;
 
@@ -394,7 +395,7 @@ private:
     PicktileVkGeometryLease parent_;
     PicktileVkTileView view_{};
     bool valid_ = false;
-    friend PicktileVkTileLease AcquirePicktileVkTile(
+    friend USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkTileLease AcquirePicktileVkTile(
         std::shared_ptr<const UsdGenDeviceGeneration> const&,
         uint32_t, uint64_t, UsdGenDeviceStream) noexcept;
 };
@@ -403,7 +404,7 @@ private:
 // Validation mirrors AcquireGeometryTile: Vulkan backend, expected-generation
 // match, tile membership, contiguity/u32-range checks, and the rootPrim/rootUV
 // pairing rule.
-PicktileVkTileLease AcquirePicktileVkTile(
+USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkTileLease AcquirePicktileVkTile(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
     uint32_t tileId, uint64_t expectedGeneration, UsdGenDeviceStream queueStream) noexcept;
 
@@ -411,7 +412,7 @@ PicktileVkTileLease AcquirePicktileVkTile(
 // Vulkan support; the gpu entry point lives in a CUDA-gated file but is itself
 // backend-neutral). Same contiguous-coverage validation, same re-publication
 // of identity/owner/channels with replaced geometry tiles/topology.
-std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
+USDGEN_CURVES_VULKAN_INTERNAL_API std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
     std::shared_ptr<const UsdGenDeviceGeneration> const& candidate,
     std::vector<UsdGenDeviceTileMetadata> tiles,
     std::string* reason = nullptr,
@@ -421,7 +422,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> PicktileVkWithTileMetadata(
 // channels a tool needs (points/curveOffsets required with exact bytes;
 // stableIds/widths/rest/hairT/root channels validated when present).
 // Host-only, no device work; mirrors the CudaToolSession lease checks.
-bool ValidatePicktileVkToolChannels(UsdGenDeviceGeometryMetadata const& geometry,
+USDGEN_CURVES_VULKAN_INTERNAL_API bool ValidatePicktileVkToolChannels(UsdGenDeviceGeometryMetadata const& geometry,
     std::vector<UsdGenDeviceChannelMetadata> const& channels,
     std::string* reason = nullptr);
 
@@ -429,7 +430,7 @@ bool ValidatePicktileVkToolChannels(UsdGenDeviceGeometryMetadata const& geometry
 // validating conservativeness (finite, min <= max per axis) exactly like
 // CudaToolSession::RefreshTileBounds. Pure host function for the executor
 // finalization hook (see phase2 plan fragment).
-bool PicktileVkPublishTileMetadata(PicktileVkTileSpan const* spans,
+USDGEN_CURVES_VULKAN_INTERNAL_API bool PicktileVkPublishTileMetadata(PicktileVkTileSpan const* spans,
     float const* minimums, float const* maximums, size_t tileCount,
     std::vector<UsdGenDeviceTileMetadata>* tiles);
 
@@ -449,7 +450,7 @@ struct PicktileVkChargedGeometry {
     uint32_t pointCount = 0;
 };
 
-class PicktileVkToolSession final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PicktileVkToolSession final {
 public:
     static std::shared_ptr<PicktileVkToolSession> Create(std::shared_ptr<DeviceContext>,
         std::vector<uint32_t> const& pickSpirv, std::vector<uint32_t> const& footprintSpirv,

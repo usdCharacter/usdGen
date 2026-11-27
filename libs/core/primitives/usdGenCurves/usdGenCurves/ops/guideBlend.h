@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "usdGenCurves/export.h"
 
 namespace usdGen {
 namespace guideBlend {
@@ -43,7 +44,7 @@ struct V3
 enum class Weighting { Nearest, InverseDistance, Gaussian };
 
 /// Parting curves (polylines) and the parting controls.
-struct Parting
+struct USDGEN_CURVES_INTERNAL_API Parting
 {
     std::vector<V3> points;           // all curves, concatenated
     std::vector<uint32_t> offsets;    // curves + 1
@@ -76,10 +77,10 @@ struct PartInfo
     float side = 0.0f;                // +1 / -1 / 0 (within 1e-5)
 };
 
-PartInfo QueryParting(Parting const &parting, V3 const &x, V3 const &normal);
+USDGEN_CURVES_INTERNAL_API PartInfo QueryParting(Parting const &parting, V3 const &x, V3 const &normal);
 
 /// Parting key: curve * 2 + (side <= 0), -1 for no parting / on the line.
-int PartKey(PartInfo const &info);
+USDGEN_CURVES_INTERNAL_API int PartKey(PartInfo const &info);
 
 /// The guide tables built once per capture.
 struct Guides
@@ -157,11 +158,11 @@ int NearestGuide(Guides const &guides, Parting const &parting, PartInfo const &r
 // --- exposed for tests ------------------------------------------------------
 
 /// Point at arc length s on a raw polyline (linear; extrapolates past the tip).
-V3 SampleRaw(V3 const *points, size_t count, float s);
+USDGEN_CURVES_INTERNAL_API V3 SampleRaw(V3 const *points, size_t count, float s);
 /// Polyline length, sequential float sum.
-float PolylineLength(V3 const *points, size_t count);
+USDGEN_CURVES_INTERNAL_API float PolylineLength(V3 const *points, size_t count);
 /// 2-D Delaunay triangulation (Bowyer-Watson), triangles as index triples.
-std::vector<int> Delaunay2D(std::vector<float> const &xy);
+USDGEN_CURVES_INTERNAL_API std::vector<int> Delaunay2D(std::vector<float> const &xy);
 
 }  // namespace guideBlend
 }  // namespace usdGen

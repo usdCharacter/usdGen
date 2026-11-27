@@ -3,6 +3,7 @@
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenCurves/cuda/rbf.h"
 #include "usdGenCurves/cuda/width.h"
+#include "usdGenCurves/cuda/export.h"
 namespace usdGen { namespace gpu {
 
 // Runtime controls for the C3 deformation. `mask` IS the operator envelope
@@ -16,7 +17,7 @@ struct DeformParameters {
  BoolField lockRoots = BoolField::Literal(true);
 };
 
-class CudaRbfCurveDeformer {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaRbfCurveDeformer {
 public:
  ~CudaRbfCurveDeformer();
  // primitive/point envelopes may be empty (identity 1); rootTargets is one per curve.

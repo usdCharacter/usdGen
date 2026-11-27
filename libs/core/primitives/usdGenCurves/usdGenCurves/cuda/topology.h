@@ -2,6 +2,7 @@
 #define USDGEN_GPU_TOPOLOGY_H
 
 #include "usdGenCurves/cuda/curveGeometry.h"
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -17,7 +18,7 @@ struct CurveTopologyCompareResult {
 // bad offset sentinels), while a well-formed but different topology returns
 // cudaSuccess and sets equal=false.  Test hook: the cook uses
 // CudaCurveTopologyCompare.
-cudaError_t CompareCurveTopology(DeviceCurveGeometryView a,
+USDGEN_CURVES_CUDA_INTERNAL_API cudaError_t CompareCurveTopology(DeviceCurveGeometryView a,
                                  DeviceCurveGeometryView b,
                                  cudaStream_t stream, bool* equal,
                                  UsdGenExecutionMemoryReservation* reservation = nullptr);
@@ -30,7 +31,7 @@ cudaError_t CompareCurveTopology(DeviceCurveGeometryView a,
 // Bad offsets or ID shape/provenance are rejected (arbitrary ID values are
 // compared, not validated as an ordering); a proven device semantic error is
 // cudaErrorInvalidValue and leaves the caller's output unchanged.
-class CudaCurveTopologyCompare {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaCurveTopologyCompare {
 public:
     CudaCurveTopologyCompare() = default;
     ~CudaCurveTopologyCompare();

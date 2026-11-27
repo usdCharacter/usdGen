@@ -28,6 +28,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -60,7 +61,7 @@ struct ExprVkCompiledBinding {
 // literal, SeExpr compilation, and the sampler refusal. allowValue/allowTime
 // mirror the UsdGenExprOp capture refusals ($value/$frame/$time); parameter
 // bindings pass true/true.
-ExprVkCompileStatus ExprVkCompileBinding(
+USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkCompileStatus ExprVkCompileBinding(
     UsdGenGraphSpec const& graph, UsdGenParamBinding const& binding,
     bool allowValue, bool allowTime, ExprVkCompiledBinding* out,
     std::vector<std::string>* diagnostics = nullptr);
@@ -111,7 +112,7 @@ struct ExprVkFieldLayout {
 // set (groom carries only the literal), one $value literal region (groom,
 // count 1, literalComponents), and injectionCount host-step regions (eval
 // domain, count n, 1 component). n is 1/curves/points by domain.
-ExprVkFieldLayout ExprVkLayoutFields(expr::Domain domain, size_t n,
+USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkFieldLayout ExprVkLayoutFields(expr::Domain domain, size_t n,
                                      unsigned literalComponents,
                                      unsigned injectionCount, bool hasRest,
                                      bool hasWidths, bool hasRootUV,

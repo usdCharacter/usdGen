@@ -29,6 +29,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -60,12 +61,12 @@ struct DeformEvalCacheSpirv {
 // count as misses), a bypassed pose runs direct under miss backoff, and
 // an unfunded pose runs direct for lack of budget. The funded prefix is
 // the last R/proof capacity the cache funded (0 after an eviction).
-void TestDisableDeformEvalCache(bool disable) noexcept;
-uint64_t DeformEvalCacheHitsForTesting() noexcept;
-uint64_t DeformEvalCacheMissesForTesting() noexcept;
-uint64_t DeformEvalCacheBypassedForTesting() noexcept;
-uint64_t DeformEvalCacheUnfundedForTesting() noexcept;
-uint32_t DeformEvalCacheFundedPrefixForTesting() noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API void TestDisableDeformEvalCache(bool disable) noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API uint64_t DeformEvalCacheHitsForTesting() noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API uint64_t DeformEvalCacheMissesForTesting() noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API uint64_t DeformEvalCacheBypassedForTesting() noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API uint64_t DeformEvalCacheUnfundedForTesting() noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API uint32_t DeformEvalCacheFundedPrefixForTesting() noexcept;
 
 // Test-only heterogeneous-suffix seams. The force mode overrides the
 // adaptive policy: 0 is automatic, 1 forces the host suffix, -1 forces the
@@ -75,10 +76,10 @@ uint32_t DeformEvalCacheFundedPrefixForTesting() noexcept;
 // deltas. An eligible forced-hetero pose always runs hetero (the tentative
 // call reserves the mapping the final call confirms), so there is no
 // fallback counter.
-void TestForceDeformHeteroSuffix(int force) noexcept;
-uint64_t DeformHeteroSuffixRunsForTesting() noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API void TestForceDeformHeteroSuffix(int force) noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API uint64_t DeformHeteroSuffixRunsForTesting() noexcept;
 
-class DeformPipeline final : public std::enable_shared_from_this<DeformPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API DeformPipeline final : public std::enable_shared_from_this<DeformPipeline> {
 public:
     class Candidate;
     using BeforeSubmit = std::function<bool()>;
@@ -169,7 +170,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class DeformPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API DeformPipeline::Candidate final {
 public:
     struct Output {
         std::shared_ptr<const ChargedBuffer> points; // deformed CVs (3f each)

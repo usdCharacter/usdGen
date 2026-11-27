@@ -5,6 +5,7 @@
 #include "usdGenCurves/cuda/curveTiles.h"
 
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -33,6 +34,8 @@ struct CurveTileBoundsScratch {
     float3 maximum;
     float maximumWidth = 0.0f;
 };
+// Instantiated in curveTileBounds.cu; tests reuse that instantiation.
+extern template class USDGEN_CURVES_CUDA_INTERNAL_API DeviceBuffer<CurveTileBoundsScratch>;
 
 struct CurveTileBoundsWorkspace {
     DeviceView<CurveTileBoundsScratch> scratch;
@@ -56,7 +59,7 @@ struct CurveTileBoundsOutput {
 // scratch is reduced and finalized before one aggregate-status-gated publish.
 // CurveTileSpan's curve fields are not consumed here; device validation covers
 // only its point range because this reduction has no curve-offset input.
-cudaError_t BuildCurveTileBounds(CurveTileBoundsOptions options,
+USDGEN_CURVES_CUDA_INTERNAL_API cudaError_t BuildCurveTileBounds(CurveTileBoundsOptions options,
     CurveTileBoundsInput input, CurveTileBoundsWorkspace workspace,
     CurveTileBoundsOutput output,
     cudaStream_t stream);

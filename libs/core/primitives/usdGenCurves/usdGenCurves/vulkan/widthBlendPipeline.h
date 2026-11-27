@@ -7,9 +7,10 @@
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
 #include <functional>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
-class WidthBlendPipeline final : public std::enable_shared_from_this<WidthBlendPipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API WidthBlendPipeline final : public std::enable_shared_from_this<WidthBlendPipeline> {
 public:
     class Candidate;
     using BeforeSubmit = std::function<bool()>;
@@ -25,7 +26,7 @@ private:
     explicit WidthBlendPipeline(std::shared_ptr<Native>);
     std::shared_ptr<Native> native_;
 };
-class WidthBlendPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API WidthBlendPipeline::Candidate final {
 public:
     ~Candidate(); Candidate(Candidate const&) = delete;
     Candidate& operator=(Candidate const&) = delete;

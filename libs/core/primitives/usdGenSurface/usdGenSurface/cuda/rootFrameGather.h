@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -17,7 +18,7 @@ enum class RootFrameGatherStatus {
 // order; no surface/root-frame recomputation occurs. Inputs are borrowed until
 // Finish. recordUse has one last-use event per buffer, so consumers are
 // scheduler-serialized rather than independently concurrent.
-class CudaRootFrameGather {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaRootFrameGather {
 public:
     CudaRootFrameGather() = default;
     ~CudaRootFrameGather();

@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <string>
+#include "usdGenCurves/export.h"
 
 namespace usdGen {
 
@@ -16,7 +17,7 @@ namespace usdGen {
 /// samples the Ptex map.  The actual output can be smaller because owner-map
 /// clipping and triangle containment reject roots.  `curves` and `cvs` are
 /// left unchanged on failure.
-bool UsdGenEstimateSurfaceCageCurveSet(
+USDGEN_CURVES_API bool UsdGenEstimateSurfaceCageCurveSet(
     UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     UsdGenCurveSetInputView const &sparse, uint64_t *curves, uint64_t *cvs,
     std::string *error = nullptr);
@@ -29,7 +30,7 @@ bool UsdGenEstimateSurfaceCageCurveSet(
 /// `regionId` and `hierarchyLevel` planes are preserved per leaf owner. The
 /// returned C3 is explicitly world-space so scatter density matches Fill
 /// under a transformed scalp. It leaves `out` unchanged on every error.
-bool UsdGenBuildSurfaceCageCurveSet(
+USDGEN_CURVES_API bool UsdGenBuildSurfaceCageCurveSet(
     UsdGenGraphSpec const &desc, UsdGenOpNode const &node,
     UsdGenCurveSetInputView const &sparse, UsdGenCurveSetData *out,
     std::string *error = nullptr);

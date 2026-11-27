@@ -11,11 +11,12 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 class VulkanSourceGeneration;
 
-class LengthCompactionPipeline final
+class USDGEN_CURVES_VULKAN_INTERNAL_API LengthCompactionPipeline final
     : public std::enable_shared_from_this<LengthCompactionPipeline> {
 public:
     class Candidate;
@@ -44,7 +45,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class LengthCompactionPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API LengthCompactionPipeline::Candidate final {
 public:
     struct OutputPlane {
         UsdGenDeviceChannelMetadata metadata;

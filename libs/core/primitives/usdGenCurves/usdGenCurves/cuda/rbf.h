@@ -6,17 +6,18 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen { namespace gpu {
 enum class RbfStatus { Ok, InvalidArgument, NonFiniteInput, RankDeficient, CudaError, SolverError };
 // Test-only fresh-path fault seams.  Each affects one matching Begin call.
-void TestFailNextFreshRbfBindAllocation() noexcept;
-void TestFailNextFreshRbfBindAfterSubmit() noexcept;
-void TestFailNextFreshRbfSolveAllocation() noexcept;
-void TestFailNextFreshRbfSolveAfterInputSubmit() noexcept;
-void TestFailNextFreshRbfSolveAfterSolverSubmit() noexcept;
-void TestFailNextFreshRbfEvaluateAllocation() noexcept;
-void TestFailNextFreshRbfEvaluateAfterSubmit() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfBindAllocation() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfBindAfterSubmit() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfSolveAllocation() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfSolveAfterInputSubmit() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfSolveAfterSolverSubmit() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfEvaluateAllocation() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestFailNextFreshRbfEvaluateAfterSubmit() noexcept;
 void TestFailNextFreshRbfResolvePreflight() noexcept;
 void TestFailNextFreshRbfResolveCommit() noexcept;
 uint64_t FreshRbfAcceptAttemptCountForTesting() noexcept;
@@ -24,21 +25,21 @@ uint64_t FreshRbfRollbackAttemptCountForTesting() noexcept;
 // Test-only direct-evaluate cache seam. While disabled, Evaluate runs the
 // uncached kernel and leaves the cache state untouched, so a test can
 // compare the cached and uncached paths bitwise on the same binding.
-void TestDisableCudaRbfEvalCache(bool disable) noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestDisableCudaRbfEvalCache(bool disable) noexcept;
 // Test-only direct-evaluate cache path counters (global across bindings;
 // tests assert deltas). A hit evaluates through the cache, a miss refills
 // it first; the over-cap fallback increments neither.
-uint64_t CudaRbfEvalCacheHitsForTesting() noexcept;
-uint64_t CudaRbfEvalCacheMissesForTesting() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API uint64_t CudaRbfEvalCacheHitsForTesting() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API uint64_t CudaRbfEvalCacheMissesForTesting() noexcept;
 // Test-only direct-bind memo seam. While disabled, Bind always runs the
 // factor slice, so a test can compare the memo-hit and full-slice paths
 // bitwise on the same binding. The counters (global across bindings;
 // tests assert deltas) count digest-probe hits (slice skipped) and
 // digest-probe misses (slice ran); a bind that skips the probe (first
 // bind, or a shape/smoothing key mismatch) increments neither.
-void TestDisableCudaRbfBindMemo(bool disable) noexcept;
-uint64_t CudaRbfBindMemoHitsForTesting() noexcept;
-uint64_t CudaRbfBindMemoMissesForTesting() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void TestDisableCudaRbfBindMemo(bool disable) noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API uint64_t CudaRbfBindMemoHitsForTesting() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API uint64_t CudaRbfBindMemoMissesForTesting() noexcept;
 
 // Queries the selected CUDA implementation's legacy dense-LU workspace
 // without allocating matrix storage or submitting device work.
@@ -47,7 +48,7 @@ cudaError_t GetCudaRbfLuWorkspaceElements(size_t sampleCount,
 
 // GPU-only cubic RBF binding.  Bind and Solve copy only scalar diagnostics to
 // the host; Evaluate has no geometry readback and is asynchronous.
-class CudaRbfBinding {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaRbfBinding {
 public:
     CudaRbfBinding();
     ~CudaRbfBinding();

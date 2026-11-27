@@ -12,6 +12,7 @@
 #include <memory>
 #include <utility>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -195,22 +196,22 @@ struct ScatterGrowRequirements {
 // inputBytes is the transient input staging (root positions); ids, prims,
 // uvs, and frames upload directly into their published output buffers and
 // are counted in outputBytes.
-ScatterGrowStatus GetScatterGrowRequirements(size_t curveCount, uint32_t cvCount,
+USDGEN_CURVES_CUDA_INTERNAL_API ScatterGrowStatus GetScatterGrowRequirements(size_t curveCount, uint32_t cvCount,
                                             ScatterGrowRequirements* result);
 
 // Test-only, for the next big-grow overlap BeginFresh: failCopy fails the
 // last staging copy's issue after the earlier copies were queued on the copy
 // stream; throwInValidate throws from the validation scans.
-void SetScatterGrowOverlapFaultsForTesting(bool failCopy, bool throwInValidate) noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API void SetScatterGrowOverlapFaultsForTesting(bool failCopy, bool throwInValidate) noexcept;
 // Test-only: rejected overlap grows whose buffers still wait for the
 // completion lane (BeginFresh hands them over instead of fencing).
-size_t ScatterGrowDiscardsInFlightForTesting() noexcept;
+USDGEN_CURVES_CUDA_INTERNAL_API size_t ScatterGrowDiscardsInFlightForTesting() noexcept;
 
 // A fresh, immutable Grow topology owner.  BeginFresh never mutates a
 // published generation.  A caller must commit only from the relay which saw
 // FinishFreshAsync report cudaSuccess; if that proof is lost it must call
 // MarkUnprovenWork, causing destruction to quarantine device allocations.
-class CudaScatterGrow {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaScatterGrow {
 public:
     CudaScatterGrow() = default;
     ~CudaScatterGrow();

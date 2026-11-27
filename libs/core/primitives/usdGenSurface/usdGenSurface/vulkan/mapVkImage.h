@@ -19,6 +19,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -30,7 +31,7 @@ struct MapVkImageView {
 // Queue-owner confined. Upload copies immutable host texels into a charged
 // device buffer; the payload is retained so options validation and texel
 // bytes stay alive for every later sample.
-class MapVkImage final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API MapVkImage final {
 public:
     static std::shared_ptr<MapVkImage> Create(std::shared_ptr<DeviceContext> const&,
         std::shared_ptr<const UsdGenImagePayload> const&, VkResult* = nullptr);
@@ -54,7 +55,7 @@ private:
 
 // Queue-owner confined. Inputs must be immutable and have completed upload on
 // this queue before Begin. Neither Begin nor Poll waits for device completion.
-class MapVkSamplePipeline final : public std::enable_shared_from_this<MapVkSamplePipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API MapVkSamplePipeline final : public std::enable_shared_from_this<MapVkSamplePipeline> {
 public:
     class Candidate;
     // Owner-side admission checkpoint immediately before the first native
@@ -88,7 +89,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class MapVkSamplePipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API MapVkSamplePipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

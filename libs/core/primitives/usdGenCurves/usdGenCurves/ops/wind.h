@@ -43,6 +43,7 @@
 
 #include "usdGenCurves/ops/recordedOp.h"
 #include "usdGen/api/ids.h"
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -57,7 +58,7 @@ enum : UsdGenParamSlot {
 enum Tok : uint16_t { kTokLinear, kTokCatmullRom, kTokBspline, kTokConstant };
 }  // namespace windP
 
-class UsdGenWindOp final : public UsdGenOp
+class USDGEN_CURVES_INTERNAL_API UsdGenWindOp final : public UsdGenOp
 {
 public:
     explicit UsdGenWindOp(UsdGenOpRecord const &record) : UsdGenOp(record) {}

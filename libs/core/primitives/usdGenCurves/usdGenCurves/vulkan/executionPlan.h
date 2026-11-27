@@ -16,6 +16,7 @@
 
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -166,7 +167,7 @@ class VulkanSourceWidthPlan final {
     bool HasRootBindings() const noexcept { return hasRootBindings_; }
 
   private:
-    friend std::shared_ptr<const UsdGenExecutionPlanHandle>
+    friend USDGEN_CURVES_VULKAN_INTERNAL_API std::shared_ptr<const UsdGenExecutionPlanHandle>
     CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &, UsdGenDiagnostics *);
     VulkanSourceWidthPlan(std::shared_ptr<const UsdGenGraphSpec>, UsdGenCurveSetInputView, UsdGenNodeKey,
                           UsdGenNodeKey, VulkanSourceControls, VulkanLiteralWidthControls, uint64_t,
@@ -189,7 +190,7 @@ class VulkanSourceWidthPlan final {
 // binary inputs. Every authored node must reach the selected terminal.
 // Joins across distinct Length lineages require native non-width equality
 // proof; other operator families are not admitted.
-std::shared_ptr<const UsdGenExecutionPlanHandle>
+USDGEN_CURVES_VULKAN_INTERNAL_API std::shared_ptr<const UsdGenExecutionPlanHandle>
 CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &, UsdGenDiagnostics * = nullptr);
 
 } // namespace usdGen::vulkan

@@ -44,6 +44,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -127,7 +128,7 @@ struct RbfVkBindingSpirv {
 // runs directly instead of waiting. Single-entry (one shape at a time);
 // over the cap, or when a reshape does not fit the pool, the binding
 // evaluates directly with no added work. Lock-free; relaxed counters.
-class RbfVkEvalCache {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RbfVkEvalCache {
 public:
     RbfVkEvalCache();
     ~RbfVkEvalCache();
@@ -163,9 +164,9 @@ private:
 
 // Global test seam (mirrors CUDA's TestDisableCudaRbfEvalCache): while
 // set, every RbfVkBinding evaluates directly even with a cache set.
-void TestDisableRbfVkEvalCache(bool disable) noexcept;
+USDGEN_CURVES_VULKAN_INTERNAL_API void TestDisableRbfVkEvalCache(bool disable) noexcept;
 
-class RbfVkBinding final : public std::enable_shared_from_this<RbfVkBinding> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API RbfVkBinding final : public std::enable_shared_from_this<RbfVkBinding> {
 public:
     static std::shared_ptr<RbfVkBinding> Create(
         std::shared_ptr<DeviceContext> context,

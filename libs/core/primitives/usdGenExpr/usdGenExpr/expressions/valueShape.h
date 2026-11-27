@@ -10,6 +10,7 @@
 #include "usdGen/api/value.h"
 
 #include <cstdint>
+#include "usdGenExpr/export.h"
 
 namespace usdGen::expr {
 
@@ -31,24 +32,24 @@ struct UsdGenValueTypeInfo {
 };
 
 // Rows sorted by name; an unknown name yields an empty row. No allocation.
-UsdGenValueTypeInfo FindValueType(UsdGenToken const &nativeType);
-UsdGenValueTypeInfo FindValueType(char const *nativeType);
-UsdGenSpan<const UsdGenValueTypeInfo> AllValueTypes();
+USDGEN_EXPR_API UsdGenValueTypeInfo FindValueType(UsdGenToken const &nativeType);
+USDGEN_EXPR_API UsdGenValueTypeInfo FindValueType(char const *nativeType);
+USDGEN_EXPR_INTERNAL_API UsdGenSpan<const UsdGenValueTypeInfo> AllValueTypes();
 
 // Sdf's default value of the type; empty for an unknown or sdf-only type.
-UsdGenValue ValueTypeDefault(UsdGenValueTypeInfo const &type);
+USDGEN_EXPR_API UsdGenValue ValueTypeDefault(UsdGenValueTypeInfo const &type);
 
 // `arrayCountKnown` distinguishes an authored empty fixed array from an
 // array declaration with no typed value from which a fixed count can be
 // obtained; the latter is deliberately returned as an invalid shape.
-ValueShape ValueShapeFromValueType(UsdGenValueTypeInfo const &type,
+USDGEN_EXPR_INTERNAL_API ValueShape ValueShapeFromValueType(UsdGenValueTypeInfo const &type,
                                    uint32_t arrayElementCount = 0,
                                    bool arrayCountKnown = false);
 
 // Hydra transports USD's native type token; resolved through the table so
 // role aliases and tuple dimensions take the same path as direct USD reads
 // (usdGenUsd's ValueShapeFromSdfType).
-ValueShape ValueShapeFromNativeType(UsdGenToken const &nativeType,
+USDGEN_EXPR_API ValueShape ValueShapeFromNativeType(UsdGenToken const &nativeType,
                                     uint32_t arrayElementCount = 0,
                                     bool arrayCountKnown = false);
 

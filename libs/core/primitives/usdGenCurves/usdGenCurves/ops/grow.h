@@ -7,11 +7,12 @@
 
 #include "usdGen/api/ext/op.h"
 #include "usdGen/api/ids.h"
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
 
-class UsdGenGrowOp final : public UsdGenOp
+class USDGEN_CURVES_INTERNAL_API UsdGenGrowOp final : public UsdGenOp
 {
 public:
     explicit UsdGenGrowOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}

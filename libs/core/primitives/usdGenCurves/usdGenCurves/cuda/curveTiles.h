@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -23,6 +24,8 @@ struct CurveTileSpan {
     uint32_t firstPoint = 0;
     uint32_t pointCount = 0;
 };
+// Instantiated in curveTiles.cu; tests reuse that instantiation.
+extern template class USDGEN_CURVES_CUDA_INTERNAL_API DeviceBuffer<CurveTileSpan>;
 
 // The default mode consumes a strictly sorted survivor subset and derives tile
 // boundaries with stable-ID lower bounds.  IdentityCaptureOrder is for
@@ -71,7 +74,7 @@ struct CurveTileOutput {
 // values clamp chunkSize to [128,1024] and tileTarget to [32,256].  It binds
 // the current device and (when supplied) stream, and never reads device
 // geometry or allocates.
-cudaError_t GetCurveTileRequirements(CurveTileOptions options,
+USDGEN_CURVES_CUDA_INTERNAL_API cudaError_t GetCurveTileRequirements(CurveTileOptions options,
     size_t captureCurveCount, size_t survivorCurveCount,
     size_t survivorPointCount, CurveTileRequirements* result,
     cudaStream_t stream = nullptr);
@@ -95,7 +98,7 @@ cudaError_t GetCurveTileRequirements(CurveTileOptions options,
 // are emitted deliberately.
 // No allocation, host wait/readback, locks, or geometry/index/draw-count
 // publication occurs here.  Prepare requirements before CUDA graph capture.
-cudaError_t BuildCurveTiles(CurveTileInput input,
+USDGEN_CURVES_CUDA_INTERNAL_API cudaError_t BuildCurveTiles(CurveTileInput input,
     CurveTileRequirements const& requirements, CurveTileOutput output,
     cudaStream_t stream);
 

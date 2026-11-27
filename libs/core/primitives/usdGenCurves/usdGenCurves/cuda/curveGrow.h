@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen { class UsdGenExecutionMemoryReservation; }
 namespace usdGen::gpu {
@@ -70,14 +71,14 @@ struct CurveGrowRequirements {
     size_t peakBytes = 0;
 };
 
-CurveGrowStatus GetCurveGrowRequirements(size_t curveCount, uint32_t cvCount,
+USDGEN_CURVES_CUDA_INTERNAL_API CurveGrowStatus GetCurveGrowRequirements(size_t curveCount, uint32_t cvCount,
                                          CurveGrowRequirements* result);
 
 // Fresh C3 topology producer.  It borrows already-uploaded C3 source planes,
 // but writes every output topology/value plane into private storage.  The
 // caller supplies an immutable owner for those borrowed views; losing native
 // completion proof intentionally abandons that owner with quarantined work.
-class CudaCurveGrow {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaCurveGrow {
 public:
     CudaCurveGrow() = default;
     ~CudaCurveGrow();

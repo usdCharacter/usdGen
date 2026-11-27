@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGenExpr/export.h"
 
 namespace usdGen::expr {
 
@@ -56,7 +57,7 @@ struct CpuExpressionInputs {
 
 /// One IROp::Sample evaluation (expressions/samplers.cpp). `index` is the
 /// element being evaluated in `inputs`' domain.
-double SampleSlot(CpuExpressionSamplers const &samplers, CpuExpressionInputs const &inputs,
+USDGEN_EXPR_INTERNAL_API double SampleSlot(CpuExpressionSamplers const &samplers, CpuExpressionInputs const &inputs,
                   unsigned slot, double const *args, unsigned argCount, size_t index,
                   unsigned component);
 
@@ -98,7 +99,7 @@ struct CpuCurveGeometryView {
 /// Owns the per-variable double fields for ONE evaluation domain. Rebuild it
 /// whenever the geometry or the frame controls change; Inputs() borrows this
 /// object's storage and must not outlive it.
-class CpuExpressionContext {
+class USDGEN_EXPR_API CpuExpressionContext {
 public:
     CpuExpressionStatus Build(CpuCurveGeometryView const &geometry, Context context,
                               std::string *diagnostic = nullptr);
@@ -116,7 +117,7 @@ private:
 /// Runs `program` over every element of `inputs` into `output`. Admission is
 /// irExec.h's ValidProgram plus the same input/output agreement the device
 /// enforces, so a program the GPU refuses is refused here too.
-CpuExpressionStatus EvaluateProgram(IRProgram const &program,
+USDGEN_EXPR_API CpuExpressionStatus EvaluateProgram(IRProgram const &program,
                                     CpuExpressionInputs const &inputs,
                                     CpuExpressionOutput const &output);
 

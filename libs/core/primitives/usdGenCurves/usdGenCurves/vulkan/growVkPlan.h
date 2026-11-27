@@ -7,12 +7,13 @@
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/api/ext/op.h"
+#include "usdGenCurves/vulkan/export.h"
 namespace usdGen::vulkan {
 // Lower stage-free Scatter root capture and ReferenceSource C3 import to the
 // existing immutable source packet. This never evaluates Grow on the CPU.
 // Original source type/path remains available to the caller for capability
 // metadata; native source decoding consumes the returned CurveSource shape.
-bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const&, UsdGenGraphSpec*,
+USDGEN_CURVES_VULKAN_INTERNAL_API bool NormalizeVulkanGeneratorGraph(UsdGenGraphSpec const&, UsdGenGraphSpec*,
     UsdGenDiagnostics* = nullptr);
 bool ValidateVulkanGrow(UsdGenGraphSpec const&, UsdGenOpNode const&,
     CurveGrowPipeline::Controls*, UsdGenDiagnostics* = nullptr);

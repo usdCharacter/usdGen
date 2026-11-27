@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 // Queue-owner confined. Applies a sparse, indexed absolute point edit to a
@@ -19,7 +20,7 @@ namespace usdGen::vulkan {
 // readback of the validation phases before recording the scatter phase; this
 // is the documented structural deviation that preserves CUDA's early-return
 // fidelity (see integration-topology.md).
-class PointOverridePipeline final : public std::enable_shared_from_this<PointOverridePipeline> {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PointOverridePipeline final : public std::enable_shared_from_this<PointOverridePipeline> {
 public:
     class Candidate;
     // CUDA-equivalent semantic statuses (PointOverrideStatus ordinal mapping).
@@ -56,7 +57,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class PointOverridePipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API PointOverridePipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

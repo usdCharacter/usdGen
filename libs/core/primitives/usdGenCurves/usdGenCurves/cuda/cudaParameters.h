@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen {
 
@@ -40,7 +41,7 @@ enum class CudaParameterStatus {
 
 // CudaParameterProgram is immutable CPU IR and literal data. It owns no CUDA
 // allocations and can safely be shared by independent evaluators and frames.
-class CudaParameterProgram {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaParameterProgram {
 public:
     static CudaParameterStatus Compile(
         UsdGenGraphSpec const&, UsdGenOpNode const&,
@@ -74,7 +75,7 @@ private:
 // Fields are borrowed until the next Evaluate or destruction. The work owner
 // must finish all consumers before reuse/destruction and select the owning
 // CUDA device; a single evaluator is never invoked concurrently.
-class CudaParameterEvaluator {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaParameterEvaluator {
 public:
     CudaParameterEvaluator();
     ~CudaParameterEvaluator();
@@ -159,7 +160,7 @@ struct CudaGroomScalarValue {
 // proof, including after a partially submitted BeginFresh failure. BeginFresh
 // queues compact copies only; the parent owns the native callback and calls
 // CommitFreshFinish only after terminal success and launcher return.
-class CudaGroomScalarReadback {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaGroomScalarReadback {
 public:
     static constexpr size_t Capacity = 8;
 
@@ -191,15 +192,15 @@ private:
 };
 
 // Test-only: makes the next BeginFreshPrograms fail before its first H2D.
-void failNextCudaParameterFreshProgramAllocationForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaParameterFreshProgramAllocationForTesting();
 // Test-only scalar-readback failure seams. The copy seam fails after one D2H
 // copy has been accepted, so its object is intentionally unproven.
-void failNextCudaGroomScalarReadbackAllocationForTesting();
-void failNextCudaGroomScalarReadbackCopyAfterOneForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaGroomScalarReadbackAllocationForTesting();
+USDGEN_CURVES_CUDA_INTERNAL_API void failNextCudaGroomScalarReadbackCopyAfterOneForTesting();
 
 // Compatibility facade. Compilation delegates to an immutable program and
 // evaluation delegates to one mutable evaluator owned by this facade.
-class CudaParameterPlan {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaParameterPlan {
 public:
     static CudaParameterStatus Compile(
         UsdGenGraphSpec const&, UsdGenOpNode const&, CudaParameterPlan*,

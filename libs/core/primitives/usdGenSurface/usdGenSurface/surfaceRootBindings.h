@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include "usdGenSurface/export.h"
 
 
 namespace usdGen {
@@ -37,7 +38,7 @@ struct UsdGenSurfaceRootBindingResult
 /// safe to retain across captures and to call Bind concurrently: every query
 /// allocates its result and k-nearest scratch locally.  `Matches` deliberately
 /// compares the full spatial snapshot rather than trusting a generation bump.
-class UsdGenRestSurfaceBindingCache final
+class USDGEN_SURFACE_API UsdGenRestSurfaceBindingCache final
 {
 public:
     static std::shared_ptr<const UsdGenRestSurfaceBindingCache> Create(
@@ -79,7 +80,7 @@ private:
 /// false and do not replace `out`.  Per-root geometric degeneracy or a bounded
 /// quad solve with no converged candidate succeeds with an explicit unresolved
 /// entry, allowing a loader to apply its rebind/drop policy transactionally.
-bool UsdGenBuildRestSurfaceRootBindings(
+USDGEN_SURFACE_INTERNAL_API bool UsdGenBuildRestSurfaceRootBindings(
     UsdGenSurfaceInputView const &surface,
     UsdGenVec3fArray const &sourceRestRoots,
     UsdGenMatrix4d const &sourceWorldMatrix,

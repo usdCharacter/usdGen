@@ -8,11 +8,12 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 // Queue-owner confined fixed-topology Length SCALE kernel.  The supplied
 // module is a trusted, externally spirv-val-validated lengthScale.comp ABI.
-class LengthScalePipeline final
+class USDGEN_CURVES_VULKAN_INTERNAL_API LengthScalePipeline final
     : public std::enable_shared_from_this<LengthScalePipeline> {
 public:
     // Create() remains scale-only. CreateWithSet() installs a separately
@@ -190,7 +191,7 @@ private:
     std::shared_ptr<Native> deviceV1Native_;
 };
 
-class LengthScalePipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API LengthScalePipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

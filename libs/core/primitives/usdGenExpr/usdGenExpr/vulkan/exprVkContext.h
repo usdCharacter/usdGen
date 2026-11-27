@@ -24,6 +24,7 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
@@ -51,7 +52,7 @@ struct ExprVkGeometryChannels {
     std::shared_ptr<const ChargedBuffer> rootPrim;
 };
 
-class ExprVkContextPipeline {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkContextPipeline {
 public:
     using BeforeSubmit = std::function<bool()>;
     static std::shared_ptr<ExprVkContextPipeline> Create(
@@ -62,7 +63,7 @@ public:
     ExprVkContextPipeline& operator=(ExprVkContextPipeline const&) = delete;
     std::shared_ptr<DeviceContext> const& context() const noexcept;
 
-    class Candidate {
+    class USDGEN_CURVES_VULKAN_INTERNAL_API Candidate {
     public:
         ~Candidate();
         Candidate(Candidate const&) = delete;

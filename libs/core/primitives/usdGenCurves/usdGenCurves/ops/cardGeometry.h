@@ -39,6 +39,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -50,7 +51,7 @@ enum Orientation : int { kFree = 0, kMeshNormal = 1, kSurface = 2, kConform = 3 
 /// One card, with every parameter already in engine units (scene units,
 /// degrees, fractions) and clamped to its documented range by Sanitize().
 /// Field meanings follow the spine-prim plane contract (card_planes).
-struct Card
+struct USDGEN_CURVES_INTERNAL_API Card
 {
     std::vector<UsdGenVec3f> points;   // the spine as authored, root first
     uint64_t id = 0, twinId = 0;
@@ -124,7 +125,7 @@ void RootFrame(Card const &card, Context const &ctx, UsdGenVec3f *n0, UsdGenVec3
 /// with fewer than 2 points, and erased / masked / unbound cards when
 /// `honourInclude`). Spans whose uvId or tile is negative are still built
 /// (callers that need hair skip them, mesh counts keep them).
-std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclude = true);
+USDGEN_CURVES_INTERNAL_API std::vector<Span> BuildCard(uint32_t index, Context const &ctx, bool honourInclude = true);
 
 /// True when the hair surface builds this card: uvId in 0..9, not erased,
 /// distribution mask >= 0.5, at least 2 points, not a braid.
@@ -133,12 +134,12 @@ bool Included(Card const &card);
 /// Point and normal of the card surface at (u, v) in [0,1]^2 of the tile
 /// (u across, v root -> tip), pushed `depth` row widths along the normal.
 /// v is un-biased by the span's longitudinal bias; u is mirrored by flipU.
-void CardSurface(Span const &span, float u, float v, float depth, UsdGenVec3f *position,
+USDGEN_CURVES_INTERNAL_API void CardSurface(Span const &span, float u, float v, float depth, UsdGenVec3f *position,
                  UsdGenVec3f *normal);
 
 /// Render-mesh size of a set of spans: sum rows * cols vertices and
 /// sum 6 (rows - 1)(cols - 1) triangle indices.
-void MeshCounts(std::vector<Span> const &spans, uint64_t *vertices, uint64_t *indices);
+USDGEN_CURVES_INTERNAL_API void MeshCounts(std::vector<Span> const &spans, uint64_t *vertices, uint64_t *indices);
 
 // --- reading the reference curve sets (card_planes contract) ---------------------------
 
@@ -163,7 +164,7 @@ bool IsLibrarySet(UsdGenCurveSetView const &set);
 
 /// Decodes every curve of a card spine set into a sanitized Card (rest points;
 /// missing planes take the card defaults).
-bool DecodeCards(UsdGenCurveSetView const &spineSet, std::vector<Card> *cards, std::string *error);
+USDGEN_CURVES_INTERNAL_API bool DecodeCards(UsdGenCurveSetView const &spineSet, std::vector<Card> *cards, std::string *error);
 
 /// The spine curve id hash of a strand grown on strip `strip` of card `cardId`
 /// from local tile strand `j`.

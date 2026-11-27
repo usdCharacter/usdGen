@@ -43,11 +43,12 @@
 
 #include "usdGen/api/ext/op.h"
 #include "usdGen/api/ids.h"
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
 
-class UsdGenFreezeOp final : public UsdGenOp
+class USDGEN_CURVES_INTERNAL_API UsdGenFreezeOp final : public UsdGenOp
 {
 public:
     explicit UsdGenFreezeOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}

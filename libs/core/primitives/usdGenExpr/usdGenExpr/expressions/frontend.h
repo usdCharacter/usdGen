@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenExpr/export.h"
 namespace usdGen::expr {
 // SeExpr2 performs numeric math in FP; destination integer/bool conversion is
 // deferred to the GPU boundary. int64/uint64 results are exact only through 2^53.
@@ -16,7 +17,7 @@ struct FrontendOptions {
     /// sampler calls (geoSampler, ptex) are not.
     bool samplerElement = false;
 };
-class Program {
+class USDGEN_EXPR_API Program {
 public:
     Program(); ~Program(); Program(Program&&) noexcept; Program& operator=(Program&&) noexcept;
     Program(Program const&) = delete; Program& operator=(Program const&) = delete;
@@ -58,7 +59,7 @@ struct VariableDoc {
     std::string domains;     // comma-separated subset of groom,primitive,point
     std::string doc;
 };
-class Frontend {
+class USDGEN_EXPR_API Frontend {
 public:
     static CompileResult Compile(std::string const&, FrontendOptions const& = {});
     /// Sorted by name. Stable across both execution lanes.

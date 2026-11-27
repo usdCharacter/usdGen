@@ -11,13 +11,14 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
 // Owner-bound publication of a proved native source-width result.  This is a
 // bridge only: it neither selects Vulkan as an execution backend nor provides
 // a CPU/readback fallback.
-class VulkanPublicationJob final
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanPublicationJob final
     : public std::enable_shared_from_this<VulkanPublicationJob> {
 public:
     enum class State { Created, Running, Ready, Superseded, Failed, LostProof };

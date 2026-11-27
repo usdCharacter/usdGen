@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <string>
+#include "usdGenSurface/export.h"
 
 
 namespace usdGen {
@@ -32,7 +33,7 @@ struct UsdGenSurfaceRootFrameResult
 /// and non-finite input errors return false and leave `out` unchanged.
 /// Geometric/parameterisation degeneracy succeeds with valid=0/dropMask=1;
 /// callers compact every C3 channel using the corresponding source index.
-bool UsdGenBuildRestSurfaceRootFrames(
+USDGEN_SURFACE_API bool UsdGenBuildRestSurfaceRootFrames(
     UsdGenSurfaceInputView const &surface,
     UsdGenIntArray const &rootPrim,
     UsdGenVec2fArray const &rootUV,
@@ -41,7 +42,7 @@ bool UsdGenBuildRestSurfaceRootFrames(
 
 /// Root-frame authored primvars are used verbatim, but must meet the same
 /// affine, orthonormal, right-handed contract as gpu/rootFrames.cu.
-bool UsdGenValidateAuthoredRootFrame(UsdGenMatrix4d const &frame);
+USDGEN_SURFACE_API bool UsdGenValidateAuthoredRootFrame(UsdGenMatrix4d const &frame);
 
 } // namespace usdGen
 

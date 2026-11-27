@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen {
 
@@ -36,11 +37,11 @@ enum class CudaSurfacePreparationStatus {
     UnsupportedFeature, AllocationFailure
 };
 
-CudaSurfacePreparationStatus PrepareCudaSurface(
+USDGEN_CURVES_CUDA_INTERNAL_API CudaSurfacePreparationStatus PrepareCudaSurface(
     UsdGenSurfaceInputView const&, uint32_t sampleBudget,
     CudaSurfacePrepared*, std::vector<std::string>* diagnostics = nullptr);
 
-bool RestBindingMatches(CudaSurfacePrepared const&, CudaSurfacePrepared const&);
+USDGEN_CURVES_CUDA_INTERNAL_API bool RestBindingMatches(CudaSurfacePrepared const&, CudaSurfacePrepared const&);
 
 } // namespace usdGen
 #endif

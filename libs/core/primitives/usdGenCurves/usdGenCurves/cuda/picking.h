@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -47,7 +48,7 @@ struct PickResult {
 // result, or a footprint count and diagnostic. Geometry is never copied to
 // the host. Successful publication swaps staged results; failures preserve
 // the last successful result/footprint.
-class CudaPicking {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaPicking {
 public:
     CudaPicking() = default;
     ~CudaPicking();

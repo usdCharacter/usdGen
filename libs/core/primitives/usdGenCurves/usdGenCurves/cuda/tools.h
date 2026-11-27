@@ -8,6 +8,7 @@
 #include "usdGen/api/session.h"
 
 #include <vector>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -15,7 +16,7 @@ namespace usdGen::gpu {
 // The engine and stream must outlive this object. No method edits USD or
 // commits the engine: callers use the imaging Commit(LiveOverride) path to
 // publish a staged move, retaining its existing notification ordering.
-class CudaToolSession {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaToolSession {
 public:
     CudaToolSession(UsdGenSession& engine, cudaStream_t stream)
         : engine_(engine), stream_(stream) {}

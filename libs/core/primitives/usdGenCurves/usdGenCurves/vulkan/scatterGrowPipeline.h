@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 // Queue-owner confined. Inputs must be immutable and have completed upload on
@@ -31,7 +32,7 @@ namespace usdGen::vulkan {
 //
 // pointCount is derived: curveCount * cvCount. It is not a separate Begin
 // argument because the roots-only contract forbids any independent extent.
-class ScatterGrowPipeline final
+class USDGEN_CURVES_VULKAN_INTERNAL_API ScatterGrowPipeline final
     : public std::enable_shared_from_this<ScatterGrowPipeline> {
 public:
     class Candidate;
@@ -133,7 +134,7 @@ private:
     std::shared_ptr<Native> native_;
 };
 
-class ScatterGrowPipeline::Candidate final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ScatterGrowPipeline::Candidate final {
 public:
     ~Candidate();
     Candidate(Candidate const&) = delete;

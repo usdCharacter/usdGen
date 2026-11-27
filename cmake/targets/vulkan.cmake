@@ -162,6 +162,8 @@ if(USDGEN_ENABLE_VULKAN_RUNTIME OR (USDGEN_BUILD_TESTS AND USDGEN_BUILD_VULKAN_T
                 target_compile_definitions(${_usdgen_gpu_object}Vulkan PRIVATE USDGEN_ENABLE_VULKAN_RUNTIME)
             endif()
             set_target_properties(${_usdgen_gpu_object}Vulkan PROPERTIES POSITION_INDEPENDENT_CODE ON)
+            # Linked into usdGenCurvesVulkan: its symbols export with that DLL's macro.
+            target_compile_definitions(${_usdgen_gpu_object}Vulkan PRIVATE usdGenCurvesVulkan_EXPORTS)
             # The pipelines that call them live in usdGenCurvesVulkan (8.6d).
             target_sources(usdGenCurvesVulkan PRIVATE $<TARGET_OBJECTS:${_usdgen_gpu_object}Vulkan>)
         endif()

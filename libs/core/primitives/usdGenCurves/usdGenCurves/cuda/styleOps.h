@@ -5,6 +5,7 @@
 #include "usdGenExpr/expressions/context.h"
 
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -45,7 +46,7 @@ enum class StyleStatus {
 // performs only a scalar diagnostic readback. A supplied hairT is a point-
 // domain parameter in [0,1]; when omitted, t is inclusive CV-index
 // interpolation (0 at the root and 1 at the tip, and 0 for a one-CV curve).
-class CudaStyleOps {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaStyleOps {
 public:
     CudaStyleOps() = default;
     ~CudaStyleOps();

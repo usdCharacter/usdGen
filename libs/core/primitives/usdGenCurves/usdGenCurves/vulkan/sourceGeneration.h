@@ -24,6 +24,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 enum class SourceGenerationStatus { InvalidInput, AllocationFailed, Created, QueueRejected, Submitted, NotReady, Ready, LostProof };
@@ -56,7 +57,7 @@ struct VulkanSourcePrepareInfo {
     std::vector<VulkanSourceNamedChannel> additionalNamed;
 };
 
-class VulkanPreparedSource final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanPreparedSource final {
 public:
     struct Plane {
         UsdGenDeviceChannelMetadata metadata;
@@ -88,7 +89,7 @@ class VulkanSourceGeneration;
 
 // Mutable only until timeline proof. Queue-owner confinement applies to Submit
 // and Poll; no native plane is exposed from this pending candidate.
-class VulkanSourceUpload final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanSourceUpload final {
 public:
     struct Storage;
     static std::shared_ptr<VulkanSourceUpload> Create(VulkanSourceGenerationCreateInfo,
@@ -111,7 +112,7 @@ private:
 
 // Immutable native source snapshot. It is intentionally not a neutral device
 // generation/owner adapter and cannot make Vulkan production-available.
-class VulkanSourceGeneration final {
+class USDGEN_CURVES_VULKAN_INTERNAL_API VulkanSourceGeneration final {
 public:
     // `buffer == VK_NULL_HANDLE && bytes == 0` is the canonical empty plane.
     struct PlaneView { UsdGenDeviceChannelMetadata metadata; VkBuffer buffer = VK_NULL_HANDLE; VkDeviceSize bytes = 0; };

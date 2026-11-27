@@ -17,10 +17,11 @@
 #include <functional>
 #include <memory>
 #include <vector>
+#include "usdGenCurves/vulkan/export.h"
 
 namespace usdGen::vulkan {
 
-class ExprVkEvaluatePipeline {
+class USDGEN_CURVES_VULKAN_INTERNAL_API ExprVkEvaluatePipeline {
 public:
     using BeforeSubmit = std::function<bool()>;
     static std::shared_ptr<ExprVkEvaluatePipeline> Create(

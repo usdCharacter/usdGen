@@ -12,6 +12,7 @@
 
 #include <vector>
 #include "usdGen/api/ids.h"
+#include "usdGenCurves/export.h"
 
 
 namespace usdGen {
@@ -32,7 +33,7 @@ namespace usdGen {
 /// curves and preserves transverse offsets; the centerline supplies no roll.
 /// Multiple open guides use a categorical Ptex regionMap at rest roots and
 /// guideRegions IDs to select exactly one centerline per incoming strand.
-class UsdGenDeformOp final : public UsdGenOp
+class USDGEN_CURVES_INTERNAL_API UsdGenDeformOp final : public UsdGenOp
 {
 public:
    explicit UsdGenDeformOp(UsdGenOpRecord const &record) noexcept : UsdGenOp(record) {}

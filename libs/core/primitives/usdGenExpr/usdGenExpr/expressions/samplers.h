@@ -32,6 +32,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "usdGenExpr/export.h"
 
 namespace usdGen::expr {
 
@@ -53,7 +54,7 @@ struct SamplerGeometrySource {
     std::vector<int> faces;
 };
 
-class GeometrySampler {
+class USDGEN_EXPR_API GeometrySampler {
 public:
     GeometrySampler();
     ~GeometrySampler();

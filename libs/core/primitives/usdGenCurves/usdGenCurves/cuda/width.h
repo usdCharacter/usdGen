@@ -4,6 +4,7 @@
 #include "usdGenCurves/cuda/styleOps.h"
 
 #include <cstdint>
+#include "usdGenCurves/cuda/export.h"
 
 namespace usdGen::gpu {
 
@@ -44,7 +45,7 @@ struct WidthParameters {
 // Device-only, topology-preserving Width primitive. All inputs and output
 // storage are borrowed until Finish returns. Apply queues one operation;
 // output is written only after Finish validates the one scalar device error.
-class CudaWidth {
+class USDGEN_CURVES_CUDA_INTERNAL_API CudaWidth {
 public:
     CudaWidth() = default;
     ~CudaWidth();
