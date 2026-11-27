@@ -6,6 +6,7 @@
 #include "usdGenSurface/surfaceInput.h"
 
 #include "usdGen/ops/opUtil.h"
+#include "usdGen/api/token.h"
 
 #include <algorithm>
 #include <cmath>

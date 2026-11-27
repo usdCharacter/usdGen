@@ -19,6 +19,9 @@
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <cmath>

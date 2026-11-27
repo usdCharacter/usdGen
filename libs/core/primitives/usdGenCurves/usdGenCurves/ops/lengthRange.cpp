@@ -6,6 +6,7 @@
 
 #include "usdGen/ops/strandUtil.h"
 #include "usdGen/scheduler.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>

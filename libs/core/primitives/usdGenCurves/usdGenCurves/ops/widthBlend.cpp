@@ -6,6 +6,9 @@
 #include <cstdint>
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
 
 namespace usdGen {

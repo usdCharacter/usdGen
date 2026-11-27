@@ -7,6 +7,10 @@
 #include "usdGenSurface/maps/mapInput.h"
 
 #include "usdGen/imagePayload.h"
+#include "usdGen/api/cowArray.h"
+#include "usdGen/api/token.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/span.h"
 
 #include <algorithm>
 #include <cmath>

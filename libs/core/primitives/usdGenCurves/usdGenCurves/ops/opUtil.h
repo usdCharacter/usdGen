@@ -11,6 +11,9 @@
 
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
 
 #include <cmath>
 #include <cstdint>

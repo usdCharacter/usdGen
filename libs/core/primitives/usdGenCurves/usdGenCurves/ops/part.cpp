@@ -24,6 +24,8 @@
 #include <string>
 #include <vector>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/span.h"
 
 
 namespace usdGen {

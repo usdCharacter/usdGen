@@ -3,6 +3,7 @@
 
 #include <memory>
 #include "usdGen/registries/registrar.h"
+#include "usdGen/api/span.h"
 
 
 namespace usdGen {

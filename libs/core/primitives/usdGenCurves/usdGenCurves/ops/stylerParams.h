@@ -5,6 +5,8 @@
 #define USDGEN_OP_STYLER_PARAMS_H
 
 #include "usdGen/op.h"
+#include "usdGen/api/value.h"
+#include "usdGen/api/token.h"
 
 namespace usdGen {
 
