@@ -8,6 +8,7 @@
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGen/sharedCell.h"
 #include "usdGenImaging/cleanupQueue.h"
+#include "usdGenHydraCurves/register.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 
 #include "usdGen/epoch.h"
@@ -306,6 +307,9 @@ struct UsdGenImagingSession::State {
         input.spec = staged ? usdGenUsd::LowerShared(*staged, &keys) : nullptr;
         input.devicePublication = request.devicePublication;
         input.callerDevice = callerDevice;
+        // Ordered before the commit on the engine's owner. A rejected post
+        // loses nothing: the descriptor the commit carries re-derives it.
+        if (request.dirty.Any()) (void)engine->PostDirty(request.dirty);
         ++outstanding;
         try {
             usdGen::UsdGenSession::TileProgressCallback progressFromCore;
@@ -354,6 +358,8 @@ UsdGenImagingSession::UsdGenImagingSession(UsdGenSessionKey const& key,
     : _key(key), _engine(std::move(engine)),
       _state(new State(_engine, frame, context, commandCapacity)) {
     (void)RetirementQueue();
+    // Publishers register before the engine's first compile freezes them.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
 }
 UsdGenImagingSession::~UsdGenImagingSession() {
     State* state = _state.release();

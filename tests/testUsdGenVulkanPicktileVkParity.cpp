@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 // testUsdGenVulkanPicktileVkParity — CUDA-equivalence proof for the Vulkan
-// picking + tile spans/bounds/index port (vulkan/picktileVk.h vs
-// gpu/picking.cu, gpu/curveTiles.cu, gpu/curveTileBounds.cu,
-// gpu/curveIndices.cu). Every section runs the same fixture on both backends
+// picking + tile spans/bounds port (vulkan/picktileVk.h vs
+// gpu/picking.cu, gpu/curveTiles.cu, gpu/curveTileBounds.cu). Every section runs the same fixture on both backends
 // and compares within a tolerance that cites the CUDA test's own contract:
 //
 //   * pick indices/stable ids: exact; distancePx within 1e-6 (the CUDA
@@ -29,7 +28,6 @@
 #include "usdGenCurves/cuda/picking.h"
 #include "usdGenCurves/cuda/curveTiles.h"
 #include "usdGenCurves/cuda/curveTileBounds.h"
-#include "usdGenCurves/cuda/curveIndices.h"
 #include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime.h>
@@ -80,19 +78,6 @@ void StaticCorrespondence() {
         int(PicktileVkTileOrder::IdentityCaptureOrder));
     CHECK(int(CurveTileOrder::CaptureOrderSurvivorSubset) ==
         int(PicktileVkTileOrder::CaptureOrderSurvivorSubset));
-    CHECK(int(CurveIndexBasis::Linear) == int(PicktileVkIndexBasis::Linear));
-    CHECK(int(CurveIndexBasis::Bezier) == int(PicktileVkIndexBasis::Bezier));
-    CHECK(int(CurveIndexBasis::BSpline) == int(PicktileVkIndexBasis::BSpline));
-    CHECK(int(CurveIndexBasis::CatmullRom) == int(PicktileVkIndexBasis::CatmullRom));
-    CHECK(int(CurveIndexBasis::CentripetalCatmullRom) ==
-        int(PicktileVkIndexBasis::CentripetalCatmullRom));
-    CHECK(int(CurveIndexWrap::Nonperiodic) == int(PicktileVkIndexWrap::Nonperiodic));
-    CHECK(int(CurveIndexWrap::Periodic) == int(PicktileVkIndexWrap::Periodic));
-    CHECK(int(CurveIndexWrap::Pinned) == int(PicktileVkIndexWrap::Pinned));
-    CHECK(int(CurveIndexWrap::Segmented) == int(PicktileVkIndexWrap::Segmented));
-    CHECK(int(CurveIndexMode::Curves) == int(PicktileVkIndexMode::Curves));
-    CHECK(int(CurveIndexMode::Hull) == int(PicktileVkIndexMode::Hull));
-    CHECK(int(CurveIndexMode::Points) == int(PicktileVkIndexMode::Points));
     CHECK(sizeof(PicktileVkTileSpan) == sizeof(CurveTileSpan));
     CHECK(offsetof(PicktileVkTileSpan, tile) == offsetof(CurveTileSpan, tile));
     CHECK(offsetof(PicktileVkTileSpan, firstCurve) == offsetof(CurveTileSpan, firstCurve));
@@ -169,37 +154,6 @@ void RequirementsParity() {
         PicktileVkTileRequirements vk{};
         CHECK(GetPicktileVkTileRequirements(0, 0, 100000, 0, 0, &vk) &&
             vk.chunkCount == 196 && vk.chunksPerTile == 4 && vk.tileCount == 49);
-    }
-    // Index requirements sweep over the full basis/wrap/mode taxonomy.
-    for (int b = 0; b <= 4; ++b)
-        for (int w = 0; w <= 3; ++w)
-            for (int m = 0; m <= 2; ++m) {
-                CurveIndexOptions cudaOptions{CurveIndexBasis(b), CurveIndexWrap(w),
-                    CurveIndexMode(m)};
-                CurveIndexRequirements cuda{};
-                PicktileVkIndexRequirements vk{};
-                bool const okCuda = GetCurveIndexRequirements(cudaOptions, 3, 9, &cuda,
-                                        nullptr) == cudaSuccess;
-                bool const okVk = GetPicktileVkIndexRequirements(PicktileVkIndexBasis(b),
-                    PicktileVkIndexWrap(w), PicktileVkIndexMode(m), 3, 9, &vk);
-                char label[160];
-                std::snprintf(label, sizeof(label), "index requirements parity b%d/w%d/m%d", b,
-                    w, m);
-                bool same = okCuda == okVk;
-                if (same && okCuda)
-                    same = cuda.maxRecords == vk.maxRecords &&
-                        cuda.indexArity == vk.indexArity;
-                Check(same, label);
-            }
-    {
-        PicktileVkIndexRequirements vk{};
-        CHECK(GetPicktileVkIndexRequirements(PicktileVkIndexBasis::BSpline,
-                PicktileVkIndexWrap::Pinned, PicktileVkIndexMode::Curves, 3, 9, &vk) &&
-            vk.maxRecords == 18 && vk.indexArity == 4);
-        CHECK(!GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Bezier,
-            PicktileVkIndexWrap::Segmented, PicktileVkIndexMode::Curves, 3, 9, &vk));
-        CHECK(!GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Linear,
-            PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, 0, 1, &vk));
     }
 }
 
@@ -336,9 +290,9 @@ public:
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc != 6) {
+    if (argc != 5) {
         std::fprintf(stderr,
-            "usage: %s pick.spv footprint.spv tiles.spv bounds.spv indices.spv\n", argv[0]);
+            "usage: %s pick.spv footprint.spv tiles.spv bounds.spv\n", argv[0]);
         return 1;
     }
 
@@ -455,12 +409,10 @@ int main(int argc, char** argv) {
     auto footprintCode = LoadSpv(argv[2]);
     auto tilesCode = LoadSpv(argv[3]);
     auto boundsCode = LoadSpv(argv[4]);
-    auto indicesCode = LoadSpv(argv[5]);
     CHECK(!pickCode.empty());
     CHECK(!footprintCode.empty());
     CHECK(!tilesCode.empty());
     CHECK(!boundsCode.empty());
-    CHECK(!indicesCode.empty());
     if (g_fail) return 1;
 
     bool unavailable = false;
@@ -500,8 +452,6 @@ int main(int argc, char** argv) {
     CHECK(tilesPipe && status == VK_SUCCESS);
     auto boundsPipe = PicktileVkBoundsPipeline::Create(context, boundsCode, &status);
     CHECK(boundsPipe && status == VK_SUCCESS);
-    auto indicesPipe = PicktileVkIndicesPipeline::Create(context, indicesCode, &status);
-    CHECK(indicesPipe && status == VK_SUCCESS);
     if (g_fail) return 1;
 
     auto provePollPick = [&](std::unique_ptr<PicktileVkPickPipeline::Candidate>& candidate,
@@ -549,18 +499,6 @@ int main(int argc, char** argv) {
         CHECK(proved == VK_SUCCESS);
         return proved == VK_SUCCESS;
     };
-    auto provePollIndices =
-        [&](std::unique_ptr<PicktileVkIndicesPipeline::Candidate>& candidate,
-            uint32_t* deviceStatus) {
-            CHECK(Prove(native));
-            VkResult proved = candidate->Poll(deviceStatus);
-            for (int spin = 0; spin < 100 && proved == VK_NOT_READY; ++spin) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                proved = candidate->Poll(deviceStatus);
-            }
-            CHECK(proved == VK_SUCCESS);
-            return proved == VK_SUCCESS;
-        };
 
     // ============================ PICK ============================
     {
@@ -1167,325 +1105,6 @@ int main(int argc, char** argv) {
             CHECK(bool(empty));
             uint32_t vkStatus = 99;
             CHECK(empty->Poll(&vkStatus) == VK_SUCCESS && vkStatus == 0);
-        }
-    }
-
-    // ============================ INDICES ============================
-    {
-        auto runCounts = [&](CurveIndexOptions options, std::vector<uint32_t> counts,
-                             char const* label, std::vector<int32_t> const* wantIndices,
-                             std::vector<int32_t> const* wantPrims) {
-            std::vector<uint32_t> offsets{0};
-            for (auto c : counts) offsets.push_back(offsets.back() + c);
-            size_t const pointCount = offsets.back();
-            // CUDA twin.
-            CurveIndexRequirements cudaReq{};
-            bool const cudaReqOk = GetCurveIndexRequirements(options, counts.size(),
-                                         pointCount, &cudaReq, nullptr) == cudaSuccess;
-            uint32_t cudaStatus = UINT32_MAX;
-            uint64_t cudaTotal = UINT64_MAX;
-            std::vector<int32_t> cudaIndices, cudaPrims;
-            if (cudaReqOk) {
-                DeviceBuffer<uint32_t> cuIn, cuStatus;
-                DeviceBuffer<uint64_t> cuCounts, cuPrefix, cuTotal;
-                DeviceBuffer<unsigned char> cuScratch;
-                DeviceBuffer<int32_t> cuIndices, cuPrims;
-                if (CudaUpload(cuIn, offsets) && cuStatus.reset(1) == cudaSuccess &&
-                    cuTotal.reset(1) == cudaSuccess &&
-                    cuCounts.reset(offsets.size()) == cudaSuccess &&
-                    cuPrefix.reset(offsets.size()) == cudaSuccess &&
-                    cuScratch.reset(cudaReq.scanBytes) == cudaSuccess &&
-                    cuIndices.reset(cudaReq.maxRecords * cudaReq.indexArity) == cudaSuccess &&
-                    cuPrims.reset(cudaReq.maxRecords) == cudaSuccess) {
-                    CurveIndexWorkspace workspace{cuCounts.view(), cuPrefix.view(),
-                        cuScratch.view()};
-                    CurveIndexOutput output{{cuIndices.data(),
-                                                cudaReq.maxRecords * cudaReq.indexArity},
-                        {cuPrims.data(), cudaReq.maxRecords}, cuTotal.view(),
-                        cuStatus.view()};
-                    if (BuildCurveIndices(options, counts.size(), pointCount, Read(cuIn),
-                            cudaReq, workspace, output, nullptr) == cudaSuccess &&
-                        cudaDeviceSynchronize() == cudaSuccess &&
-                        cudaMemcpy(&cudaStatus, cuStatus.data(), 4,
-                            cudaMemcpyDeviceToHost) == cudaSuccess &&
-                        cudaMemcpy(&cudaTotal, cuTotal.data(), 8,
-                            cudaMemcpyDeviceToHost) == cudaSuccess) {
-                        cudaIndices.resize(cuIndices.size());
-                        cudaPrims.resize(cuPrims.size());
-                        if (cudaMemcpy(cudaIndices.data(), cuIndices.data(),
-                                cudaIndices.size() * 4, cudaMemcpyDeviceToHost) !=
-                                cudaSuccess ||
-                            cudaMemcpy(cudaPrims.data(), cuPrims.data(),
-                                cudaPrims.size() * 4, cudaMemcpyDeviceToHost) != cudaSuccess) {
-                            cudaStatus = UINT32_MAX;
-                        }
-                    }
-                }
-            }
-            // Vulkan port.
-            PicktileVkIndexRequirements vkReq{};
-            bool const vkReqOk = GetPicktileVkIndexRequirements(
-                PicktileVkIndexBasis(options.basis), PicktileVkIndexWrap(options.wrap),
-                PicktileVkIndexMode(options.mode), counts.size(), pointCount, &vkReq);
-            bool vkBegan = false;
-            uint32_t vkStatus = UINT32_MAX;
-            uint64_t vkTotal = UINT64_MAX;
-            uint32_t vkDraw = UINT32_MAX;
-            std::vector<int32_t> vkIndices, vkPrims;
-            if (vkReqOk) {
-                auto vkOff = Upload(context, offsets.data(), offsets.size() * 4);
-                auto candidate = indicesPipe->Begin(vkOff, uint32_t(counts.size()),
-                    uint32_t(pointCount), 0, PicktileVkIndexBasis(options.basis),
-                    PicktileVkIndexWrap(options.wrap), PicktileVkIndexMode(options.mode),
-                    vkReq, &status);
-                vkBegan = bool(candidate);
-                if (vkBegan && provePollIndices(candidate, &vkStatus)) {
-                    vkTotal = candidate->recordCount();
-                    vkDraw = candidate->drawCount();
-                    if (vkStatus == 0) {
-                        CHECK(ReadBuffer(context, candidate->indices(), &vkIndices));
-                        CHECK(ReadBuffer(context, candidate->primitiveParam(), &vkPrims));
-                    }
-                }
-            }
-            // CUDA draw-count twin for the same total/status.
-            uint32_t cudaDraw = UINT32_MAX;
-            if (cudaReqOk && cudaStatus != UINT32_MAX) {
-                DeviceBuffer<uint64_t> cuRec;
-                DeviceBuffer<uint32_t> cuSt, cuOut;
-                if (CudaUpload(cuRec, std::vector<uint64_t>{cudaTotal}) &&
-                    CudaUpload(cuSt, std::vector<uint32_t>{cudaStatus}) &&
-                    cuOut.reset(1) == cudaSuccess &&
-                    PackCurveDrawCount(Read(cuRec), Read(cuSt), cudaReq.indexArity,
-                        cudaReq.maxRecords, cuOut.view(), nullptr) == cudaSuccess &&
-                    cudaDeviceSynchronize() == cudaSuccess)
-                    CHECK(cudaMemcpy(&cudaDraw, cuOut.data(), 4, cudaMemcpyDeviceToHost) ==
-                        cudaSuccess);
-            }
-            char text[230];
-            std::snprintf(text, sizeof(text),
-                "indices parity %s (req=%d/%d status=%u/%u total=%llu/%llu draw=%u/%u)",
-                label, int(cudaReqOk), int(vkReqOk), cudaStatus, vkStatus,
-                (unsigned long long)cudaTotal, (unsigned long long)vkTotal, cudaDraw,
-                vkDraw);
-            bool ok = cudaReqOk == vkReqOk;
-            if (ok && cudaReqOk) {
-                ok = vkBegan && cudaStatus == vkStatus && cudaTotal == vkTotal &&
-                    cudaDraw == vkDraw;
-                if (ok && cudaStatus == 0) {
-                    size_t const records = size_t(cudaTotal);
-                    size_t const wantIndexWords =
-                        size_t(cudaReq.maxRecords) * cudaReq.indexArity;
-                    size_t const wantPrimWords = size_t(cudaReq.maxRecords);
-                    // Zero-record buffers carry the documented 4-byte
-                    // allocation floor (MakeHostBuffer: Vulkan cannot
-                    // materialize zero-size buffers), so an empty groom
-                    // reads back 1 word; parity is over logical content.
-                    size_t const floorWords = size_t(4 / sizeof(int32_t));
-                    ok = (vkIndices.size() == wantIndexWords ||
-                          (wantIndexWords == 0 && vkIndices.size() == floorWords)) &&
-                        (vkPrims.size() == wantPrimWords ||
-                         (wantPrimWords == 0 && vkPrims.size() == floorWords));
-                    for (size_t i = 0; ok && i < records * cudaReq.indexArity; ++i)
-                        ok = vkIndices[i] == cudaIndices[i];
-                    for (size_t i = 0; ok && i < records; ++i)
-                        ok = vkPrims[i] == cudaPrims[i];
-                    if (ok && wantIndices)
-                        ok = wantIndices->size() == records * cudaReq.indexArity &&
-                            std::equal(wantIndices->begin(), wantIndices->end(),
-                                cudaIndices.begin()) &&
-                            std::equal(
-                                wantIndices->begin(), wantIndices->end(), vkIndices.begin());
-                    if (ok && wantPrims)
-                        ok = wantPrims->size() == records &&
-                            std::equal(wantPrims->begin(), wantPrims->end(),
-                                cudaPrims.begin()) &&
-                            std::equal(
-                                wantPrims->begin(), wantPrims->end(), vkPrims.begin());
-                }
-            }
-            Check(ok, text);
-        };
-        CurveIndexOptions const cubic{CurveIndexBasis::BSpline, CurveIndexWrap::Pinned,
-            CurveIndexMode::Curves};
-        std::vector<int32_t> const cubicWant{
-            0, 0, 0, 1, 0, 0, 1, 2, 0, 1, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2};
-        std::vector<int32_t> const cubicPrims{0, 0, 0, 0, 0};
-        runCounts(cubic, {3}, "bspline pinned cubic", &cubicWant, &cubicPrims);
-        CurveIndexOptions const linear{CurveIndexBasis::Linear, CurveIndexWrap::Nonperiodic,
-            CurveIndexMode::Curves};
-        std::vector<int32_t> const linearWant{0, 1, 2, 3, 3, 4};
-        std::vector<int32_t> const linearPrims{0, 1, 1};
-        runCounts(linear, {2, 3}, "linear nonperiodic", &linearWant, &linearPrims);
-        CurveIndexOptions const points{CurveIndexBasis::Linear, CurveIndexWrap::Nonperiodic,
-            CurveIndexMode::Points};
-        std::vector<int32_t> const pointsWant{0, 1, 2, 3, 4};
-        std::vector<int32_t> const pointsPrims{0, 0, 1, 1, 1};
-        runCounts(points, {2, 3}, "points mode", &pointsWant, &pointsPrims);
-        CurveIndexOptions const segmented{CurveIndexBasis::Linear, CurveIndexWrap::Segmented,
-            CurveIndexMode::Curves};
-        std::vector<int32_t> const segWant{0, 1, 2, 3};
-        std::vector<int32_t> const segPrims{0, 0};
-        runCounts(segmented, {4}, "segmented linear", &segWant, &segPrims);
-        runCounts(segmented, {3}, "segmented odd -> status 2", nullptr, nullptr);
-        runCounts(linear, {}, "empty groom", nullptr, nullptr);
-        CurveIndexOptions const hull{CurveIndexBasis::CatmullRom, CurveIndexWrap::Periodic,
-            CurveIndexMode::Hull};
-        runCounts(hull, {5}, "catmull periodic hull", nullptr, nullptr);
-        CurveIndexOptions const bezier{CurveIndexBasis::Bezier, CurveIndexWrap::Nonperiodic,
-            CurveIndexMode::Curves};
-        runCounts(bezier, {7}, "bezier nonperiodic", nullptr, nullptr);
-        // Corrupt terminal offset fails closed on both.
-        {
-            std::vector<uint32_t> bad{0, 2, 6};
-            DeviceBuffer<uint32_t> cuIn, cuStatus;
-            DeviceBuffer<uint64_t> cuCounts, cuPrefix, cuTotal;
-            DeviceBuffer<unsigned char> cuScratch;
-            DeviceBuffer<int32_t> cuIndices, cuPrims;
-            CurveIndexRequirements cudaReq{};
-            CHECK(GetCurveIndexRequirements(linear, 2, 5, &cudaReq, nullptr) == cudaSuccess);
-            CHECK(CudaUpload(cuIn, bad) && cuStatus.reset(1) == cudaSuccess &&
-                cuTotal.reset(1) == cudaSuccess &&
-                cuCounts.reset(3) == cudaSuccess && cuPrefix.reset(3) == cudaSuccess &&
-                cuScratch.reset(cudaReq.scanBytes) == cudaSuccess &&
-                cuIndices.reset(cudaReq.maxRecords * cudaReq.indexArity) == cudaSuccess &&
-                cuPrims.reset(cudaReq.maxRecords) == cudaSuccess);
-            CurveIndexWorkspace workspace{cuCounts.view(), cuPrefix.view(), cuScratch.view()};
-            CurveIndexOutput output{{cuIndices.data(), cudaReq.maxRecords * cudaReq.indexArity},
-                {cuPrims.data(), cudaReq.maxRecords}, cuTotal.view(), cuStatus.view()};
-            CHECK(BuildCurveIndices(linear, 2, 5, Read(cuIn), cudaReq, workspace, output,
-                      nullptr) == cudaSuccess &&
-                cudaDeviceSynchronize() == cudaSuccess);
-            uint32_t cudaStatus = 0;
-            uint64_t cudaTotal = 99;
-            CHECK(cudaMemcpy(&cudaStatus, cuStatus.data(), 4, cudaMemcpyDeviceToHost) ==
-                    cudaSuccess &&
-                cudaMemcpy(&cudaTotal, cuTotal.data(), 8, cudaMemcpyDeviceToHost) ==
-                    cudaSuccess);
-            PicktileVkIndexRequirements vkReq{};
-            CHECK(GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, 2, 5, &vkReq));
-            auto vkOff = Upload(context, bad.data(), bad.size() * 4);
-            auto candidate = indicesPipe->Begin(vkOff, 2, 5, 0, PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, vkReq, &status);
-            CHECK(bool(candidate));
-            if (!candidate) return 1;
-            uint32_t vkStatus = 99;
-            CHECK(provePollIndices(candidate, &vkStatus));
-            CHECK(cudaStatus == 1 && cudaTotal == 0 && vkStatus == 1 &&
-                candidate->recordCount() == 0 && candidate->drawCount() == 0 &&
-                !candidate->succeeded());
-        }
-        // Tile-local span with a nonzero global point base.
-        {
-            std::vector<uint32_t> global{5, 9, 14};
-            DeviceBuffer<uint32_t> cuIn, cuStatus;
-            DeviceBuffer<uint64_t> cuCounts, cuPrefix, cuTotal;
-            DeviceBuffer<unsigned char> cuScratch;
-            DeviceBuffer<int32_t> cuIndices, cuPrims;
-            CurveIndexRequirements cudaReq{};
-            CHECK(GetCurveIndexRequirements(linear, 2, 9, &cudaReq, nullptr) == cudaSuccess);
-            CHECK(CudaUpload(cuIn, global) && cuStatus.reset(1) == cudaSuccess &&
-                cuTotal.reset(1) == cudaSuccess && cuCounts.reset(3) == cudaSuccess &&
-                cuPrefix.reset(3) == cudaSuccess &&
-                cuScratch.reset(cudaReq.scanBytes) == cudaSuccess &&
-                cuIndices.reset(cudaReq.maxRecords * cudaReq.indexArity) == cudaSuccess &&
-                cuPrims.reset(cudaReq.maxRecords) == cudaSuccess);
-            CurveIndexWorkspace workspace{cuCounts.view(), cuPrefix.view(), cuScratch.view()};
-            CurveIndexOutput output{{cuIndices.data(), cudaReq.maxRecords * cudaReq.indexArity},
-                {cuPrims.data(), cudaReq.maxRecords}, cuTotal.view(), cuStatus.view()};
-            CHECK(BuildCurveIndices(linear, CurveIndexSpan{Read(cuIn), 2, 9, 5}, cudaReq,
-                      workspace, output, nullptr) == cudaSuccess &&
-                cudaDeviceSynchronize() == cudaSuccess);
-            uint32_t cudaStatus = 99;
-            uint64_t cudaTotal = 99;
-            std::vector<int32_t> cudaIndices(cudaReq.maxRecords * cudaReq.indexArity),
-                cudaPrims(cudaReq.maxRecords);
-            CHECK(cudaMemcpy(&cudaStatus, cuStatus.data(), 4, cudaMemcpyDeviceToHost) ==
-                    cudaSuccess &&
-                cudaMemcpy(&cudaTotal, cuTotal.data(), 8, cudaMemcpyDeviceToHost) ==
-                    cudaSuccess &&
-                cudaMemcpy(cudaIndices.data(), cuIndices.data(), cudaIndices.size() * 4,
-                    cudaMemcpyDeviceToHost) == cudaSuccess &&
-                cudaMemcpy(cudaPrims.data(), cuPrims.data(), cudaPrims.size() * 4,
-                    cudaMemcpyDeviceToHost) == cudaSuccess);
-            PicktileVkIndexRequirements vkReq{};
-            CHECK(GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, 2, 9, &vkReq));
-            auto vkOff = Upload(context, global.data(), global.size() * 4);
-            auto candidate = indicesPipe->Begin(vkOff, 2, 9, 5, PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, vkReq, &status);
-            CHECK(bool(candidate));
-            if (!candidate) return 1;
-            uint32_t vkStatus = 99;
-            CHECK(provePollIndices(candidate, &vkStatus) && vkStatus == 0);
-            std::vector<int32_t> vkIndices, vkPrims;
-            CHECK(ReadBuffer(context, candidate->indices(), &vkIndices));
-            CHECK(ReadBuffer(context, candidate->primitiveParam(), &vkPrims));
-            std::vector<int32_t> const want{0, 1, 1, 2, 2, 3, 4, 5, 5, 6, 6, 7, 7, 8};
-            std::vector<int32_t> const wantPrims{0, 0, 0, 1, 1, 1, 1};
-            CHECK(cudaStatus == 0 && cudaTotal == 7 && candidate->recordCount() == 7 &&
-                std::equal(want.begin(), want.end(), cudaIndices.begin()) &&
-                std::equal(want.begin(), want.end(), vkIndices.begin()) &&
-                std::equal(wantPrims.begin(), wantPrims.end(), cudaPrims.begin()) &&
-                std::equal(wantPrims.begin(), wantPrims.end(), vkPrims.begin()));
-        }
-        // Span overflow fails closed on device on both.
-        {
-            std::vector<uint32_t> offsets{0, 2, 5};
-            DeviceBuffer<uint32_t> cuIn, cuStatus;
-            DeviceBuffer<uint64_t> cuCounts, cuPrefix, cuTotal;
-            DeviceBuffer<unsigned char> cuScratch;
-            DeviceBuffer<int32_t> cuIndices, cuPrims;
-            CurveIndexRequirements cudaReq{};
-            CHECK(GetCurveIndexRequirements(linear, 2, 5, &cudaReq, nullptr) == cudaSuccess);
-            CHECK(CudaUpload(cuIn, offsets) && cuStatus.reset(1) == cudaSuccess &&
-                cuTotal.reset(1) == cudaSuccess && cuCounts.reset(3) == cudaSuccess &&
-                cuPrefix.reset(3) == cudaSuccess &&
-                cuScratch.reset(cudaReq.scanBytes) == cudaSuccess &&
-                cuIndices.reset(cudaReq.maxRecords * cudaReq.indexArity) == cudaSuccess &&
-                cuPrims.reset(cudaReq.maxRecords) == cudaSuccess);
-            CurveIndexWorkspace workspace{cuCounts.view(), cuPrefix.view(), cuScratch.view()};
-            CurveIndexOutput output{{cuIndices.data(), cudaReq.maxRecords * cudaReq.indexArity},
-                {cuPrims.data(), cudaReq.maxRecords}, cuTotal.view(), cuStatus.view()};
-            CHECK(BuildCurveIndices(linear, CurveIndexSpan{Read(cuIn), 2, 5, UINT32_MAX},
-                      cudaReq, workspace, output, nullptr) == cudaSuccess &&
-                cudaDeviceSynchronize() == cudaSuccess);
-            uint32_t cudaStatus = 0;
-            uint64_t cudaTotal = 99;
-            CHECK(cudaMemcpy(&cudaStatus, cuStatus.data(), 4, cudaMemcpyDeviceToHost) ==
-                    cudaSuccess &&
-                cudaMemcpy(&cudaTotal, cuTotal.data(), 8, cudaMemcpyDeviceToHost) ==
-                    cudaSuccess);
-            PicktileVkIndexRequirements vkReq{};
-            CHECK(GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, 2, 5, &vkReq));
-            auto vkOff = Upload(context, offsets.data(), offsets.size() * 4);
-            auto candidate = indicesPipe->Begin(vkOff, 2, 5, UINT32_MAX,
-                PicktileVkIndexBasis::Linear, PicktileVkIndexWrap::Nonperiodic,
-                PicktileVkIndexMode::Curves, vkReq, &status);
-            CHECK(bool(candidate));
-            if (!candidate) return 1;
-            uint32_t vkStatus = 99;
-            CHECK(provePollIndices(candidate, &vkStatus));
-            CHECK(cudaStatus == 1 && cudaTotal == 0 && vkStatus == 1 &&
-                candidate->recordCount() == 0);
-        }
-        // Host rejections agree.
-        {
-            PicktileVkIndexRequirements vkReq{};
-            CHECK(!GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Bezier,
-                PicktileVkIndexWrap::Segmented, PicktileVkIndexMode::Curves, 2, 5, &vkReq));
-            CHECK(GetPicktileVkIndexRequirements(PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, 2, 5, &vkReq));
-            auto vkOff = Upload(context, std::vector<uint32_t>{0, 2, 5}.data(), 12);
-            CHECK(!indicesPipe->Begin(vkOff, 2, 5, 0, PicktileVkIndexBasis::Bezier,
-                PicktileVkIndexWrap::Segmented, PicktileVkIndexMode::Curves, vkReq, &status));
-            auto tampered = vkReq;
-            tampered.maxRecords += 1;
-            CHECK(!indicesPipe->Begin(vkOff, 2, 5, 0, PicktileVkIndexBasis::Linear,
-                PicktileVkIndexWrap::Nonperiodic, PicktileVkIndexMode::Curves, tampered,
-                &status));
         }
     }
 

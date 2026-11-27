@@ -11,6 +11,7 @@
 // zero-length axis bends nothing. All work is per curve/CV in Evaluate;
 // Capture only validates.
 #include "usdGen/ops/bend.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"
@@ -270,7 +271,7 @@ void UsdGenBendOp::Evaluate(
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kAngleInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
+            p ? p->GetToken(kAngleInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }

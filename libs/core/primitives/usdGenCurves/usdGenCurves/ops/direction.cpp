@@ -5,6 +5,7 @@
 // nearest-sample tangent per strand root; Evaluate shapes the target in the
 // root frame and rotates rigidly or per segment. Roots never move.
 #include "usdGen/ops/direction.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGen/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/scratch.h"
@@ -485,7 +486,7 @@ void UsdGenDirectionOp::Evaluate(
     if (!rampFlat) {
         float *lut = scratch.Filled<float>(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
+            p ? p->GetToken(kInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
             lut, kUsdGenRampLutSize);
         lutPtr = lut;
     }

@@ -108,13 +108,15 @@ endforeach()
 
 # Link gates 8d (step 8.6f): a backend runtime links usdGen and its SDK only;
 # usdGen links no backend, primitive or GPU SDK; hosts link no backend.
+# 9c (step 9.2): usdGenImaging and the curves' Hydra adapter link no
+# usdGenCurves either (publication lives in usdGenHydraCurves).
 # usdGenPomade (app layer) may link usdGenCuda (one block cache, D12).
 set(_usdgen_link_gate_rows
     "usdGenCuda|ALLOW|^(usdGen|CUDA::(cudart|cuda_driver|cusolver)|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
     "usdGenVulkan|ALLOW|^(usdGen|Vulkan::Vulkan|Threads::Threads|Synchronization|dl|arch|tf|gf|vt)$"
     "usdGen|DENY|^(usdGen(Cuda|Vulkan|Curves|Surface|Expr|Gpu|WithPrimitives|_ptex|_seexpr|ExprFrontend)|CUDA::.*|Vulkan::.*|pxOsd|hio)$"
-    "usdGenImaging|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan))$"
-    "usdGenHydraCurves|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan))$")
+    "usdGenImaging|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan|Curves|WithPrimitives))$"
+    "usdGenHydraCurves|DENY|^(usdGen(Cuda|Vulkan|Gpu|CurvesCuda|CurvesVulkan|Curves|WithPrimitives))$")
 foreach(_row IN LISTS _usdgen_link_gate_rows)
     string(REGEX MATCH "^([^|]+)[|]([A-Z]+)[|](.*)$" _m "${_row}")
     set(_t "${CMAKE_MATCH_1}")
@@ -255,6 +257,34 @@ add_test(NAME testUsdGenTimelineSubmitOnly
 set_tests_properties(testUsdGenNoBlockingGpuWait testUsdGenTimelineSubmitOnly
     PROPERTIES LABELS "T0;build;gate;gate:gpu-async")
 
+
+# Gate 9b (step 9.2): the Hydra host includes no curve primitive header (it
+# reads curve sets through usdGen/api; publication is usdGenHydraCurves').
+# Empty baseline.
+add_test(NAME testUsdGenHydraNoCurvesInclude
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=hydra-no-curves-include
+        -DDIRS=libs/hosts/usdGenHydra
+        "-DPATTERN=#[ ]*include[ ]*[<\"](usdGenCurves/|usdGen/(rbfAnimation|furOcclusion|valuePreview|curveBuffer|curveSet|curveSetInput|curvePublication|curvePublisher)[.]h)"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/hydraNoCurvesInclude.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenHydraNoCurvesInclude PROPERTIES LABELS "T0;build;gate;gate:hydra")
+
+# Gate 9a (step 9.3): the engine (libs/core/usdGen) carries no Hydra
+# vocabulary (presentation, primvar and curve-basis words). "pinned" is
+# matched as a literal and Material only as a word: the epoch's pinned slots
+# and the inputs' materialize hook are not Hydra words. Empty baseline.
+add_test(NAME testUsdGenNoHydraInEngine
+    COMMAND ${CMAKE_COMMAND}
+        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+        -DNAME=no-hydra-in-engine
+        -DDIRS=libs/core/usdGen
+        "-DPATTERN=primvars|displayColor|[Pp]urpose|[Vv]isibility([^(]|$)|(^|[^A-Za-z])[Mm]aterial([^A-Za-z]|$)|allPurpose|scalpShadow|hairT|hairId|bakeColor|velocities|Hd[A-Z]|[Ss]torm|bspline|catmullRom|\"pinned\"|nonperiodic|cubic"
+        "-DEXCLUDE=^[ ]*//"
+        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noHydraInEngine.txt
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+set_tests_properties(testUsdGenNoHydraInEngine PROPERTIES LABELS "T0;build;gate;gate:hydra")
 
 add_executable(testUsdGenWarmAllocations tests/testUsdGenWarmAllocations.cpp)
 target_link_libraries(testUsdGenWarmAllocations PRIVATE usdGen usdGenUsd)

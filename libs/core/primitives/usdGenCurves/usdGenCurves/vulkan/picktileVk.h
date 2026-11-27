@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-// PicktileVk: Vulkan port of the device-only picking + tile spans/bounds/index
-// streams (gpu/picking.cu, gpu/curveTiles.cu, gpu/curveTileBounds.cu,
-// gpu/curveIndices.cu). CUDA twins have no graph operator: they run at
+// PicktileVk: Vulkan port of the device-only picking + tile spans/bounds
+// streams (gpu/picking.cu, gpu/curveTiles.cu, gpu/curveTileBounds.cu). CUDA
+// twins have no graph operator: they run at
 // executor finalization (tile spans/bounds populate geometry metadata) and in
 // the session tool layer (CudaToolSession::Pick/Footprint). This module ports
 // that same surface to Vulkan with no new graph operator:
 //
-//   * five compute pipelines (pick, footprint, tiles, bounds, indices) with
+//   * four compute pipelines (pick, footprint, tiles, bounds) with
 //     the repo-standard Create/Begin->Candidate/Poll lifecycle;
 //   * Vulkan-identity geometry/tile leases plus a backend-neutral tile
 //     metadata attach (the AcquireGeometry/AcquireGeometryTile Vulkan
@@ -33,21 +33,12 @@
 
 namespace usdGen::vulkan {
 
-// Ordinals match gpu/curveTileBounds.h, gpu/curveTiles.h, gpu/curveIndices.h.
+// Ordinals match gpu/curveTileBounds.h, gpu/curveTiles.h.
 enum class PicktileVkTileBoundsBasis : uint8_t { Linear = 0, BSpline = 1, CatmullRom = 2 };
 enum class PicktileVkTileOrder : uint8_t {
     SortedSurvivorSubset = 0,
     IdentityCaptureOrder = 1,
     CaptureOrderSurvivorSubset = 2
-};
-enum class PicktileVkIndexBasis : uint8_t {
-    Linear = 0, Bezier = 1, BSpline = 2, CatmullRom = 3, CentripetalCatmullRom = 4
-};
-enum class PicktileVkIndexWrap : uint8_t {
-    Nonperiodic = 0, Periodic = 1, Pinned = 2, Segmented = 3
-};
-enum class PicktileVkIndexMode : uint8_t {
-    Curves = 0, Hull = 1, Points = 2
 };
 
 // Layout matches gpu::CurveTileSpan (5xu32, 20 bytes).
@@ -92,23 +83,13 @@ struct PicktileVkTileRequirements {
     uint32_t tileTarget = 0;
 };
 
-// CUDA CurveIndexRequirements scalar core. scanBytes is always 0: scan scratch
-// is pipeline-owned on Vulkan rather than caller-provided.
-struct PicktileVkIndexRequirements {
-    size_t maxRecords = 0;
-    uint32_t indexArity = 0;
-};
-
 // Bit-exact ports of the CUDA requirements scalar arithmetic
-// (GetCurveTileRequirements/GetCurveIndexRequirements minus device/stream
+// (GetCurveTileRequirements minus device/stream
 // binding). Zero selects the 512/64 tile defaults; other values clamp
 // chunkSize to [128,1024] and tileTarget to [32,256].
 bool GetPicktileVkTileRequirements(uint32_t chunkSize, uint32_t tileTarget,
     size_t captureCurveCount, size_t survivorCurveCount, size_t survivorPointCount,
     PicktileVkTileRequirements* result) noexcept;
-bool GetPicktileVkIndexRequirements(PicktileVkIndexBasis basis, PicktileVkIndexWrap wrap,
-    PicktileVkIndexMode mode, size_t curveCount, size_t pointCount,
-    PicktileVkIndexRequirements* result) noexcept;
 
 // ---------------------------------------------------------------------------
 // Pipelines. Each mirrors TopologyPipeline's lifecycle: Create(context, spirv)
@@ -334,66 +315,6 @@ private:
     explicit Candidate(std::shared_ptr<State>);
     std::shared_ptr<State> state_;
     friend class PicktileVkBoundsPipeline;
-};
-
-class PicktileVkIndicesPipeline final : public std::enable_shared_from_this<PicktileVkIndicesPipeline> {
-public:
-    class Candidate;
-    using BeforeSubmit = std::function<bool()>;
-    // Trusted, externally spirv-val-validated picktileVkIndices.comp with the
-    // eight-binding/48-byte push-constant ABI.
-    static std::shared_ptr<PicktileVkIndicesPipeline> Create(
-        std::shared_ptr<DeviceContext>, std::vector<uint32_t> const& spirv,
-        VkResult* result = nullptr);
-    ~PicktileVkIndicesPipeline();
-    std::shared_ptr<DeviceContext> const& context() const noexcept;
-    // Host Begin checks mirror BuildCurveIndices/Requirements validation
-    // (enums, segmented-linear rule, (!curves && points), points < curves,
-    // curves >= INT32_MAX, points > INT32_MAX, capacity overflow, exact plane
-    // bytes, requirements identity). A pointBase + pointCount overflow is NOT
-    // a host failure: it enqueues a spanInvalid candidate that fails closed
-    // on device (status 1, recordCount 0), mirroring InvalidSpanKernel.
-    // Vulkan admission bound (documented): maxRecords * arity must fit u32;
-    // beyond that Begin fails rather than emit truncated device indices.
-    std::unique_ptr<Candidate> Begin(
-        std::shared_ptr<const ChargedBuffer> offsets,
-        uint32_t curveCount, uint32_t pointCount, uint32_t pointBase,
-        PicktileVkIndexBasis basis, PicktileVkIndexWrap wrap, PicktileVkIndexMode mode,
-        PicktileVkIndexRequirements const& requirements,
-        VkResult* result = nullptr, BeforeSubmit beforeSubmit = {});
-private:
-    struct Native;
-    explicit PicktileVkIndicesPipeline(std::shared_ptr<Native>);
-    std::shared_ptr<Native> native_;
-};
-
-class PicktileVkIndicesPipeline::Candidate final {
-public:
-    ~Candidate();
-    Candidate(Candidate const&) = delete;
-    Candidate& operator=(Candidate const&) = delete;
-    Candidate(Candidate&&) = delete;
-    Candidate& operator=(Candidate&&) = delete;
-    // *deviceStatus: 0 valid, 1 bad offsets, 2 invalid segmented count.
-    VkResult Poll(uint32_t* deviceStatus = nullptr);
-    // Packed records (recordCount * arity int32) and owning curves; only
-    // [0, recordCount) are defined, after a proved status-0 poll.
-    std::shared_ptr<const ChargedBuffer> indices() const noexcept;
-    std::shared_ptr<const ChargedBuffer> primitiveParam() const noexcept;
-    uint64_t recordCount() const noexcept;
-    // Native indirect-draw count (PackCurveDrawCount parity): 0 unless
-    // status == 0 with a representable count.
-    uint32_t drawCount() const noexcept;
-    std::shared_ptr<const ChargedBuffer> output() const noexcept;
-    bool succeeded() const noexcept;
-    std::shared_ptr<const ChargedBuffer> inputOwner() const noexcept;
-    std::shared_ptr<DeviceContext> context() const noexcept;
-    void Quarantine() noexcept;
-private:
-    struct State;
-    explicit Candidate(std::shared_ptr<State>);
-    std::shared_ptr<State> state_;
-    friend class PicktileVkIndicesPipeline;
 };
 
 // ---------------------------------------------------------------------------

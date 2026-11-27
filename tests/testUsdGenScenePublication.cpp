@@ -1,6 +1,7 @@
 // Integration coverage for per-scene publication ownership.  The target is
 // registered by the integration owner.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 #include "usdGen/op.h"
@@ -612,6 +613,7 @@ def Scope "Groom"
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     usdGen::UsdGenRegisterStatic(&RegisterTileHoldOp);
     TestProgressiveStormPublication();
     {

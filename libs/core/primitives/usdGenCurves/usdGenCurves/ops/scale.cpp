@@ -11,6 +11,7 @@
 // payload — the draws are pure functions of seed, curveId and salt, so a
 // scaleRandom edit re-rolls by re-evaluating); Capture only validates.
 #include "usdGen/ops/scale.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGen/ops/stylerParams.h"
@@ -231,7 +232,7 @@ void UsdGenScaleOp::Evaluate(
     if (!rampFlat) {
         if (tLut.size() != kUsdGenRampLutSize) tLut.assign(kUsdGenRampLutSize, 1.0f);
         UsdGenBuildRampLut(knots,
-            p ? p->GetToken(kScaleInterp, UsdGenTokens().catmullRom) : UsdGenTokens().catmullRom,
+            p ? p->GetToken(kScaleInterp, UsdGenCurveTokens().catmullRom) : UsdGenCurveTokens().catmullRom,
             tLut.data(), kUsdGenRampLutSize);
         lutPtr = tLut.data();
     }

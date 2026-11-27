@@ -1,4 +1,5 @@
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenCurves/types/curveTokens.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/maps/mapInput.h"
@@ -690,7 +691,7 @@ void BuildCudaStepProfile(UsdGenParamView const& params, UsdGenCudaExecutionPlan
         VtValue const empty(VtVec2fArray{});
         VtValue const& value = params.GetValue(StepSlot(step, knots), empty);
         UsdGenBuildRampLut(value.UncheckedGet<VtVec2fArray>(),
-            params.GetToken(StepSlot(step, interpolation), UsdGenTokens().catmullRom),
+            params.GetToken(StepSlot(step, interpolation), UsdGenCurveTokens().catmullRom),
             output->data(), output->size());
     };
     if (step.stage == UsdGenCudaStage::Width) {
@@ -8002,16 +8003,16 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
     }
     auto const& curves = node.enabled ? *preparedInput : emptySource;
     UsdGenEngineTokens const& tokens = UsdGenTokens();
-    if (curves.type != tokens.cubic ||
-        (curves.basis != tokens.bspline && curves.basis != tokens.catmullRom) ||
-        (curves.wrap != tokens.pinned && curves.wrap != tokens.nonperiodic)) {
+    if (curves.type != UsdGenCurveTokens().cubic ||
+        (curves.basis != UsdGenCurveTokens().bspline && curves.basis != UsdGenCurveTokens().catmullRom) ||
+        (curves.wrap != UsdGenCurveTokens().pinned && curves.wrap != UsdGenCurveTokens().nonperiodic)) {
         Fail(diagnostics, "C3 requires cubic bspline/catmullRom curves with pinned/nonperiodic wrap"); this->failed = true; return false;
     }
-    if (curves.wrap == tokens.nonperiodic && diagnostics)
+    if (curves.wrap == UsdGenCurveTokens().nonperiodic && diagnostics)
         diagnostics->Warn("CUDA CurveSource promotes nonperiodic wrap to pinned; endpoints now reach the first/last CV");
     this->layoutMetadata = UsdGenCurveLayout(
         UsdGenCurveLayoutType::Cubic,
-        curves.basis == tokens.catmullRom
+        curves.basis == UsdGenCurveTokens().catmullRom
             ? UsdGenCurveLayoutBasis::CatmullRom
             : UsdGenCurveLayoutBasis::BSpline,
         UsdGenCurveLayoutWrap::Pinned);
@@ -8024,7 +8025,7 @@ bool ExecutionState::Prepare(UsdGenCudaExecutionPlan const& plan,
          (curves.widthsInterpolation == tokens.vertex && curves.widths.size() != curves.points.size()))) {
         Fail(diagnostics, "C3 widths cardinality does not match interpolation"); this->failed = true; return false;
     }
-    if (!referenceSource && curves.curveRole != tokens.hair) {
+    if (!referenceSource && curves.curveRole != UsdGenCurveTokens().hair) {
         Fail(diagnostics, "CurveSource requires the C3 hair role"); this->failed = true; return false;
     }
     std::vector<uint32_t> restOrder;

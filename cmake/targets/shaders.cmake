@@ -16,14 +16,14 @@ add_library(usdGen::usdGenShaders ALIAS usdGenShaders)
 
 # Offline authoring utility; leaves PointInstancer geometry instanced.
 add_executable(usdGenBakeFur tools/bakeFur.cpp)
-target_link_libraries(usdGenBakeFur PRIVATE usdGenWithPrimitives usdGeom usd)
+target_link_libraries(usdGenBakeFur PRIVATE usdGenHydraCurves usdGeom usd)
 install(TARGETS usdGenBakeFur RUNTIME DESTINATION bin)
 # Profiling utility: plays a scene through the groom scene index frame by
 # frame and reports per-frame cost, per-operator work and a Chrome trace
 # (bin/trace_playback.ps1).
 add_executable(usdGenTracePlayback tools/tracePlayback.cpp)
 target_link_libraries(usdGenTracePlayback PRIVATE
-    usdGenWithPrimitives usdGenImaging usdImaging hd trace tf usd sdf)
+    usdGenWithPrimitives usdGenImaging usdGenHydraCurves usdImaging hd trace tf usd sdf)
 install(TARGETS usdGenTracePlayback RUNTIME DESTINATION bin)
 # Offline authoring utility; writes procedural region/clump Ptex maps for a mesh.
 add_executable(usdGenBakePtex tools/bakePtex.cpp)

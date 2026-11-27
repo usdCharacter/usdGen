@@ -21,6 +21,7 @@
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
+#include "usdGenHydraCurves/register.h"
 
 #include "pxr/base/tf/debug.h"
 #include "pxr/base/trace/collector.h"
@@ -150,6 +151,8 @@ void Usage()
 
 int main(int argc, char **argv)
 {
+    // The curve publisher registers before the first compile.
+    (void)usdGenHydra::UsdGenHydraCurvesEnsureRegistered();
     std::string scene, chrome, report;
     double first = 0.0, last = -1.0;
     int loops = 2;

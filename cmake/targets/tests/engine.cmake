@@ -96,6 +96,8 @@ foreach(_t testUsdGenGraph testUsdGenKernelDeterminism testUsdGenWidth
     add_test(NAME ${_t} COMMAND ${_t})
     set_tests_properties(${_t} PROPERTIES SKIP_RETURN_CODE "77" NOT_RUN_RETURN_VALUES "77")
 endforeach()
+# Reads publications: the curves' Hydra adapter registers its publisher.
+target_link_libraries(testUsdGenScatterDensity PRIVATE usdGenHydraCurves)
 set_tests_properties(testUsdGenGraph PROPERTIES LABELS "T0;gate:E-6")
 set_tests_properties(testUsdGenKernelDeterminism PROPERTIES LABELS "T0;gate:E-8")
 set_tests_properties(testUsdGenWidth PROPERTIES LABELS "T0")

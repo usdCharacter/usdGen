@@ -539,8 +539,8 @@ bool UsdGenSession::CommitAsync(CommitRequest request, Completion completion,
                 next->frame = frame;
                 next->device = std::move(state.staged);
                 // A point/tool revision replaces only the device payload;
-                // retain the immutable presentation paired with its base.
-                next->devicePresentation = previous->devicePresentation;
+                // retain the host data (paths, presentation) of its base.
+                next->host = previous->host;
                 auto snapshot = std::make_shared<UsdGenSessionSnapshot>(*baseline);
                 snapshot->generation = std::move(next);
                 snapshot->report.Reset();

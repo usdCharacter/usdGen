@@ -1,7 +1,8 @@
 // testUsdGenAsyncImagingSession -- imaging-owner request pairing, callback
 // re-entry, retirement, and terminal shutdown behavior.
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
@@ -760,6 +761,7 @@ void TestImageMapReloadStagesNewCowGeneration()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     UsdGenRegisterStatic(&RegisterBatchHoldOp);
     TestPairedConcurrentRequests();
     TestDevicePublicationRequestRelay();

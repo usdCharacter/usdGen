@@ -7,6 +7,7 @@
 
 #include "usdGenUsd/graphDesc.h"
 #include "usdGenUsd/nodeKeyMap.h"
+#include "usdGenUsd/presentation.h"
 
 #include "usdGen/api/graphSpec.h"
 #include "usdGen/compile/compiler.h"
@@ -16,17 +17,20 @@
 #include "pxr/usd/sdf/path.h"
 
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
 namespace usdGenUsd {
 
-/// The key -> path table of one lowered spec. Immutable once made; a spec
-/// carries it as UsdGenGraphSpec::host, and the engine copies that into the
-/// generations and routing snapshots it makes from the spec.
+/// The host data of one lowered spec: its key -> path table and its
+/// presentation. Immutable once made; a spec carries it as
+/// UsdGenGraphSpec::host, and the engine copies that into the generations and
+/// routing snapshots it makes from the spec.
 class PathTable {
 public:
-    explicit PathTable(std::vector<std::pair<usdGen::UsdGenNodeKey, PXR_NS::SdfPath>> entries);
+    explicit PathTable(std::vector<std::pair<usdGen::UsdGenNodeKey, PXR_NS::SdfPath>> entries,
+                       UsdGenPresentation presentation = UsdGenPresentation());
     /// The path of 'key', else the empty path.
     PXR_NS::SdfPath const &Path(usdGen::UsdGenNodeKey key) const;
     /// The key of 'path', else invalid.
@@ -39,10 +43,12 @@ public:
     {
         return _byKey;
     }
+    UsdGenPresentation const &Presentation() const noexcept { return _presentation; }
 
 private:
     std::vector<std::pair<usdGen::UsdGenNodeKey, PXR_NS::SdfPath>> _byKey;   // sorted by key
     std::vector<std::pair<PXR_NS::SdfPath, usdGen::UsdGenNodeKey>> _byPath;  // sorted by path
+    UsdGenPresentation _presentation;
 };
 
 /// Keys paths for a hand-built engine value (a routing snapshot, a cache key)
@@ -114,6 +120,14 @@ PathTable const *Paths(usdGen::UsdGenGraphSpec const &spec);
 PathTable const *Paths(usdGen::UsdGenGeneration const &generation);
 PathTable const *Paths(usdGen::UsdGenGraphRoutingSnapshot const &routing);
 PathTable const *Paths(std::shared_ptr<const void> const &host);
+/// The presentation a spec, generation or host data carries, or null.
+UsdGenPresentation const *Presentation(std::shared_ptr<const void> const &host);
+UsdGenPresentation const *Presentation(usdGen::UsdGenGraphSpec const &spec);
+UsdGenPresentation const *Presentation(usdGen::UsdGenGeneration const &generation);
+/// A device generation's presentation scalars (its spec's presentation);
+/// empty for a host publication.
+std::optional<UsdGenDevicePresentationMetadata> DevicePresentation(
+    usdGen::UsdGenGeneration const &generation);
 /// Path of 'key' through 'table', else the empty path.
 PXR_NS::SdfPath PathOf(PathTable const *table, usdGen::UsdGenNodeKey key);
 /// Key of 'path' through 'table'; KeyOf(path) when the table lacks it.

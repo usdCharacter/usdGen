@@ -4,7 +4,8 @@
 // nothing; scales multiply; malformed multipliers fail closed; and the
 // multiplier joins the capture digest so a repaint recooks instead of
 // reading back cached pre-stroke roots.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
@@ -100,6 +101,7 @@ static bool ReRun(UsdGenGraphDesc const& d0, UsdGenGraphDesc const& d1,
 }
 
 int main() {
+    usdGenTest::EnsureHydraPublishers();
 
     {
         // Production cook loop: sequential novel density recooks

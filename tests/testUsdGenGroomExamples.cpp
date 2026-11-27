@@ -14,6 +14,7 @@
 //   * retargeting the expression's input:guideCurves recooks them;
 //   * retargeting a UsdGenPtexMap's file recooks the clumps.
 #include "usdGen/compiler.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGen/graph.h"
@@ -537,6 +538,7 @@ void CheckClumpMapDirtyPropagation()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     {
         UsdStageRefPtr const guideStage = UsdStage::Open(kGuideScene);
         if (!guideStage) { std::printf("FAIL: cannot open %s\n", kGuideScene); return 1; }

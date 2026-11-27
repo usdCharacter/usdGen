@@ -24,6 +24,7 @@
 // backend prints the Session diagnostics and exits 77 (cpu: 1).
 
 #include "usdGen/allocCounter.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "../testBackend.h"
 #include "usdGen/compiler.h"
 #include "usdGen/graph.h"
@@ -510,6 +511,7 @@ bool SessionBench(UsdGenBackendId backend, char const *name, int threads, int ru
 
 int main(int argc, char **argv)
 {
+    usdGenTest::EnsureHydraPublishers();
     int threads = 0, runs = 5;
     bool hydra = true;
     std::string backendName = "cpu";

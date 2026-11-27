@@ -26,7 +26,8 @@
 //  (12) inline rotation quat matches ExtractRotationQuat bit for bit.
 //  (13) threaded ranges: two big bakes agree bitwise on every output,
 //       incl. the per-CV gather and the arity-2 pack at 40K curves.
-#include "usdGenImaging/usdGenInstancer.h"
+#include "usdGenHydraCurves/usdGenInstancer.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 
 #include "usdGen/curveBuffer.h"
 
@@ -45,6 +46,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -100,6 +102,26 @@ static HdContainerDataSourceHandle Child(HdContainerDataSourceHandle const &c,
 // Straight strands along +Y from the given roots with identity root frames,
 // so rootT=(1,0,0), rootB=(0,1,0), rootN=(0,0,1) and the root segment
 // tangent equals rootB. curveId[c] = c.
+// The instancer reads curve columns, not a curve buffer: share the arrays.
+static std::deque<usdGenImaging::UsdGenInstanceCurveData> g_instanceData;
+static usdGenImaging::UsdGenInstanceCurveData const *InstanceData(usdGen::UsdGenCurveBuffer const &b)
+{
+    usdGenImaging::UsdGenInstanceCurveData d;
+    d.totalCurves = b.totalCurves;
+    d.totalCvs = b.totalCvs;
+    d.px = b.px;
+    d.py = b.py;
+    d.pz = b.pz;
+    d.curveId = b.curveId;
+    d.rootT = b.rootT;
+    d.rootN = b.rootN;
+    d.rootB = b.rootB;
+    d.cvOffsets = b.cvOffsets;
+    d.extraCurve = b.extraCurve;
+    g_instanceData.push_back(std::move(d));
+    return &g_instanceData.back();
+}
+
 static UsdGenCurveBuffer StraightStrands(std::vector<GfVec3f> const &roots,
                                          int cvs, float step)
 {
@@ -234,31 +256,31 @@ static void CheckFailClosed()
     std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     UsdGenInstanceResult result;
     Check(!BakeOk(base, UsdGenInstanceCurves(), &result),
           "null curves fail closed");
     UsdGenCurveBuffer empty;
     UsdGenInstanceCurves emptyInput;
-    emptyInput.curves = &empty;
+    emptyInput.curves = InstanceData(empty);
     Check(!BakeOk(base, emptyInput, &result), "zero curves fail closed");
     UsdGenCurveBuffer clipped = curves;
     clipped.px.resize(clipped.px.size() - 1);
     UsdGenInstanceCurves clippedInput;
-    clippedInput.curves = &clipped;
+    clippedInput.curves = InstanceData(clipped);
     Check(!BakeOk(base, clippedInput, &result),
           "point-plane/CV-count mismatch fails closed");
     UsdGenCurveBuffer noIds = curves;
     noIds.curveId.clear();
     UsdGenInstanceCurves noIdsInput;
-    noIdsInput.curves = &noIds;
+    noIdsInput.curves = InstanceData(noIds);
     Check(!BakeOk(base, noIdsInput, &result), "missing curveId fails closed");
     UsdGenCurveBuffer noFrames = curves;
     noFrames.rootT.clear();
     noFrames.rootN.clear();
     noFrames.rootB.clear();
     UsdGenInstanceCurves noFramesInput;
-    noFramesInput.curves = &noFrames;
+    noFramesInput.curves = InstanceData(noFrames);
     Check(!BakeOk(base, noFramesInput, &result),
           "missing root frames fail surfaceFrame closed");
     UsdGenInstanceCurves badColor = input;
@@ -277,7 +299,7 @@ static void CheckFailClosed()
     UsdGenCurveBuffer ragged = curves;
     ragged.cvOffsets = VtIntArray{0, 3, 8, 5};  // bad size + decreasing
     UsdGenInstanceCurves raggedInput;
-    raggedInput.curves = &ragged;
+    raggedInput.curves = InstanceData(ragged);
     Check(!BakeOk(base, raggedInput, &result),
           "invalid ragged offsets fail closed");
     Check(BakeOk(base, input, &result), "valid cards bake");
@@ -291,7 +313,7 @@ static void CheckCountsAndPartition()
     for (int i = 0; i < 8; ++i) roots.push_back(GfVec3f(float(i), 0, 0));
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     UsdGenInstanceParams params = CardsParams();
     params.prototypes.push_back(SdfPath("/groom/Prototypes/quill"));
     params.weights = VtFloatArray{0.6f, 0.3f, 0.1f};
@@ -331,7 +353,7 @@ static void CheckSurfaceFrame()
     std::vector<GfVec3f> const roots = {GfVec3f(1, 2, 3), GfVec3f(4, 5, 6)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     UsdGenInstanceResult result;
     Check(BakeOk(CardsParams(), input, &result), "surfaceFrame bakes");
     bool placed = NearVec(result.translations[0], roots[0]) &&
@@ -360,7 +382,7 @@ static void CheckSurfaceFrame()
     noFrames.rootN.clear();
     noFrames.rootB.clear();
     UsdGenInstanceCurves noFramesInput;
-    noFramesInput.curves = &noFrames;
+    noFramesInput.curves = InstanceData(noFrames);
     Check(BakeOk(world, noFramesInput, &result),
           "world bakes without root frames");
     Check(Near(result.rotations[0].GetReal(), 1.0f),
@@ -374,7 +396,7 @@ static void CheckCurveTangent()
     std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     UsdGenInstanceParams tangent = CardsParams();
     tangent.orient = TfToken("curveTangent");
     UsdGenInstanceResult a, b;
@@ -402,7 +424,7 @@ static void CheckCurveTangent()
     sideways.rootB.assign(1, GfVec3f(0, 1, 0));
     sideways.rootN.assign(1, GfVec3f(0, 0, 1));
     UsdGenInstanceCurves sidewaysInput;
-    sidewaysInput.curves = &sideways;
+    sidewaysInput.curves = InstanceData(sideways);
     UsdGenInstanceResult s;
     Check(BakeOk(tangent, sidewaysInput, &s), "sideways tangent bakes");
     GfQuatf const q = s.rotations[0];
@@ -419,7 +441,7 @@ static void CheckCurveTangent()
     single.py = VtFloatArray{3.0f};
     single.pz = VtFloatArray{4.0f};
     UsdGenInstanceCurves singleInput;
-    singleInput.curves = &single;
+    singleInput.curves = InstanceData(single);
     UsdGenInstanceResult one;
     Check(BakeOk(tangent, singleInput, &one), "single-CV tangent bakes");
     Check(Near(one.rotations[0].GetReal(), 1.0f) &&
@@ -433,7 +455,7 @@ static void CheckCurveTangent()
     vertical.py = VtFloatArray{0.0f, 0.0f};
     vertical.pz = VtFloatArray{0.0f, 1.0f};
     UsdGenInstanceCurves verticalInput;
-    verticalInput.curves = &vertical;
+    verticalInput.curves = InstanceData(vertical);
     UsdGenInstanceResult v;
     Check(BakeOk(tangent, verticalInput, &v), "normal-parallel tangent bakes");
     Check(NearVec(v.rotations[0].Transform(GfVec3f(0, 1, 0)), GfVec3f(0, 0, 1)),
@@ -448,7 +470,7 @@ static void CheckWeights()
     for (int i = 0; i < 8; ++i) roots.push_back(GfVec3f(float(i), 0, 0));
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
 
     UsdGenInstanceParams one = CardsParams();
     one.prototypes = {SdfPath("/groom/Prototypes/only")};
@@ -495,7 +517,7 @@ static void CheckTwistAndScale()
     std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
 
     UsdGenInstanceParams twisted = CardsParams();
     twisted.twist = 90.0f;
@@ -555,7 +577,7 @@ static void CheckWidthKnots()
     std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
 
     UsdGenInstanceParams linear = CardsParams();
     linear.widthKnots = VtVec2fArray{GfVec2f(0, 1), GfVec2f(1, 0.2f)};
@@ -587,7 +609,7 @@ static void CheckSpheres()
     std::vector<GfVec3f> const roots = {GfVec3f(1, 2, 3)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     UsdGenInstanceParams spheres = CardsParams();
     spheres.primitive = TfToken("spheres");
     spheres.prototypes = {SdfPath("/groom/Prototypes/ball")};
@@ -617,7 +639,7 @@ static void CheckSpheres()
     noFrames.rootN.clear();
     noFrames.rootB.clear();
     UsdGenInstanceCurves noFramesInput;
-    noFramesInput.curves = &noFrames;
+    noFramesInput.curves = InstanceData(noFrames);
     UsdGenInstanceResult w;
     Check(BakeOk(free, noFramesInput, &w),
           "spheres+world bake with no root frames at all");
@@ -644,7 +666,7 @@ static void CheckVariationPrimvars()
     zone.i = VtIntArray{3};
     curves.extraCurve.push_back(zone);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     input.displayColor =
         VtVec3fArray{GfVec3f(1, 0, 0), GfVec3f(0, 0, 1)};
 
@@ -694,7 +716,7 @@ static void CheckVariationPrimvars()
     // Defaults: empty authored list means {"displayColor"}; with no colors
     // baked that name is reported, not invented.
     UsdGenInstanceCurves bare;
-    bare.curves = &curves;
+    bare.curves = InstanceData(curves);
     UsdGenInstanceResult bareResult;
     Check(BakeOk(CardsParams(), bare, &bareResult), "colorless bake cooks");
     Check(bareResult.varyings.empty() &&
@@ -717,7 +739,7 @@ static void CheckDataSources()
     std::vector<GfVec3f> const roots = {GfVec3f(0, 0, 0), GfVec3f(3, 0, 0)};
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     input.displayColor =
         VtVec3fArray{GfVec3f(1, 0, 0), GfVec3f(0, 0, 1)};
     UsdGenInstanceResult result;
@@ -941,7 +963,7 @@ static void CheckDataSources()
     zone.i = VtIntArray{3, 4};
     packed.extraCurve.push_back(zone);
     UsdGenInstanceCurves packedInput;
-    packedInput.curves = &packed;
+    packedInput.curves = InstanceData(packed);
     packedInput.displayColor = input.displayColor;
     UsdGenInstanceParams packedParams = CardsParams();
     packedParams.variationPrimvars = VtArray<TfToken>{
@@ -1138,7 +1160,7 @@ static void CheckInlineQuat()
         curves.rootN[c] = nFrames[c];
     }
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     UsdGenInstanceResult result;
     Check(BakeOk(CardsParams(), input, &result),
           "quat differential bake succeeds");
@@ -1189,7 +1211,7 @@ static void CheckThreadedRanges()
                                 float((i * 7) % 13)));
     UsdGenCurveBuffer curves = StraightStrands(roots, 4, 0.25f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
 
     UsdGenInstanceParams cards = CardsParams();
     cards.twist = 15.0f;
@@ -1224,7 +1246,7 @@ static void CheckThreadedRanges()
         pair.f[i] = float(int(i % 1024) - 512) / 512.0f;
     pairCurves.extraCurve.push_back(pair);
     UsdGenInstanceCurves vertexInput;
-    vertexInput.curves = &pairCurves;
+    vertexInput.curves = InstanceData(pairCurves);
     vertexInput.displayColor.resize(pairCurves.totalCvs);
     for (uint32_t i = 0; i != pairCurves.totalCvs; ++i)
         vertexInput.displayColor[i] =
@@ -1292,6 +1314,7 @@ static void CheckThreadedRanges()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     CheckPaths();
     CheckFailClosed();
     CheckCountsAndPartition();

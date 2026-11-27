@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "exprVkPlan.h"
+#include "usdGenCurves/types/curveTokens.h"
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/expressions/frontend.h"
@@ -84,7 +85,7 @@ bool ExprVkValidateWidthNode(UsdGenGraphSpec const &desc, UsdGenOpNode const &no
     ExprVkWidthData data;
     std::set<TfToken> seen;
     VtVec2fArray knots;
-    TfToken interpolation = UsdGenTokens().catmullRom;
+    TfToken interpolation = UsdGenCurveTokens().catmullRom;
     UsdGenVulkanKernel const widthKernel = UsdGenVulkanKernelFor(UsdGenVulkanStage::Width);
     UsdGenParamSlot const profileMode = widthKernel.Slot(vulkanP::kWidthProfileMode);
     for (auto const &param : node.params) {

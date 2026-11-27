@@ -1,5 +1,6 @@
 // Session-store owner serialization and snapshot/lifetime contract tests.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/generationStore.h"
@@ -150,6 +151,7 @@ int main(int argc, char **argv)
     // Preserve the last completed contract check if an intermittent native
     // crash terminates this process before stdio would flush its CTest pipe.
     std::setvbuf(stdout, nullptr, _IONBF, 0);
+    usdGenTest::EnsureHydraPublishers();
     UsdGenSessionStore &store = UsdGenSessionStore::GetInstance();
 
     if (argc > 1 && std::string(argv[1]) == "--pending-exit") {

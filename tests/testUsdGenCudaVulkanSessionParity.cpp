@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: MIT
 // End-to-end parity through the two production Session executors. Device
 // readback below is confined to the test; no host geometry oracle is published.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
@@ -366,6 +367,7 @@ int main(int argc, char** argv) {
 #else
     CHECK(setenv("USDGEN_VULKAN_SHADER_DIR", argv[1], 1) == 0);
 #endif
+    usdGenTest::EnsureHydraPublishers();
     int devices = 0; auto status = cudaGetDeviceCount(&devices);
     bool const cudaUnavailable = status == cudaErrorNoDevice || status == cudaErrorInsufficientDriver ||
         (status == cudaSuccess && devices == 0);

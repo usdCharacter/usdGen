@@ -1,7 +1,9 @@
-#include "usdGen/furOcclusion.h"
+#include "usdGenHydraCurves/furOcclusion.h"
+#include "usdGenHydraCurves/tokens.h"
+#include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/debugCodes.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/debugCodes.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "pxr/base/gf/matrix4f.h"
 #include "pxr/base/trace/trace.h"
@@ -28,6 +30,11 @@ constexpr char const* names[] = {"furTauP", "furTauN"};
 // The optional local-density plane: vertex float, arity 1, managed here like
 // the two depth planes but kept out of names[], whose loops assume arity 3.
 constexpr char const* kDensityName = "furDensity";
+// The token of names[which] (built once, never from text on a cook).
+TfToken const& PlaneName(int which) {
+    return which ? hydraCurvesTokens::furTauN() : hydraCurvesTokens::furTauP();
+}
+TfToken const& NameToken(char const* name) { return PlaneName(name == names[1] ? 1 : 0); }
 // Samples per voxel along a curve; the trilinear splat carries the rest, and
 // the deposited area is the sub-sample length, so this changes where density
 // lands, never how much of it there is.
@@ -533,9 +540,9 @@ void BuildScalpShadow(std::vector<Triangle> const& triangles,
     if(!points.empty()) {
         for(int which=0;which<2;++which) {
             UsdGenPlane plane;
-            plane.name=TfToken(names[which]);
-            plane.interpolation=TfToken("vertex");
-            plane.type=TfToken("float");
+            plane.name=PlaneName(which);
+            plane.interpolation=UsdGenTokens().vertex;
+            plane.type=UsdGenTokens().float_;
             plane.arity=3;
             plane.f=which?tauN:tauP;
             out->extraUniform.push_back(std::move(plane));
@@ -1390,8 +1397,8 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
             out.erase(std::remove_if(out.begin(),out.end(),
                 [](auto const& p){return Reserved(p.name);}),out.end());
             for(auto name:names) {
-                UsdGenPlane plane;plane.name=TfToken(name);plane.interpolation=TfToken("vertex");
-                plane.type=TfToken("float");plane.arity=3;
+                UsdGenPlane plane;plane.name=NameToken(name);plane.interpolation=UsdGenTokens().vertex;
+                plane.type=UsdGenTokens().float_;plane.arity=3;
                 // Every element below is written; zero-filling six floats per
                 // CV first costs more than the gather itself on a full groom.
                 plane.f.resize((*tiles)[t].points.size()*3, [](float* b, float* e) {
@@ -1400,8 +1407,8 @@ bool UsdGenBuildFurOcclusion(std::vector<UsdGenTilePublication>* tiles,
                 out.push_back(std::move(plane));
             }
             if(params.localDensity) {
-                UsdGenPlane plane;plane.name=TfToken(kDensityName);
-                plane.interpolation=TfToken("vertex");plane.type=TfToken("float");plane.arity=1;
+                UsdGenPlane plane;plane.name=hydraCurvesTokens::furDensity();
+                plane.interpolation=UsdGenTokens().vertex;plane.type=UsdGenTokens().float_;plane.arity=1;
                 plane.f.resize((*tiles)[t].points.size(), [](float* b, float* e) {
                     std::uninitialized_default_construct(b, e);
                 });
@@ -1505,7 +1512,7 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
         for(char const* name:names) {
             bool found=false;
             for(UsdGenPlane const& plane:cap->extraUniform)
-                if(plane.name==TfToken(name)) {
+                if(plane.name==NameToken(name)) {
                     found = plane.arity==3 && plane.f.size()==cap->points.size()*3;
                     break;
                 }
@@ -1538,7 +1545,7 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     auto plane=[](UsdGenScalpShadowPublication const& cap,char const* name)
         -> VtFloatArray const& {
         for(UsdGenPlane const& p:cap.extraUniform)
-            if(p.name==TfToken(name)) return p.f;
+            if(p.name==NameToken(name)) return p.f;
         return kNoPlane;
     };
     bool sameAlbedo=true;
@@ -1613,18 +1620,18 @@ UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     out.faceVertexCounts=counts; out.faceVertexIndices=indices;
     for(int which=0;which<2;++which) {
         UsdGenPlane p;
-        p.name=TfToken(names[which]);
-        p.interpolation=TfToken("vertex");
-        p.type=TfToken("float");
+        p.name=PlaneName(which);
+        p.interpolation=UsdGenTokens().vertex;
+        p.type=UsdGenTokens().float_;
         p.arity=3;
         p.f.assign(tau[which].begin(),tau[which].end());
         out.extraUniform.push_back(std::move(p));
     }
     if(!sameAlbedo) {
         UsdGenPlane p;
-        p.name=TfToken("furCapAlbedo");
-        p.interpolation=TfToken("vertex");
-        p.type=TfToken("float");
+        p.name=hydraCurvesTokens::furCapAlbedo();
+        p.interpolation=UsdGenTokens().vertex;
+        p.type=UsdGenTokens().float_;
         p.arity=3;
         p.f.resize(points.size()*3);
         for(size_t i=0;i<points.size();++i) {

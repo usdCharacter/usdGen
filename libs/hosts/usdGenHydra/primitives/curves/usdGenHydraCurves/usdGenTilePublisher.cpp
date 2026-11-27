@@ -4,7 +4,7 @@
 // carries the frozen field list). The engine fills EVERY field of
 // UsdGenTilePublication at commit time (curveBuffer.h) — this file reads it
 // and never writes to it (no hashing, no hairId derivation here).
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 
 #include "usdGenUsd/walk/usdGenTokens.h"
 #include "usdGenUsd/publishPaths.h"

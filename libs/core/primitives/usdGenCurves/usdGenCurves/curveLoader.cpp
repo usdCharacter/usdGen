@@ -1,6 +1,8 @@
 #include "usdGen/curveLoader.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
+#include "usdGenCurves/types/curveTokens.h"
+#include "usdGen/registries/engineTokens.h"
 #include "usdGen/curveRootCapture.h"
 
 #include <algorithm>
@@ -123,9 +125,9 @@ bool ReadString(UsdGenParamView const *params, TfToken const &name,
 struct Options {
     bool useRest = true;
     int resampleTo = 0;
-    TfToken idSource{"primvar"};
-    TfToken staleAction{"warn"};
-    TfToken rebind{"onError"};
+    TfToken idSource = UsdGenCurveTokens().primvar;
+    TfToken staleAction = UsdGenCurveTokens().warn;
+    TfToken rebind = UsdGenCurveTokens().onError;
     std::string expectedEpoch;
 };
 
@@ -133,28 +135,28 @@ bool ReadOptions(UsdGenCaptureContext const &ctx, Options *out,
                  UsdGenDiagnostics *diag)
 {
     UsdGenParamView const *params = ctx.params ? &*ctx.params : nullptr;
-    if (!ReadBool(params, TfToken("useRest"), true, &out->useRest, diag) ||
-        !ReadInt(params, TfToken("resampleTo"), 0, &out->resampleTo, diag) ||
-        !ReadToken(params, TfToken("idSource"), TfToken("primvar"), &out->idSource, diag) ||
-        !ReadToken(params, TfToken("staleAction"), TfToken("warn"), &out->staleAction, diag) ||
-        !ReadToken(params, TfToken("rebind"), TfToken("onError"), &out->rebind, diag) ||
-        !ReadString(params, TfToken("expectEpoch"), &out->expectedEpoch, diag))
+    if (!ReadBool(params, UsdGenCurveTokens().useRest, true, &out->useRest, diag) ||
+        !ReadInt(params, UsdGenCurveTokens().resampleTo, 0, &out->resampleTo, diag) ||
+        !ReadToken(params, UsdGenCurveTokens().idSource, UsdGenCurveTokens().primvar, &out->idSource, diag) ||
+        !ReadToken(params, UsdGenCurveTokens().staleAction, UsdGenCurveTokens().warn, &out->staleAction, diag) ||
+        !ReadToken(params, UsdGenCurveTokens().rebind, UsdGenCurveTokens().onError, &out->rebind, diag) ||
+        !ReadString(params, UsdGenCurveTokens().expectEpoch, &out->expectedEpoch, diag))
         return false;
     // Pure-value builders normally map usdGen:useRest to `useRest`, but
     // preserve the legacy direct descriptor spelling when the canonical
     // locator is absent.  Both remain type-checked rather than defaulted.
-    if (params && Authored(params, TfToken("useRest")).IsEmpty() &&
-        !ReadBool(params, TfToken("usdGen:useRest"), out->useRest, &out->useRest, diag))
+    if (params && Authored(params, UsdGenCurveTokens().useRest).IsEmpty() &&
+        !ReadBool(params, UsdGenCurveTokens().usdGenUseRest, out->useRest, &out->useRest, diag))
         return false;
     if (out->resampleTo < 0 || out->resampleTo == 1)
         return Fail(diag, "resampleTo must be zero or at least two");
-    if (out->idSource != TfToken("primvar") && out->idSource != TfToken("index"))
+    if (out->idSource != UsdGenCurveTokens().primvar && out->idSource != UsdGenCurveTokens().index)
         return Fail(diag, "idSource must be 'primvar' or 'index'");
-    if (out->staleAction != TfToken("warn") && out->staleAction != TfToken("ignore") &&
-        out->staleAction != TfToken("block"))
+    if (out->staleAction != UsdGenCurveTokens().warn && out->staleAction != UsdGenCurveTokens().ignore &&
+        out->staleAction != UsdGenCurveTokens().block)
         return Fail(diag, "staleAction must be 'warn', 'ignore', or 'block'");
-    if (out->rebind != TfToken("never") && out->rebind != TfToken("onError") &&
-        out->rebind != TfToken("always"))
+    if (out->rebind != UsdGenCurveTokens().never && out->rebind != UsdGenCurveTokens().onError &&
+        out->rebind != UsdGenCurveTokens().always)
         return Fail(diag, "rebind must be 'never', 'onError', or 'always'");
     return true;
 }
@@ -175,11 +177,11 @@ bool BuildSourcePlanes(UsdGenCurveSetInputView const &source,
             std::vector<UsdGenPlane> *destination = cv;
             switch (authored.domain) {
             case UsdGenAuthoredPlaneDomain::Point:
-                elements = totalCvs; interpolation = TfToken("vertex"); break;
+                elements = totalCvs; interpolation = UsdGenTokens().vertex; break;
             case UsdGenAuthoredPlaneDomain::Primitive:
-                elements = totalCurves; interpolation = TfToken("uniform"); destination = curve; break;
+                elements = totalCurves; interpolation = UsdGenTokens().uniform; destination = curve; break;
             case UsdGenAuthoredPlaneDomain::Groom:
-                elements = 1; interpolation = TfToken("constant"); destination = curve; break;
+                elements = 1; interpolation = UsdGenTokens().constant; destination = curve; break;
             default:
                 return Fail(diag, "authored plane '" + authored.name.GetString() + "' has an invalid domain");
             }
@@ -196,12 +198,12 @@ bool BuildSourcePlanes(UsdGenCurveSetInputView const &source,
                 for (float value : authored.floatValues)
                     if (!std::isfinite(value))
                         return Fail(diag, "authored plane '" + authored.name.GetString() + "' has non-finite values");
-                plane.type = TfToken("float");
+                plane.type = UsdGenTokens().float_;
                 plane.f.assign(authored.floatValues.begin(), authored.floatValues.end());
             } else if (authored.type == UsdGenAuthoredPlaneType::Int32) {
                 if (authored.intValues.size() != expected || !authored.floatValues.empty())
                     return Fail(diag, "authored plane '" + authored.name.GetString() + "' cardinality is invalid");
-                plane.type = TfToken("int");
+                plane.type = UsdGenTokens().int_;
                 plane.i.assign(authored.intValues.begin(), authored.intValues.end());
             } else {
                 return Fail(diag, "authored plane '" + authored.name.GetString() + "' has an unsupported type");
@@ -246,10 +248,10 @@ bool ReorderSourcePlanes(UsdGenCurveBuffer const &source,
         for (UsdGenPlane const &plane : source.extraCv) {
             UsdGenPlane copy = plane;
             size_t const elements = target->totalCvs;
-            if (plane.type == TfToken("float")) {
+            if (plane.type == UsdGenTokens().float_) {
                 copy.f.assign(elements * plane.arity, 0.0f);
                 copy.i.clear();
-            } else if (plane.type == TfToken("int")) {
+            } else if (plane.type == UsdGenTokens().int_) {
                 copy.i.assign(elements * plane.arity, 0);
                 copy.f.clear();
             } else {
@@ -270,7 +272,7 @@ bool ReorderSourcePlanes(UsdGenCurveBuffer const &source,
                     return false;
                 }
                 size_t const n = size_t(inEnd - inBegin) * plane.arity;
-                if (plane.type == TfToken("float"))
+                if (plane.type == UsdGenTokens().float_)
                     std::copy_n(plane.f.cdata() + size_t(inBegin) * plane.arity, n,
                                 copy.f.begin() + size_t(outBegin) * plane.arity);
                 else
@@ -281,24 +283,24 @@ bool ReorderSourcePlanes(UsdGenCurveBuffer const &source,
         }
         for (UsdGenPlane const &plane : source.extraCurve) {
             UsdGenPlane copy = plane;
-            size_t const elements = plane.interpolation == TfToken("constant") ? 1 : target->totalCurves;
-            if (plane.type == TfToken("float")) {
+            size_t const elements = plane.interpolation == UsdGenTokens().constant ? 1 : target->totalCurves;
+            if (plane.type == UsdGenTokens().float_) {
                 copy.f.assign(elements * plane.arity, 0.0f);
                 copy.i.clear();
-            } else if (plane.type == TfToken("int")) {
+            } else if (plane.type == UsdGenTokens().int_) {
                 copy.i.assign(elements * plane.arity, 0);
                 copy.f.clear();
             } else {
                 if (error) *error = "unsupported C3 curve plane type";
                 return false;
             }
-            if (plane.interpolation == TfToken("constant")) {
-                if (plane.type == TfToken("float")) copy.f = plane.f;
+            if (plane.interpolation == UsdGenTokens().constant) {
+                if (plane.type == UsdGenTokens().float_) copy.f = plane.f;
                 else copy.i = plane.i;
             } else {
                 for (size_t outputCurve = 0; outputCurve != order.size(); ++outputCurve) {
                     size_t const inputCurve = order[outputCurve];
-                    if (plane.type == TfToken("float"))
+                    if (plane.type == UsdGenTokens().float_)
                         std::copy_n(plane.f.cdata() + inputCurve * plane.arity, plane.arity,
                                     copy.f.begin() + outputCurve * plane.arity);
                     else
@@ -350,25 +352,25 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
     Options options;
     if (!ReadOptions(ctx, &options, diag)) return false;
     if (!source.key.IsValid() || source.role != UsdGenLane::Chunked ||
-        source.curveRole != TfToken("hair"))
+        source.curveRole != UsdGenCurveTokens().hair)
         return Fail(diag, "CurveSource requires a C3 hair BasisCurves source; guide/reference lanes are not implemented here");
     if (!Finite(source.worldMatrix))
         return Fail(diag, "C3 worldMatrix contains non-finite values");
     // Linear polylines are accepted as-is (the basis is ignored for linear
     // curves); cubic curves must be bspline or catmullRom.
-    bool const linear = source.type == TfToken("linear");
-    if ((!linear && (source.type != TfToken("cubic") ||
-                     (source.basis != TfToken("bspline") && source.basis != TfToken("catmullRom")))) ||
-        source.wrap == TfToken("periodic"))
+    bool const linear = source.type == UsdGenCurveTokens().linear;
+    if ((!linear && (source.type != UsdGenCurveTokens().cubic ||
+                     (source.basis != UsdGenCurveTokens().bspline && source.basis != UsdGenCurveTokens().catmullRom))) ||
+        source.wrap == UsdGenCurveTokens().periodic)
         return Fail(diag, "C3 requires linear, or cubic bspline/catmullRom, curves with non-periodic wrapping");
-    if (source.wrap != TfToken("pinned") && source.wrap != TfToken("nonperiodic"))
+    if (source.wrap != UsdGenCurveTokens().pinned && source.wrap != UsdGenCurveTokens().nonperiodic)
         return Fail(diag, "C3 wrap must be 'pinned' or 'nonperiodic'");
-    if (source.wrap == TfToken("nonperiodic") && !linear)
+    if (source.wrap == UsdGenCurveTokens().nonperiodic && !linear)
         Warn(diag, "nonperiodic C3 curves are promoted to pinned semantics without changing CVs");
     if (!options.expectedEpoch.empty() && options.expectedEpoch != source.frozenEpoch) {
-        if (options.staleAction == TfToken("block"))
+        if (options.staleAction == UsdGenCurveTokens().block)
             return Fail(diag, "source frozenEpoch does not match expectEpoch");
-        if (options.staleAction == TfToken("warn"))
+        if (options.staleAction == UsdGenCurveTokens().warn)
             Warn(diag, "source frozenEpoch does not match expectEpoch; evaluating by request");
     }
 
@@ -395,11 +397,11 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
         if (source.restFromCurrentPoints || source.rest.size() != total)
             return Fail(diag, "useRest requires an authored/default-time C3 rest snapshot");
     }
-    if (source.widthsInterpolation != TfToken("vertex") &&
-        source.widthsInterpolation != TfToken("constant"))
+    if (source.widthsInterpolation != UsdGenTokens().vertex &&
+        source.widthsInterpolation != UsdGenTokens().constant)
         return Fail(diag, "C3 widths interpolation must be vertex or constant");
     if (!source.widths.empty()) {
-        size_t const expected = source.widthsInterpolation == TfToken("vertex") ? total : 1;
+        size_t const expected = source.widthsInterpolation == UsdGenTokens().vertex ? total : 1;
         if (source.widths.size() != expected)
             return Fail(diag, "C3 widths cardinality does not match its interpolation");
         for (float width : source.widths)
@@ -410,7 +412,7 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
     }
 
     std::vector<uint64_t> ids;
-    if (options.idSource == TfToken("primvar") && !source.curveId.empty()) {
+    if (options.idSource == UsdGenCurveTokens().primvar && !source.curveId.empty()) {
         if (source.curveId.size() != curves)
             return Fail(diag, "C3 usdGen:curveId cardinality must be uniform per curve");
         ids.assign(source.curveId.begin(), source.curveId.end());
@@ -548,7 +550,7 @@ bool UsdGenCurveLoader::Load(UsdGenCaptureContext const &ctx,
             candidate.rest[dst] = rest;
             if (source.widths.empty()) {
                 candidate.width[dst] = ctx.desc->defaultWidth;
-            } else if (source.widthsInterpolation == TfToken("constant")) {
+            } else if (source.widthsInterpolation == UsdGenTokens().constant) {
                 candidate.width[dst] = source.widths[0];
             } else {
                 float const a = source.widths[first + lo];

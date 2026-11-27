@@ -2,7 +2,8 @@
 // publication snapshots.  The held Capture operator makes owner/work
 // separation observable without a timing-dependent sleep.
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -232,6 +233,7 @@ int main()
     Check(coldRegistries.load() == 8, "simultaneous cold lookups read the complete built-in registry");
     // Test ops register before the first compile, which freezes the registries.
     Check(UsdGenRegisterStatic(&RegisterAsyncTestOps), "test ops register before the first compile");
+    usdGenTest::EnsureHydraPublishers();
 
     // Simultaneous first compiles (and the freeze they race on).
     std::atomic<unsigned> coldSuccess{0};

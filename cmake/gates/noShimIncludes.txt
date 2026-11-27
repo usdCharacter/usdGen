@@ -50,7 +50,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curl.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.cpp 5
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/curveSource.h 1
-libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp 6
+libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.cpp 5
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/deform.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/direction.h 1
@@ -105,8 +105,6 @@ libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/widthBlend.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.cpp 4
 libs/core/primitives/usdGenCurves/usdGenCurves/ops/wind.h 1
-libs/core/primitives/usdGenCurves/usdGenCurves/publish/furOcclusion.cpp 3
-libs/core/primitives/usdGenCurves/usdGenCurves/rbfAnimation.cpp 1
 libs/core/primitives/usdGenCurves/usdGenCurves/types/curveBuffer.h 2
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkAdmission.h 1
 libs/core/primitives/usdGenCurves/usdGenCurves/vulkan/csourceVkCapture.h 3
@@ -220,22 +218,19 @@ libs/core/usdGen/usdGen/registries/registrar.h 1
 libs/core/usdGen/usdGen/registries/token.h 1
 libs/core/usdGen/usdGen/registries/typeRegistry.h 1
 libs/core/usdGen/version.cpp 1
-libs/hosts/usdGenHydra/usdGenImaging/attributePreviewSceneIndex.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/attributePreviewSceneIndex.h 2
 libs/hosts/usdGenHydra/usdGenImaging/cleanupQueue.h 1
-libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 6
+libs/hosts/usdGenHydra/usdGenImaging/groomSceneIndexPlugin.cpp 5
 libs/hosts/usdGenHydra/usdGenImaging/primAdapter.cpp 1
-libs/hosts/usdGenHydra/usdGenImaging/rbfAnimation.h 1
 libs/hosts/usdGenHydra/usdGenImaging/testHook.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenBrushApi.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.cpp 2
-libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 2
+libs/hosts/usdGenHydra/usdGenImaging/usdGenDirtyRouter.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.cpp 2
 libs/hosts/usdGenHydra/usdGenImaging/usdGenEngineBridge.h 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenGraphDescBuilder.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.cpp 5
 libs/hosts/usdGenHydra/usdGenImaging/usdGenImagingSession.h 2
-libs/hosts/usdGenHydra/usdGenImaging/usdGenInstancer.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenShadersDiscoveryPlugin.cpp 1
 libs/hosts/usdGenHydra/usdGenImaging/usdGenToolsApi.cpp 2
 libs/usdGenPomade/usdGenPomade/imaging/pomadeSceneIndex.cpp 1
@@ -251,7 +246,7 @@ tests/consumer/main.cpp 1
 tests/perf/benchUsdGenChain.cpp 5
 tests/perf/benchUsdGenClumpMotion.cpp 2
 tests/perf/benchUsdGenCudaCook.cpp 1
-tests/perf/benchUsdGenInstanceScatter.cpp 10
+tests/perf/benchUsdGenInstanceScatter.cpp 9
 tests/perf/benchUsdGenRbfDeform.cpp 6
 tests/perf/benchUsdGenRestructure.cpp 6
 tests/perf/benchUsdGenSparse.cpp 5
@@ -261,7 +256,7 @@ tests/testUsdGenAsyncSession.cpp 2
 tests/testUsdGenAttributeBake.cpp 3
 tests/testUsdGenAttributeInstance.cpp 2
 tests/testUsdGenAttributeMap.cpp 1
-tests/testUsdGenAttributePreview.cpp 2
+tests/testUsdGenAttributePreview.cpp 1
 tests/testUsdGenBraid.cpp 4
 tests/testUsdGenCardSource.cpp 6
 tests/testUsdGenClumpModes.cpp 8
@@ -312,7 +307,7 @@ tests/testUsdGenCudaSurfaceBinding.cu 1
 tests/testUsdGenCudaTileExecution.cpp 1
 tests/testUsdGenCudaTopology.cu 1
 tests/testUsdGenCudaVulkanParity.cpp 3
-tests/testUsdGenCudaVulkanSessionParity.cpp 2
+tests/testUsdGenCudaVulkanSessionParity.cpp 1
 tests/testUsdGenCudaWidthDag.cpp 6
 tests/testUsdGenCurlBendWavePart.cpp 5
 tests/testUsdGenCurveRagged.cpp 5
@@ -346,7 +341,6 @@ tests/testUsdGenExpressionPrimConnection.cpp 3
 tests/testUsdGenExpressionSamplers.cpp 5
 tests/testUsdGenExpressionWidthExample.cpp 3
 tests/testUsdGenFreeze.cpp 6
-tests/testUsdGenFurOcclusion.cpp 1
 tests/testUsdGenGeomSubset.cpp 4
 tests/testUsdGenGraph.cpp 4
 tests/testUsdGenGroomExamples.cpp 5
@@ -407,7 +401,7 @@ tests/testUsdGenTieCollide.cpp 4
 tests/testUsdGenTileContract.cpp 6
 tests/testUsdGenTokenChecks.cpp 4
 tests/testUsdGenTwistFrizz.cpp 4
-tests/testUsdGenValuePreview.cpp 2
+tests/testUsdGenValuePreview.cpp 1
 tests/testUsdGenViewportOverlay.cpp 1
 tests/testUsdGenVulkanCompletionService.cpp 1
 tests/testUsdGenVulkanCsourceVkParity.cpp 3

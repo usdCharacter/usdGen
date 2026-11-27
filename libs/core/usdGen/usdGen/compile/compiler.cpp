@@ -1247,7 +1247,7 @@ void UsdGenCompiler::_Build(
     // entries copy from the input. Entry ORDER follows the input (S26).
     // Identity is positional (nodeByDesc) with a linear-scan fallback.
     static_assert(sizeof(UsdGenGraphSpec) ==
-                      416 + sizeof(std::vector<UsdGenInputRecord>) + sizeof(UsdGenPreviewSpec) +
+                      232 + sizeof(std::vector<UsdGenInputRecord>) + sizeof(UsdGenPreviewSpec) +
                       sizeof(std::vector<UsdGenNodeLabel>) + sizeof(std::shared_ptr<const void>),
         "UsdGenGraphSpec changed size: update the Recompile shell merge below");
     {
@@ -1260,17 +1260,13 @@ void UsdGenCompiler::_Build(
         fresh->inputs = desc.inputs;
         fresh->validationErrors = desc.validationErrors;
         fresh->executionBackend = desc.executionBackend;
-        fresh->look = desc.look;
         fresh->preview = desc.preview;
         fresh->xformMatrix = desc.xformMatrix;
-        fresh->purpose = desc.purpose;
-        fresh->visibility = desc.visibility;
-        fresh->material = desc.material;
         fresh->labels = desc.labels;
         fresh->host = desc.host;
+        fresh->hostDigest = desc.hostDigest;
         fresh->defaultWidth = desc.defaultWidth;
         fresh->tileTarget = desc.tileTarget;
-        fresh->basis = desc.basis;
         fresh->time = desc.time;
         fresh->timeCodesPerSecond = desc.timeCodesPerSecond;
         fresh->nodes.resize(desc.nodes.size());

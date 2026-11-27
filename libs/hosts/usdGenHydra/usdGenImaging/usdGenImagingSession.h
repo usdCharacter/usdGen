@@ -151,6 +151,9 @@ public:
         std::optional<double> frame;
         std::optional<usdGen::UsdGenContext> context;
         std::shared_ptr<const usdGen::UsdGenGraphDesc> desc;
+        // Value-only dirt a host router resolved (UsdGenDirtyRouter::Route);
+        // posted to the engine ahead of the commit.
+        usdGen::UsdGenPendingDirty dirty;
         // Upstream owner relays preserve the original CUDA caller affinity.
         std::optional<int> callerDevice;
         // Relayed atomically to the core commit owner.  Absent preserves the

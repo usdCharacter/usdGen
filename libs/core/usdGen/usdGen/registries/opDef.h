@@ -20,7 +20,7 @@ class UsdGenOpRecord;
 struct UsdGenParamView;
 struct UsdGenGraphSpec;
 struct UsdGenOpNode;
-struct UsdGenRbfAnimationBinding;
+struct UsdGenDeformBinding;
 struct UsdGenInputRecord;
 
 /// Dirty class of one parameter (02 §6). Structural == Merkle digest term.
@@ -97,7 +97,7 @@ struct UsdGenOpHooks {
     bool (*remapsVertexPlanes)(UsdGenParamView const &) = nullptr;
     /// 4a. Fill sampleIndices and field; false: no binding.
     bool (*makeAnimationBinding)(UsdGenAnimationBindingQuery const &, UsdGenOp const &,
-                                 UsdGenRbfAnimationBinding *out) = nullptr;
+                                 UsdGenDeformBinding *out) = nullptr;
     /// The diagnostic for a nonzero UsdGenEvalContext::failureCode; null:
     /// the generic "operator evaluation failed".
     char const *(*failureMessage)(uint32_t code) = nullptr;

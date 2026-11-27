@@ -1,4 +1,5 @@
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
@@ -337,6 +338,7 @@ static bool ReadNamed(gpu::CudaNamedChannelLease const& lease,
 }
 
 int main() {
+    usdGenTest::EnsureHydraPublishers();
     cudaStream_t consumer = nullptr;
     CHECK(cudaStreamCreateWithFlags(&consumer, cudaStreamNonBlocking) == cudaSuccess);
     // Authored named planes are uploaded into private buffers and published

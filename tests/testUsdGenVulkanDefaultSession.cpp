@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // Plain Session production-provider parity. Geometry readback is test-only.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGen/session.h"
 #include "usdGenUsd/lower.h"
@@ -213,6 +214,7 @@ int Lifecycle(std::string const& shaderPath) {
 }
 
 int main(int argc, char** argv) {
+    usdGenTest::EnsureHydraPublishers();
     if (argc == 3 && std::string(argv[2]) == "--lifecycle") return Lifecycle(argv[1]);
     auto descriptor = Descriptor();
     UsdGenSession session(2);

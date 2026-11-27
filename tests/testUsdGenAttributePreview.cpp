@@ -12,8 +12,9 @@
 //     restores upstream (structural);
 //   * invalid Sets fail closed and leave any previous preview in place.
 #include "usdGenImaging/attributePreviewSceneIndex.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/maps/attributeMap.h"
-#include "usdGen/valuePreview.h"
+#include "usdGenHydraCurves/previewColor.h"
 
 #include "pxr/imaging/hd/primvarSchema.h"
 #include "pxr/imaging/hd/retainedDataSource.h"
@@ -124,6 +125,7 @@ std::shared_ptr<UsdGenAttributeMap> TwoFaceMap()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     SdfPath const scalp("/Scalp");
     SdfPath const groom("/Groom");
     HdDataSourceLocator const structural(TfToken("primvars"),

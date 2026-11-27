@@ -1,5 +1,6 @@
 // End-to-end CUDA session tile publication: Source -> Length(cull) -> Width.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenUsd/lower.h"
@@ -129,6 +130,7 @@ static bool CoversEveryCurve(std::vector<UsdGenDeviceTileMetadata> const& tiles,
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     cudaStream_t stream = nullptr;
     CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) == cudaSuccess);
 
