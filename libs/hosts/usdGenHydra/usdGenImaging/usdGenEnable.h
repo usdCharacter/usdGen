@@ -6,12 +6,13 @@
 #ifndef USDGEN_IMAGING_ENABLE_H
 #define USDGEN_IMAGING_ENABLE_H
 
+#include "usdGenImaging/export.h"
 #include "pxr/pxr.h"
 #include "pxr/base/tf/envSetting.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-extern TfEnvSetting<bool> USDGEN_ENABLE;
+extern USDGEN_HYDRA_API TfEnvSetting<bool> USDGEN_ENABLE;
 
 PXR_NAMESPACE_CLOSE_SCOPE
 

@@ -4,6 +4,7 @@
 #define USDGEN_FUR_OCCLUSION_H
 
 #include "usdGenHydraCurves/publication.h"
+#include "usdGenHydraCurves/export.h"
 
 #include <memory>
 
@@ -30,7 +31,7 @@ struct UsdGenFurOccluder
 /// working buffers. Keyed on everything they depend on, so an edit that
 /// leaves the occluders and the voxel size alone (any hair edit) skips them.
 /// Caller-owned, one per groom; not for concurrent bakes.
-class UsdGenFurOcclusionCache
+class USDGEN_HYDRA_CURVES_API UsdGenFurOcclusionCache
 {
 public:
     UsdGenFurOcclusionCache();
@@ -152,7 +153,7 @@ struct UsdGenFurOcclusionParams
 /// `max(0, HairCount - 1)`.
 ///
 /// Throws std::invalid_argument for malformed or non-finite geometry.
-bool UsdGenBuildFurOcclusion(
+USDGEN_HYDRA_CURVES_API bool UsdGenBuildFurOcclusion(
     std::vector<UsdGenTilePublication>* tiles,
     std::vector<UsdGenTilePublication> const* previous = nullptr,
     UsdGenFurOcclusionParams const& params = UsdGenFurOcclusionParams(),
@@ -185,7 +186,7 @@ struct UsdGenScalpShadowContribution
 ///
 /// The identity fields (primPath, purpose, visibility, materialPath) come from
 /// the first contributing part. Returns an empty cap when no part contributes.
-UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
+USDGEN_HYDRA_CURVES_API UsdGenScalpShadowPublication UsdGenMergeScalpShadows(
     std::vector<UsdGenScalpShadowContribution> const& parts);
 }
 #endif

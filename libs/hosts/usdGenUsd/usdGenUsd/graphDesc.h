@@ -8,6 +8,7 @@
 #define USDGENUSD_GRAPH_DESC_H
 
 #include "usdGenUsd/convert/math.h"   // Gf and usdGenMath interconvert (before any mixed use)
+#include "usdGenUsd/export.h"
 #include "usdGenUsd/convert/token.h"
 #include "usdGen/api/graphSpec.h"
 #include "usdGenUsd/presentation.h"
@@ -132,7 +133,7 @@ struct UsdGenPreviewDesc
 
 /// The look block with the schema fallbacks the host fills
 /// (bakeMode). publishPaths.cpp.
-UsdGenLookDesc UsdGenSchemaLook();
+USDGEN_USD_API UsdGenLookDesc UsdGenSchemaLook();
 
 struct UsdGenGraphDesc
 {

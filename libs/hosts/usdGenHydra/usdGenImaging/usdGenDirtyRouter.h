@@ -14,6 +14,7 @@
 #define USDGEN_IMAGING_DIRTY_ROUTER_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 #include "usdGen/api/routing.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/api/session.h"
@@ -43,7 +44,7 @@ struct SdfPathHash
     }
 };
 
-class UsdGenDirtyRouter
+class USDGEN_HYDRA_API UsdGenDirtyRouter
 {
 public:
     /// One routing entry: a locator prefix under `usdGen/` (or a known

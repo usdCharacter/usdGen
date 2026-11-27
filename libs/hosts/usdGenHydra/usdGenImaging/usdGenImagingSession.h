@@ -14,6 +14,7 @@
 #define USDGEN_IMAGING_SESSION_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 #include "usdGen/api/session.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/api/types.h"
@@ -78,7 +79,7 @@ struct UsdGenSessionKeyHash
 /// complete-generation prim set is a session property and never differs per
 /// index. Opted-in progressive viewports can show provisional tiles while a
 /// complete generation is still cooking.
-class UsdGenImagingSession : public TfRefBase, public TfWeakBase
+class USDGEN_HYDRA_API UsdGenImagingSession : public TfRefBase, public TfWeakBase
 {
 public:
     UsdGenImagingSession(
@@ -261,7 +262,7 @@ using UsdGenImagingSessionRefPtr = TfRefPtr<UsdGenImagingSession>;
 using UsdGenSessionHandle = UsdGenImagingSessionRefPtr;
 
 /// Process-global session store (06 §3.7).
-class UsdGenSessionStore
+class USDGEN_HYDRA_API UsdGenSessionStore
 {
 public:
     static UsdGenSessionStore &GetInstance();

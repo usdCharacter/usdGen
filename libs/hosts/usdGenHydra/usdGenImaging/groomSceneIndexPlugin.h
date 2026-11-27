@@ -28,6 +28,7 @@
 #define USDGEN_IMAGING_GROOM_SCENE_INDEX_PLUGIN_H
 
 #include "pxr/pxr.h"
+#include "usdGenImaging/export.h"
 #include "pxr/imaging/hd/sceneIndexPlugin.h"
 #include "pxr/imaging/hd/sceneIndex.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
@@ -57,7 +58,7 @@ class HdSceneIndexBase;
 using HdSceneIndexBaseRefPtr = TfRefPtr<HdSceneIndexBase>;
 
 /// Filtering half: the scene index spliced into the chain.
-class UsdGenGroomSceneIndex final
+class USDGEN_HYDRA_API UsdGenGroomSceneIndex final
     : public HdSingleInputFilteringSceneIndexBase
 {
 public:
@@ -188,7 +189,7 @@ private:
 
 /// Registration half: the HdSceneIndexPlugin consulted by every renderer's
 /// _AppendSceneIndex chain.
-class UsdGenGroomSceneIndexPlugin final : public HdSceneIndexPlugin
+class USDGEN_HYDRA_API UsdGenGroomSceneIndexPlugin final : public HdSceneIndexPlugin
 {
 public:
     UsdGenGroomSceneIndexPlugin() = default;

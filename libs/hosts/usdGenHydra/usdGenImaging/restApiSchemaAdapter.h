@@ -8,13 +8,14 @@
 #define USDGEN_IMAGING_REST_API_SCHEMA_ADAPTER_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 
 #include "pxr/usdImaging/usdImaging/apiSchemaAdapter.h"
 #include "pxr/pxr.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
 
-class UsdGenRestAPIAdapter final
+class USDGEN_HYDRA_API UsdGenRestAPIAdapter final
     : public UsdImagingAPISchemaAdapter
 {
 public:

@@ -46,6 +46,7 @@
 #define USDGEN_IMAGING_ATTRIBUTE_PREVIEW_SCENE_INDEX_H
 
 #include "usdGen/api/sharedCell.h"
+#include "usdGenImaging/export.h"
 #include "usdGenSurface/maps/attributeMap.h"
 
 #include "pxr/base/gf/vec2f.h"
@@ -63,7 +64,7 @@ PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenImaging {
 
-class UsdGenAttributePreviewSceneIndex : public HdSingleInputFilteringSceneIndexBase {
+class USDGEN_HYDRA_API UsdGenAttributePreviewSceneIndex : public HdSingleInputFilteringSceneIndexBase {
 public:
     // attachGlobal: also serve the process-global registry's overlays (the
     // render-chain plugin passes true; tests choose).
@@ -148,7 +149,7 @@ private:
 // The process-global overlay table the brush C ABI writes. Deliberately
 // leaked (like PomadeRegistry): scene indices may be destroyed during static
 // destruction and must still be able to detach.
-class UsdGenAttributePreviewRegistry {
+class USDGEN_HYDRA_API UsdGenAttributePreviewRegistry {
 public:
     static UsdGenAttributePreviewRegistry &Get();
 

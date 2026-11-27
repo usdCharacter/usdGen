@@ -37,6 +37,7 @@
 #define USDGEN_IMAGING_INSTANCER_H
 
 #include "usdGenHydraCurves/publication.h"
+#include "usdGenHydraCurves/export.h"
 
 #include <cstdint>
 
@@ -135,7 +136,7 @@ struct UsdGenInstanceResult
     TfToken visibility;
 };
 
-class UsdGenInstancer
+class USDGEN_HYDRA_CURVES_API UsdGenInstancer
 {
 public:
     // -- vocabulary ------------------------------------------------------
@@ -223,7 +224,7 @@ public:
         SdfPath const &prototypeRoot);
 
     // -- notices (06 §5.1 instancer rows) --------------------------------------
-    struct InstanceNotices
+    struct USDGEN_HYDRA_CURVES_API InstanceNotices
     {
         // Any count/binding change -> instancerTopology (index rebuild).
         bool topologyDirty = false;

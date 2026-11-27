@@ -23,6 +23,7 @@
 #define USDGEN_IMAGING_REST_API_DATA_SOURCE_H
 
 #include "usdGenImaging/api.h"
+#include "usdGenImaging/export.h"
 
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/dataSource.h"
@@ -37,7 +38,7 @@ namespace usdGenImaging {
 /// AttributeMapping::factory for the usdGen/rest container: builds the six
 /// rest leaves above on the given prim. Returns nullptr when the prim is not
 /// a Mesh (the caller warns once per prim, 02 §2.15).
-HdContainerDataSourceHandle UsdGenRestApiContainerFactory(
+USDGEN_HYDRA_API HdContainerDataSourceHandle UsdGenRestApiContainerFactory(
     UsdPrim const &prim,
     UsdImagingDataSourceStageGlobals const &globals);
 
@@ -49,7 +50,7 @@ HdContainerDataSourceHandle UsdGenRestApiContainerFactory(
 ///   usdGen:rest:file assetPath                     -> usdGen/rest/points (asset)
 /// Returns the set of container locators to dirty for the given authoring
 /// properties (empty set == no invalidation).
-HdDataSourceLocatorSet UsdGenRestApiInvalidateMapping(
+USDGEN_HYDRA_API HdDataSourceLocatorSet UsdGenRestApiInvalidateMapping(
     UsdPrim const &prim,
     TfTokenVector const &properties,
     UsdImagingPropertyInvalidationType invalidationType);
