@@ -20,6 +20,7 @@
 // widths or colours, the drivers with the stage's own locators; the scene
 // globals' frame alone cooks nothing (the example reads no $frame).
 #include "usdGen/compiler.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
@@ -2022,6 +2023,7 @@ void CheckResidentAnimation()
 
 int main(int argc, char** argv)
 {
+    usdGenTest::EnsureHydraPublishers();
     if (argc == 2 && std::strcmp(argv[1], "--gpu-pose") == 0) {
         CheckImmediateAnimationPublication();
         UsdGenGroomSceneIndex::DrainRetired();

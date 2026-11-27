@@ -44,7 +44,8 @@
 // UsdImagingSelectionSceneIndex sit in UsdImagingGLEngine.
 
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenTestUtils/hydraPublishers.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/opRegistry.h"
 
@@ -303,6 +304,7 @@ HdContainerDataSourceHandle SelectionsOverlay()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
 
     UsdStageRefPtr stage = UsdStage::CreateInMemory("viewport-overlay");
     stage->GetRootLayer()->ImportFromString(kFixture);

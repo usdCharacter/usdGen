@@ -51,11 +51,13 @@ set_tests_properties(testUsdGenRegistries PROPERTIES LABELS "T0;registries")
 # Step 6.4: the primitives are DLLs that usdGen loads; links usdGen only.
 add_executable(testUsdGenRegistrarLoad tests/testUsdGenRegistrarLoad.cpp)
 target_link_libraries(testUsdGenRegistrarLoad PRIVATE usdGen)
-add_dependencies(testUsdGenRegistrarLoad usdGenSurface usdGenExpr usdGenCurves usdGenSchema)
+add_dependencies(testUsdGenRegistrarLoad usdGenSurface usdGenExpr usdGenCurves usdGenSchema
+    usdGenHydraCurves)
 target_compile_definitions(testUsdGenRegistrarLoad PRIVATE
     "USDGEN_TEST_SURFACE=\"$<TARGET_FILE:usdGenSurface>\""
     "USDGEN_TEST_EXPR=\"$<TARGET_FILE:usdGenExpr>\""
     "USDGEN_TEST_CURVES=\"$<TARGET_FILE:usdGenCurves>\""
+    "USDGEN_TEST_HYDRA_CURVES=\"$<TARGET_FILE:usdGenHydraCurves>\""
     "USDGEN_TEST_NOT_EXTENSION=\"$<TARGET_FILE:usdGenSchema>\"")
 if(TARGET usdGenVulkan AND USDGEN_ENABLE_VULKAN_RUNTIME)
     # "defaults" also loads usdGenVulkan, which registers the vulkan backend.

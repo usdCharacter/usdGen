@@ -1,4 +1,5 @@
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGen/compiler.h"
 #include "usdGenUsd/lower.h"
@@ -134,6 +135,7 @@ std::shared_ptr<const UsdGenGeneration> DevicePayload(
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     UsdGenGraphDesc desc = Description();
     UsdGenExecutionInputVersions versions =
         UsdGenExecutionInputVersions::FromDescription(usdGenUsd::Lower(desc));

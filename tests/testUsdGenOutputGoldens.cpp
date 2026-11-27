@@ -19,9 +19,10 @@
 // prints each cook's diagnostics.
 
 #include "golden/goldenGraphs.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "nodeSets.h"
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
 #include "usdGen/compiler.h"
 #include "usdGen/generationStore.h"
 #include "usdGen/graph.h"
@@ -580,6 +581,7 @@ bool Compare(std::string const &expectedText, std::string const &actualText)
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     g_verbose = std::getenv("USDGEN_GOLDEN_VERBOSE") != nullptr;
     char const *write = std::getenv("USDGEN_GOLDEN_WRITE");
     if (!Definition(TfToken("UsdGenLength"))) {

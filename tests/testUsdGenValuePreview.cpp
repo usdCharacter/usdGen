@@ -16,6 +16,7 @@
 // The Hydra material schemas first: a header below pulls in <windows.h>,
 // whose `interface` macro breaks materialNetworkSchema.h.
 #include "pxr/imaging/hd/dataSource.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "pxr/imaging/hd/materialBindingSchema.h"
 #include "pxr/imaging/hd/materialBindingsSchema.h"
 #include "pxr/imaging/hd/materialNetworkSchema.h"
@@ -27,10 +28,10 @@
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/valuePreview.h"
+#include "usdGenHydraCurves/previewColor.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
-#include "usdGenImaging/usdGenTilePublisher.h"
+#include "usdGenHydraCurves/usdGenTilePublisher.h"
 
 #include "pxr/usd/sdf/path.h"
 #include "pxr/usd/usd/attribute.h"
@@ -399,6 +400,7 @@ void CheckScene()
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     CheckColorMaps();
     CheckBuilder();
     CheckScene();

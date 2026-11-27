@@ -25,6 +25,7 @@
 // diagnostics.
 
 #include "golden/goldenGraphs.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "nodeSets.h"
 
 #include "usdGen/compile/compiler.h"
@@ -35,7 +36,7 @@
 #include "usdGen/exec/scheduler.h"
 #include "usdGen/exec/session.h"
 #include "usdGen/registries/op.h"
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
@@ -746,6 +747,7 @@ void Compare(std::string const &expected, std::string const &actual)
 
 int main(int argc, char **argv)
 {
+    usdGenTest::EnsureHydraPublishers();
     g_verbose = std::getenv("USDGEN_GOLDEN_VERBOSE") != nullptr;
     if (char const *t = std::getenv("USDGEN_COOK_GOLDEN_THREADS")) g_threads = std::max(1, std::atoi(t));
     bool rewrite = false;

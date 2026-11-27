@@ -5,7 +5,8 @@
 // USDGEN_EXTENSIONS empty the registries start bare, and UsdGenLoadExtension
 // loads usdGenSurface, usdGenExpr and usdGenCurves and runs their
 // usdGenRegister. "defaults": the registry build loads the three from
-// usdGen's directory.
+// usdGen's directory. Neither registers a curve publisher: the curves' Hydra
+// adapter (usdGenHydraCurves) does, and only before the registries freeze.
 
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
@@ -56,7 +57,8 @@ void CheckPrimitives(std::string const &mode)
     Check(UsdGenIndex(curves) == 0, mode + ": UsdGenCurveSet keeps type id 0");
     Check(TypeOf("UsdGenRootSet") != UsdGenTypeId::Invalid, mode + ": UsdGenRootSet type");
     Check(TypeOf("UsdGenSurfaceInput") != UsdGenTypeId::Invalid, mode + ": surface input kind");
-    Check(UsdGenFindPublisher(curves) != nullptr, mode + ": curve publisher");
+    Check(UsdGenFindPublisher(curves) == nullptr,
+          mode + ": the primitive registers no publisher (its Hydra adapter does)");
 }
 
 int RunLoad()
@@ -83,6 +85,11 @@ int RunLoad()
         Check(UsdGenLoadExtension(path, &error), std::string("load ") + path + ": " + error);
     }
     CheckPrimitives("load");
+    error.clear();
+    Check(UsdGenLoadExtension(USDGEN_TEST_HYDRA_CURVES, &error),
+          std::string("load the curves' Hydra adapter: ") + error);
+    Check(UsdGenFindPublisher(TypeOf("UsdGenCurveSet")) != nullptr,
+          "load: the Hydra adapter registers the curve publisher");
 
     UsdGenFreezeRegistries();
     error.clear();
@@ -102,6 +109,15 @@ int RunDefaults()
           "defaults: the CPU is built in");
     Check(UsdGenFindBackend(TfToken("noSuchBackend")) == UsdGenBackendId::Invalid,
           "defaults: an unregistered name finds no backend");
+    // A host that registers its publisher after the first compile is too late:
+    // the type publishes nothing (the cooker says so once per session).
+    UsdGenFreezeRegistries();
+    error.clear();
+    Check(!UsdGenLoadExtension(USDGEN_TEST_HYDRA_CURVES, &error) &&
+              error.find("frozen") != std::string::npos,
+          "defaults: the Hydra adapter cannot register after the freeze");
+    Check(UsdGenFindPublisher(TypeOf("UsdGenCurveSet")) == nullptr,
+          "defaults: no curve publisher after a late registration");
 #if defined(USDGEN_TEST_VULKAN_BACKEND)
     UsdGenBackendId const vk = UsdGenFindBackend(TfToken("vulkan"));
     UsdGenBackendDef const *def = UsdGenGetBackend(vk);

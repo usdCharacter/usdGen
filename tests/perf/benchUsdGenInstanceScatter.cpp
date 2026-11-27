@@ -30,7 +30,8 @@
 //
 // Scatter Evaluate is intentionally absent: it is an empty identity hook
 // (ops/scatter.cpp), so there is nothing to time.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/curveBuffer.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
@@ -43,7 +44,7 @@
 #include "../usdGenOpFixture.h"
 #include "usdGen/sessionCooker.h"
 #include "usdGen/types.h"
-#include "usdGenImaging/usdGenInstancer.h"
+#include "usdGenHydraCurves/usdGenInstancer.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/quatf.h"
@@ -70,6 +71,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <deque>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -405,6 +407,26 @@ UsdGenInstanceParams BakeParams(char const *primitive, char const *orient,
     return p;
 }
 
+// The instancer reads curve columns, not a curve buffer: share the arrays.
+static std::deque<usdGenImaging::UsdGenInstanceCurveData> g_instanceData;
+static usdGenImaging::UsdGenInstanceCurveData const *InstanceData(usdGen::UsdGenCurveBuffer const &b)
+{
+    usdGenImaging::UsdGenInstanceCurveData d;
+    d.totalCurves = b.totalCurves;
+    d.totalCvs = b.totalCvs;
+    d.px = b.px;
+    d.py = b.py;
+    d.pz = b.pz;
+    d.curveId = b.curveId;
+    d.rootT = b.rootT;
+    d.rootN = b.rootN;
+    d.rootB = b.rootB;
+    d.cvOffsets = b.cvOffsets;
+    d.extraCurve = b.extraCurve;
+    g_instanceData.push_back(std::move(d));
+    return &g_instanceData.back();
+}
+
 int RunBake(Options const &opts, char const *stage, char const *primitive,
             char const *orient, float twist, float twistRandom,
             UsdGenCurveBuffer const &curves, VtVec3fArray const &color)
@@ -412,7 +434,7 @@ int RunBake(Options const &opts, char const *stage, char const *primitive,
     UsdGenInstanceParams const params =
         BakeParams(primitive, orient, twist, twistRandom);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     input.displayColor = color;
     SdfPath const path("/groom/__usdGenRender/inst_op");
     std::vector<double> ms;
@@ -451,7 +473,7 @@ int RunDraw(Options const &opts, UsdGenCurveBuffer const &curves,
     UsdGenInstanceParams const params =
         BakeParams("cards", "surfaceFrame", 15.0f, 30.0f);
     UsdGenInstanceCurves input;
-    input.curves = &curves;
+    input.curves = InstanceData(curves);
     input.displayColor = color;
     UsdGenInstanceResult baked;
     std::string error;
@@ -547,7 +569,7 @@ int RunDrawVary2(Options const &opts, UsdGenCurveBuffer const &curves,
     params.variationPrimvars =
         VtArray<TfToken>{TfToken("displayColor"), TfToken("usdGen:pair")};
     UsdGenInstanceCurves input;
-    input.curves = &vary;
+    input.curves = InstanceData(vary);
     input.displayColor = color;
     UsdGenInstanceResult baked;
     std::string error;
@@ -1304,6 +1326,7 @@ int RunVkDispatch(Options const &opts, UsdGenCurveBuffer const &roots)
 
 int main(int argc, char **argv)
 {
+    usdGenTest::EnsureHydraPublishers();
     Options opts;
     for (int i = 1; i < argc; ++i) {
         std::string const a(argv[i]);

@@ -1,6 +1,7 @@
 // CUDA generation presentation snapshot: descriptor scalar state must travel
 // with the accepted device generation, including tool point revisions.
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGen/gpu/deviceBuffer.h"
 #include "usdGenUsd/lower.h"
@@ -110,6 +111,7 @@ static bool Read(CudaGeometryLease const& lease, std::vector<float3>* points,
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
     cudaStream_t stream = nullptr;
     CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) == cudaSuccess);
 

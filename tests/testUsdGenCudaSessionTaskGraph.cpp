@@ -1,4 +1,5 @@
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
 #include "usdGen/executionTaskGraph.h"
 #include "usdGenUsd/lower.h"
@@ -194,6 +195,7 @@ static bool WaitForWidthBranches() {
 }
 
 int main() {
+    usdGenTest::EnsureHydraPublishers();
     int device = -1; CHECK(cudaGetDevice(&device) == cudaSuccess);
     cudaStream_t reader = nullptr; CHECK(cudaStreamCreateWithFlags(&reader, cudaStreamNonBlocking) == cudaSuccess);
     UsdGenExecutionRuntime runtime(1);

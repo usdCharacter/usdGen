@@ -16,7 +16,8 @@
 //
 // Tier T1 (registered in CMake); engine-only body (gate B-1).
 
-#include "usdGenCurves/publish/curvePublication.h"
+#include "usdGenHydraCurves/publication.h"
+#include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGen/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
@@ -146,6 +147,7 @@ UsdGenGraphDesc MakeG3(int NX = 250, int NY = 10)
 
 int main()
 {
+    usdGenTest::EnsureHydraPublishers();
 
     constexpr int kReaders = 8;
     constexpr int kGenerations = 100;
