@@ -111,9 +111,9 @@ int main() {
     uint32_t offsets[3]{};
     CHECK(cudaMemcpy(offsets, firstLease.Geometry().curveOffsets.data, sizeof(offsets), cudaMemcpyDeviceToHost) == cudaSuccess);
     CHECK(offsets[0] == 0 && offsets[1] == 3 && offsets[2] == 7);
-    auto pointPayload = gpu::AcquireNamedChannel(first->device, "pointPayload", stream);
-    auto primitivePayload = gpu::AcquireNamedChannel(first->device, "primitivePayload", stream);
-    auto groomPayload = gpu::AcquireNamedChannel(first->device, "groomPayload", stream);
+    auto pointPayload = gpu::AcquireNamedChannel(first->device, TfToken("pointPayload"), stream);
+    auto primitivePayload = gpu::AcquireNamedChannel(first->device, TfToken("primitivePayload"), stream);
+    auto groomPayload = gpu::AcquireNamedChannel(first->device, TfToken("groomPayload"), stream);
     std::vector<float> pointValues, groomValues;
     std::vector<int32_t> primitiveValues;
     CHECK(ReadNamed(pointPayload, &pointValues, stream) &&
@@ -161,9 +161,9 @@ int main() {
     auto emptyLease = gpu::AcquireGeometry(empty->device, stream); CHECK(emptyLease);
     CHECK(Read(emptyLease, &points, &widths, &ids, stream));
     CHECK(ids.empty() && points.empty() && widths.empty() && emptyLease.Geometry().curveOffsets.size == 1);
-    auto emptyPoint = gpu::AcquireNamedChannel(empty->device, "pointPayload", stream);
-    auto emptyPrimitive = gpu::AcquireNamedChannel(empty->device, "primitivePayload", stream);
-    auto emptyGroom = gpu::AcquireNamedChannel(empty->device, "groomPayload", stream);
+    auto emptyPoint = gpu::AcquireNamedChannel(empty->device, TfToken("pointPayload"), stream);
+    auto emptyPrimitive = gpu::AcquireNamedChannel(empty->device, TfToken("primitivePayload"), stream);
+    auto emptyGroom = gpu::AcquireNamedChannel(empty->device, TfToken("groomPayload"), stream);
     CHECK(ReadNamed(emptyPoint, &pointValues, stream) && pointValues.empty());
     CHECK(ReadNamed(emptyPrimitive, &primitiveValues, stream) && primitiveValues.empty());
     CHECK(ReadNamed(emptyGroom, &groomValues, stream) &&

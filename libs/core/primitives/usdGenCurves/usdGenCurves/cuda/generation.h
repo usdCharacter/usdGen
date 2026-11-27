@@ -101,11 +101,11 @@ private:
     UsdGenDeviceChannelMetadata metadata_;
     DeviceView<const unsigned char> bytes_;
     friend CudaNamedChannelLease AcquireNamedChannel(
-        std::shared_ptr<const UsdGenDeviceGeneration> const&, std::string const&, cudaStream_t);
+        std::shared_ptr<const UsdGenDeviceGeneration> const&, UsdGenToken const&, cudaStream_t);
 };
 
 CudaNamedChannelLease AcquireNamedChannel(
-    std::shared_ptr<const UsdGenDeviceGeneration> const&, std::string const&, cudaStream_t);
+    std::shared_ptr<const UsdGenDeviceGeneration> const&, UsdGenToken const&, cudaStream_t);
 
 // Read-only geometry access for CUDA tools/consumers. The native stream must
 // remain alive until every copy of the lease is released. Destruction arranges

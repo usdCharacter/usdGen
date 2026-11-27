@@ -58,7 +58,7 @@ CudaNamedChannelPlane Plane(char const* name, UsdGenDeviceValueType type,
                             uint32_t arity, std::array<T, N> const& values)
 {
     CudaNamedChannelPlane result;
-    result.metadata = {name, type, domain, elements, arity,
+    result.metadata = {TfToken(name), type, domain, elements, arity,
         uint32_t(sizeof(T) * arity), true,
         UsdGenDeviceChannelSemantic::Generic};
     result.bytes = std::make_unique<DeviceBuffer<unsigned char>>();
@@ -73,7 +73,7 @@ template<class T, size_t N>
 bool Read(std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
           char const* name, std::array<T, N>* values)
 {
-    auto lease = AcquireNamedChannel(generation, name, nullptr);
+    auto lease = AcquireNamedChannel(generation, TfToken(name), nullptr);
     return lease && lease.Bytes().size == sizeof(*values) &&
         cudaMemcpy(values->data(), lease.Bytes().data, sizeof(*values),
                    cudaMemcpyDeviceToHost) == cudaSuccess;
@@ -260,7 +260,7 @@ int main()
         auto lifetime = std::make_shared<RawInputLifetime>();
         lifetime->source = AcquireGeometry(source, asyncStream);
         lifetime->target = AcquireGeometry(resampled, asyncStream);
-        lifetime->channel = AcquireNamedChannel(source, "f", asyncStream);
+        lifetime->channel = AcquireNamedChannel(source, TfToken("f"), asyncStream);
         CHECK(lifetime->source && lifetime->target && lifetime->channel);
         CudaNamedChannelTopologyCandidate rawCandidate;
         std::vector<CudaNamedChannelTopologyCandidate::RawInputPlane> rawInputs{{
@@ -302,7 +302,7 @@ int main()
               lifetime->readyPlane->recordUse(producer) == cudaSuccess);
         CudaNamedChannelTopologyCandidate candidate;
         CudaNamedChannelTopologyCandidate::RawInputPlane input{
-            {"ready", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point,
+            {TfToken("ready"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point,
              5, 1, sizeof(float), true, UsdGenDeviceChannelSemantic::Generic},
             {lifetime->readyPlane->data(), lifetime->readyPlane->size()},
             lifetime->readyPlane.get()};
@@ -324,7 +324,7 @@ int main()
     {
         auto lifetime = std::make_shared<RawInputLifetime>();
         lifetime->source = AcquireGeometry(source, asyncStream);
-        lifetime->channel = AcquireNamedChannel(source, "f", asyncStream);
+        lifetime->channel = AcquireNamedChannel(source, TfToken("f"), asyncStream);
         lifetime->offsets = std::make_unique<DeviceBuffer<uint32_t>>();
         lifetime->ids = std::make_unique<DeviceBuffer<uint64_t>>();
         std::array<uint32_t, 3> offsets{{0, 2, 4}};
@@ -371,7 +371,7 @@ int main()
             {lifetime->offsets->data(), lifetime->offsets->size()};
         CudaNamedChannelTopologyCandidate candidate;
         CudaNamedChannelTopologyCandidate::RawInputPlane input{
-            {"empty", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point,
+            {TfToken("empty"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point,
              0, 1, sizeof(float), true, UsdGenDeviceChannelSemantic::Generic},
             {nullptr, 0}};
         CHECK(candidate.BeginRaw(empty, empty, {input}, asyncStream,

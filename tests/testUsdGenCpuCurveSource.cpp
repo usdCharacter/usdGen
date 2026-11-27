@@ -128,7 +128,7 @@ static bool CudaParity(UsdGenGraphDesc d, UsdGenCurveBuffer const& cpu) {
     }
     for (auto const* planes : {&cpu.extraCv, &cpu.extraCurve}) {
         for (auto const& plane : *planes) {
-            auto channel = gpu::AcquireNamedChannel(generation, plane.name.GetString(), nullptr);
+            auto channel = gpu::AcquireNamedChannel(generation, plane.name, nullptr);
             if (!channel) return false;
             auto bytes = channel.Bytes();
             if (plane.type == TfToken("float")) {

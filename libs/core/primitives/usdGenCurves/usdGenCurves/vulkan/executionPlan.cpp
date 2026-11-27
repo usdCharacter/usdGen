@@ -991,6 +991,13 @@ CompileVulkanSourceWidthPlan(UsdGenGraphSpec const &original, UsdGenDiagnostics 
         // Reserve the publication task and the UINT32_MAX missing-index sentinel.
         if (steps.size() >= size_t(UINT32_MAX) - 2)
             return false;
+        // Job-private target plane names, interned here (compile phase).
+        if (value.kind == VulkanSourceWidthStage::Kind::Deform)
+            value.deform.rootTargetPlane =
+                UsdGenInternToken("__usdGenDeformRoots" + std::to_string(steps.size()));
+        else if (value.kind == VulkanSourceWidthStage::Kind::Grow && !value.emptyGenerator)
+            value.growTargetPlane =
+                UsdGenInternToken("__vulkanGrowTargets" + std::to_string(steps.size()));
         steps.push_back(std::move(value));
         authoredIndices.push_back(authored);
         internalStages.push_back(internal);

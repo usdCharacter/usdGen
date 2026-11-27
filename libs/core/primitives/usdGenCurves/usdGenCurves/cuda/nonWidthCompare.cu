@@ -100,13 +100,13 @@ cudaError_t Validate(CurveFullNonWidthInput const& x, int d) {
             (chunk.curveCount && chunk.cvCount > (g.pointCount - chunk.firstCv) / chunk.curveCount))
             return cudaErrorInvalidValue;
     }
-    std::vector<std::string> names;
+    std::vector<UsdGenToken> names;
     names.reserve(x.named.size());
     for (auto const& p:x.named) { auto const&m=p.metadata; size_t bytes=0, packedStride=0, components=0;
         uint64_t expected = m.domain == UsdGenDeviceDomain::Point ? g.pointCount :
             m.domain == UsdGenDeviceDomain::Primitive ? g.curveCount :
             m.domain == UsdGenDeviceDomain::Groom ? 1 : 0;
-        if(m.name.empty() || !Type(m.type) || !Domain(m.domain) || !Semantic(m.semantic) ||
+        if(m.name.IsEmpty() || !Type(m.type) || !Domain(m.domain) || !Semantic(m.semantic) ||
            m.semantic != UsdGenDeviceChannelSemantic::Generic || !m.arity ||
            (m.domain != UsdGenDeviceDomain::Point && m.domain != UsdGenDeviceDomain::Primitive && m.domain != UsdGenDeviceDomain::Groom) ||
            m.elementCount != expected || std::find(names.begin(), names.end(), m.name) != names.end() ||

@@ -727,11 +727,11 @@ int main() {
         geometry.elementCount = 2;
         geometry.pointCount = 5;
         std::vector<UsdGenDeviceChannelMetadata> channels{
-            {"points", UsdGenDeviceValueType::Float32x3, UsdGenDeviceDomain::Point, 5, 3, 12,
+            {TfToken("points"), UsdGenDeviceValueType::Float32x3, UsdGenDeviceDomain::Point, 5, 3, 12,
                 true, UsdGenDeviceChannelSemantic::Points},
-            {"curveOffsets", UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Topology, 3,
+            {TfToken("curveOffsets"), UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Topology, 3,
                 1, 4, true, UsdGenDeviceChannelSemantic::ElementOffsets},
-            {"stableIds", UsdGenDeviceValueType::UInt64, UsdGenDeviceDomain::Primitive, 2,
+            {TfToken("stableIds"), UsdGenDeviceValueType::UInt64, UsdGenDeviceDomain::Primitive, 2,
                 1, 8, true, UsdGenDeviceChannelSemantic::StableIds},
         };
         bool admission = ValidatePicktileVkToolChannels(geometry, channels);

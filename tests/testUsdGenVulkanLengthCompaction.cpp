@@ -122,13 +122,13 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     info.geometry.alreadyDeformed = true;
     info.geometry.tiles = {{7,0,2,0,5}, {9,2,2,5,6}};
     float groom[] = {9.5f, 7.25f};
-    info.additionalNamed.push_back({{"GroomNamed", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 2, 8, true}, Bytes(groom, 2)});
+    info.additionalNamed.push_back({{TfToken("GroomNamed"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Groom, 1, 2, 8, true}, Bytes(groom, 2)});
     uint32_t primitiveNamed[] = {400,401,402,403};
-    info.additionalNamed.push_back({{"PrimitiveNamed", UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 4, 1, 4, true}, Bytes(primitiveNamed, 4)});
+    info.additionalNamed.push_back({{TfToken("PrimitiveNamed"), UsdGenDeviceValueType::UInt32, UsdGenDeviceDomain::Primitive, 4, 1, 4, true}, Bytes(primitiveNamed, 4)});
     // 5-byte records prove byte-addressed scatter does not overlap odd strides.
     std::vector<uint8_t> odd(5 * 10 + 4);
     for (size_t i = 0; i != odd.size(); ++i) odd[i] = uint8_t(17 + i);
-    info.additionalNamed.push_back({{"PointNamed", UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 11, 1, 5, true}, std::move(odd)});
+    info.additionalNamed.push_back({{TfToken("PointNamed"), UsdGenDeviceValueType::Float32, UsdGenDeviceDomain::Point, 11, 1, 5, true}, std::move(odd)});
     return info;
 }
 
@@ -167,7 +167,7 @@ static VulkanSourceGenerationCreateInfo LargeFixture(std::shared_ptr<DeviceConte
                                    UsdGenCurveLayoutWrap::Pinned);
     info.geometry.alreadyDeformed = true;
     float groom[] = {3.25f};
-    info.additionalNamed.push_back({{"LargeGroom", UsdGenDeviceValueType::Float32,
+    info.additionalNamed.push_back({{TfToken("LargeGroom"), UsdGenDeviceValueType::Float32,
                                      UsdGenDeviceDomain::Groom, 1, 1, 4, true}, Bytes(groom, 1)});
     return info;
 }
@@ -249,7 +249,7 @@ int main(int argc, char** argv) {
     CHECK(!pipeline->Begin(base, -1.f, &status));
     CHECK(!pipeline->Begin(base, std::numeric_limits<float>::infinity(), &status));
     CHECK(!pipeline->Begin(base, std::numeric_limits<float>::quiet_NaN(), &status));
-    CHECK(!base->PlaneOwner("sourceRootT") && base->SourceFrameOwner("sourceRootT"));
+    CHECK(!base->PlaneOwner(TfToken("sourceRootT")) && base->SourceFrameOwner(TfToken("sourceRootT")));
     bool admissionCalled = false;
     CHECK(!pipeline->Begin(base, 1.f, &status, [&] { admissionCalled = true; return false; }) && admissionCalled);
     auto compact = [&](std::shared_ptr<const VulkanSourceGeneration> input, float threshold, uint64_t version) {
@@ -294,8 +294,8 @@ int main(int argc, char** argv) {
     // full workgroups plus a partial ninth, checking ragged source offsets.
     auto large = Upload(native, LargeFixture(context)); CHECK(large && large->curveCount() == 513);
     Packet largeOriginal; CHECK(Capture(native, context, large, &largeOriginal));
-    CHECK(large->PlaneOwner("sourceRootT") == nullptr && large->SourceFrameOwner("sourceRootT"));
-    CHECK(large->PlaneOwner("LargeGroom"));
+    CHECK(large->PlaneOwner(TfToken("sourceRootT")) == nullptr && large->SourceFrameOwner(TfToken("sourceRootT")));
+    CHECK(large->PlaneOwner(TfToken("LargeGroom")));
     auto largeOffsets = std::vector<uint32_t>(514, 0);
     for (uint32_t c = 0; c != 513; ++c) largeOffsets[c + 1] = largeOffsets[c] + c % 5;
     std::vector<uint32_t> survivors, survivorPoints;
@@ -313,7 +313,7 @@ int main(int argc, char** argv) {
     CHECK(!largeCandidate->BeginScatter(&status, [&] { scatterAdmission = true; return false; }) && scatterAdmission);
     auto largeSubset = compact(large, 2.f, 124); CHECK(largeSubset && largeSubset->curveCount() == survivors.size());
     CHECK(CompleteRaggedPacket(native, context, largeSubset, largeOriginal, survivors, survivorPoints, largeOffsets));
-    CHECK(largeSubset->PlaneOwner("LargeGroom") == large->PlaneOwner("LargeGroom"));
+    CHECK(largeSubset->PlaneOwner(TfToken("LargeGroom")) == large->PlaneOwner(TfToken("LargeGroom")));
     // Every source chunk/tile retains its identity while its range is prefix-
     // compacted.  In particular, a chunk with no survivors has zero counts
     // but still remains present for downstream tile scheduling.

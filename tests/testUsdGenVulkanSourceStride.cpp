@@ -77,7 +77,7 @@ static VulkanSourceGenerationCreateInfo Fixture(std::shared_ptr<DeviceContext> c
     auto& b = info.source;
     b.totalCurves = 1; b.totalCvs = 2; b.topologyVersion = 1; b.valueVersion = 1;
     b.px = {0, 1}; b.py = {0, 1}; b.pz = {0, 1}; b.curveId = {42}; b.cvOffsets = {0, 2};
-    info.additionalNamed.push_back({{"stride5", UsdGenDeviceValueType::Float32,
+    info.additionalNamed.push_back({{TfToken("stride5"), UsdGenDeviceValueType::Float32,
         UsdGenDeviceDomain::Point, 2, 1, 5, true, UsdGenDeviceChannelSemantic::Generic},
         std::move(payload)});
     return info;
@@ -101,7 +101,7 @@ int main() {
     CHECK(upload->Submit() == SourceGenerationStatus::Submitted);
     CHECK(Prove(native)); CHECK(upload->Poll() == SourceGenerationStatus::Ready);
     auto generation = upload->TakeReady(); CHECK(generation);
-    auto plane = generation->PlaneOwner("stride5"); CHECK(plane && plane->sizeBytes() == 9);
+    auto plane = generation->PlaneOwner(TfToken("stride5")); CHECK(plane && plane->sizeBytes() == 9);
     auto const& views = generation->planes();
     bool saw = false;
     for (auto const& view : views) if (view.metadata.name == "stride5") {

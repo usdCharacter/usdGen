@@ -1,5 +1,6 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/types/curveDeviceLayout.h"
+#include "usdGenCurves/types/deviceChannelTokens.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGenCurves/cuda/generation.h"
 #include "usdGen/gpu/cudaCompat.h"
@@ -182,7 +183,7 @@ public:
             ? payload_->scatterGrow->rootN() : payload_->compacted
             ? payload_->compacted->frames().normal : DeviceView<const float3>{};
     }
-    CudaNamedChannelPlane const* NamedChannel(std::string const& name) const noexcept {
+    CudaNamedChannelPlane const* NamedChannel(UsdGenToken const& name) const noexcept {
         for (auto const& plane : payload_->namedChannels)
             if (plane.metadata.name == name) return &plane;
         return payload_->base ? BaseOwner()->NamedChannel(name) : nullptr;
@@ -463,7 +464,7 @@ static bool AppendLocalNamedChannels(
     bool replaceGeneric = false)
 {
     if (!channels) return false;
-    std::vector<std::string> names;
+    std::vector<UsdGenToken> names;
     names.reserve(planes.size());
     for (CudaNamedChannelPlane const& plane : planes) {
         auto const& metadata = plane.metadata;
@@ -478,7 +479,7 @@ static bool AppendLocalNamedChannels(
             if (reason) *reason = "CUDA named channel has unsupported domain";
             return false;
         }
-        if (metadata.name.empty() ||
+        if (metadata.name.IsEmpty() ||
             metadata.semantic != UsdGenDeviceChannelSemantic::Generic ||
             !metadata.readOnly || metadata.arity == 0 || metadata.arity > 16 ||
             (metadata.type != UsdGenDeviceValueType::Float32 &&
@@ -612,21 +613,22 @@ static std::shared_ptr<const UsdGenDeviceGeneration> MakeGeneration(
     using Type = UsdGenDeviceValueType;
     using Domain = UsdGenDeviceDomain;
     using Semantic = UsdGenDeviceChannelSemantic;
-    auto channel = [&](char const* name, Type type, Domain domain,
+    UsdGenCurveChannelTokens const& ct = UsdGenCurveChannels();
+    auto channel = [&](UsdGenToken const& name, Type type, Domain domain,
                        size_t count, unsigned arity, unsigned stride, Semantic semantic) {
         info.channels.push_back({name, type, domain, count, arity, stride, true, semantic});
     };
-    channel("points", Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::Points);
-    channel("rest", Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::RestPoints);
-    channel("widths", Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::Widths);
-    channel("hairT", Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::HairT);
+    channel(ct.points, Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::Points);
+    channel(ct.rest, Type::Float32x3, Domain::Point, view.pointCount, 3, sizeof(float3), Semantic::RestPoints);
+    channel(ct.widths, Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::Widths);
+    channel(ct.hairT, Type::Float32, Domain::Point, view.pointCount, 1, sizeof(float), Semantic::HairT);
     // Offsets are topology storage (C+1), not a per-primitive value (C).
-    channel("curveOffsets", Type::UInt32, Domain::Topology, view.curveOffsets.size, 1, sizeof(uint32_t), Semantic::ElementOffsets);
-    channel("curveId", Type::UInt64, Domain::Primitive, view.curveCount, 1, sizeof(uint64_t), Semantic::StableIds);
+    channel(ct.curveOffsets, Type::UInt32, Domain::Topology, view.curveOffsets.size, 1, sizeof(uint32_t), Semantic::ElementOffsets);
+    channel(ct.curveId, Type::UInt64, Domain::Primitive, view.curveCount, 1, sizeof(uint64_t), Semantic::StableIds);
     if (rootPrim.size)
-        channel("skinprim", Type::Int32, Domain::Primitive, view.curveCount, 1, sizeof(int32_t), Semantic::RootPrim);
+        channel(ct.skinprim, Type::Int32, Domain::Primitive, view.curveCount, 1, sizeof(int32_t), Semantic::RootPrim);
     if (rootUV.size)
-        channel("skinprimuv", Type::Float32x2, Domain::Primitive, view.curveCount, 2, sizeof(float2), Semantic::RootUV);
+        channel(ct.skinprimuv, Type::Float32x2, Domain::Primitive, view.curveCount, 2, sizeof(float2), Semantic::RootUV);
     if (!AppendLocalNamedChannels(namedChannels, view, device, &info.channels, reason))
         return {};
     auto ticket = TryReserveCudaRetirement(device);
@@ -833,9 +835,9 @@ std::shared_ptr<const UsdGenDeviceGeneration> MakeNamedChannelRevisionGeneration
 
 CudaNamedChannelLease AcquireNamedChannel(
     std::shared_ptr<const UsdGenDeviceGeneration> const& generation,
-    std::string const& name, cudaStream_t stream) {
+    UsdGenToken const& name, cudaStream_t stream) {
     CudaNamedChannelLease result;
-    if (!generation || name.empty() || generation->Identity().backend != UsdGenCudaBackendId())
+    if (!generation || name.IsEmpty() || generation->Identity().backend != UsdGenCudaBackendId())
         return result;
     auto owner = std::dynamic_pointer_cast<SourceOwner const>(generation->Owner());
     auto const* plane = owner ? owner->NamedChannel(name) : nullptr;
