@@ -21,6 +21,7 @@
 #define USDGENUSD_DEBUGCODES_H
 
 #include "pxr/pxr.h"
+#include "usdGenUsd/export.h"
 #include "pxr/base/tf/debug.h"
 
 PXR_NAMESPACE_OPEN_SCOPE
@@ -37,7 +38,7 @@ PXR_NAMESPACE_CLOSE_SCOPE
 namespace usdGenUsd {
 
 /// Copies the four TfDebug codes into the engine's debug bits.
-void SyncDebugCodes() noexcept;
+USDGEN_USD_API void SyncDebugCodes() noexcept;
 
 }  // namespace usdGenUsd
 

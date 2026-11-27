@@ -10,6 +10,7 @@
 // Every value the engine reads goes through ToEngineValue: IsHolding is exact.
 #pragma once
 #include "usdGen/api/value.h"
+#include "usdGenUsd/export.h"
 #include "usdGenUsd/convert/array.h"
 #include "usdGenUsd/convert/math.h"
 
@@ -17,7 +18,7 @@
 
 namespace usdGenUsd {
 
-usdGen::UsdGenValue ToEngineValue(PXR_NS::VtValue const &v);
-PXR_NS::VtValue ToHostValue(usdGen::UsdGenValue const &v);
+USDGEN_USD_API usdGen::UsdGenValue ToEngineValue(PXR_NS::VtValue const &v);
+USDGEN_USD_API PXR_NS::VtValue ToHostValue(usdGen::UsdGenValue const &v);
 
 }  // namespace usdGenUsd

@@ -5,6 +5,7 @@
 // never seen. ToTf returns an immortal TfToken cached per token Id().
 #pragma once
 #include "usdGen/api/cowArray.h"
+#include "usdGenUsd/export.h"
 #include "usdGen/api/token.h"
 #include "usdGenUsd/convert/math.h"
 
@@ -17,16 +18,16 @@
 
 namespace usdGenUsd {
 
-usdGen::UsdGenToken ToToken(PXR_NS::TfToken const &t);
-usdGen::UsdGenToken ToToken(std::string_view text);
+USDGEN_USD_API usdGen::UsdGenToken ToToken(PXR_NS::TfToken const &t);
+USDGEN_USD_API usdGen::UsdGenToken ToToken(std::string_view text);
 inline usdGen::UsdGenToken ToToken(char const *text) { return ToToken(std::string_view(text ? text : "")); }
 inline usdGen::UsdGenToken ToToken(std::string const &text) { return ToToken(std::string_view(text)); }
 PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
 
-usdGen::UsdGenTokenVector ToTokens(std::vector<PXR_NS::TfToken> const &t);
-std::vector<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenVector const &t);
-usdGen::UsdGenTokenArray ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t);
-PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenArray const &t);
+USDGEN_USD_API usdGen::UsdGenTokenVector ToTokens(std::vector<PXR_NS::TfToken> const &t);
+USDGEN_USD_API std::vector<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenVector const &t);
+USDGEN_USD_API usdGen::UsdGenTokenArray ToTokens(PXR_NS::VtArray<PXR_NS::TfToken> const &t);
+USDGEN_USD_API PXR_NS::VtArray<PXR_NS::TfToken> ToTfs(usdGen::UsdGenTokenArray const &t);
 
 /// Engine token fields read a host value as TfToken (convert/math.h HostRep).
 template <>

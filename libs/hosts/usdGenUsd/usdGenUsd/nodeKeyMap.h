@@ -4,6 +4,7 @@
 // place a node key meets a path.
 #pragma once
 #include "usdGen/api/graphSpec.h"
+#include "usdGenUsd/export.h"
 #include "usdGen/api/nodeKey.h"
 
 #include "pxr/usd/sdf/path.h"
@@ -18,7 +19,7 @@ namespace usdGenUsd {
 
 /// One per groom scene index / stage builder. Not thread-safe; owned by the
 /// builder that keys its paths.
-class NodeKeyMap {
+class USDGEN_USD_API NodeKeyMap {
 public:
     /// Key hash of a path's text. Salt 0 is plain FNV-1a64 of the text; a
     /// salt > 0 folds its four bytes in first (collision re-probe).

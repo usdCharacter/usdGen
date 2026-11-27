@@ -6,6 +6,7 @@
 #define USDGENUSD_LOWER_H
 
 #include "usdGenUsd/graphDesc.h"
+#include "usdGenUsd/export.h"
 #include "usdGenUsd/nodeKeyMap.h"
 #include "usdGenUsd/presentation.h"
 
@@ -32,7 +33,7 @@ namespace usdGenUsd {
 /// presentation. Immutable once made; a spec carries it as
 /// UsdGenGraphSpec::host, and the engine copies that into the generations and
 /// routing snapshots it makes from the spec.
-class PathTable final : public usdGen::UsdGenHostData {
+class USDGEN_USD_API PathTable final : public usdGen::UsdGenHostData {
 public:
     explicit PathTable(std::vector<std::pair<usdGen::UsdGenNodeKey, PXR_NS::SdfPath>> entries,
                        UsdGenPresentation presentation = UsdGenPresentation());
@@ -58,7 +59,7 @@ private:
 
 /// Keys paths for a hand-built engine value (a routing snapshot, a cache key)
 /// and remembers them, so Table() can serve as that value's host data.
-class PathRecorder {
+class USDGEN_USD_API PathRecorder {
 public:
     usdGen::UsdGenNodeKey operator()(PXR_NS::SdfPath const &path);
     usdGen::UsdGenRef<const PathTable> Table() const;
@@ -70,7 +71,7 @@ private:
 
 /// UsdGenStackParams over host types: owns lowered copies of the graph and
 /// node it views (tests and tools that drive one op by hand).
-class LoweredParams {
+class USDGEN_USD_API LoweredParams {
 public:
     /// Resolved slots point into the host node's params, so in-place value
     /// edits of 'node' show through the view (as with UsdGenStackParams).
@@ -91,26 +92,26 @@ private:
 
 /// Lowers 'desc', keying its paths through 'map'. The spec's labels are the
 /// path texts and its host data is the PathTable of exactly these keys.
-usdGen::UsdGenGraphSpec Lower(usdGen::UsdGenGraphDesc const &desc, NodeKeyMap &map);
+USDGEN_USD_API usdGen::UsdGenGraphSpec Lower(usdGen::UsdGenGraphDesc const &desc, NodeKeyMap &map);
 /// Lowers with a fresh map (keys are then KeyOf(path)).
-usdGen::UsdGenGraphSpec Lower(usdGen::UsdGenGraphDesc const &desc);
-std::shared_ptr<const usdGen::UsdGenGraphSpec> LowerShared(
+USDGEN_USD_API usdGen::UsdGenGraphSpec Lower(usdGen::UsdGenGraphDesc const &desc);
+USDGEN_USD_API std::shared_ptr<const usdGen::UsdGenGraphSpec> LowerShared(
     usdGen::UsdGenGraphDesc const &desc, NodeKeyMap *map = nullptr);
 
 /// One input or node on its own, keyed by KeyOf (as a fresh map keys it):
 /// for tests and tools that drive an engine function with a single item.
-usdGen::UsdGenOpNode Lower(usdGen::UsdGenNodeDesc const &node);
+USDGEN_USD_API usdGen::UsdGenOpNode Lower(usdGen::UsdGenNodeDesc const &node);
 /// Each input becomes a record of its kind (read it through the kind's view).
-usdGen::UsdGenInputRecord Lower(usdGen::UsdGenCurveSetDesc const &curves);
-usdGen::UsdGenInputRecord Lower(usdGen::UsdGenSurfaceDesc const &surface);
-usdGen::UsdGenInputRecord Lower(usdGen::UsdGenMapDesc const &map);
-usdGen::UsdGenInputRecord Lower(usdGen::UsdGenGeometryDesc const &geometry);
-usdGen::UsdGenInputRecord Lower(usdGen::UsdGenExpressionDesc const &expression);
-usdGen::UsdGenParamBinding Lower(usdGen::UsdGenExpressionBinding const &binding);
+USDGEN_USD_API usdGen::UsdGenInputRecord Lower(usdGen::UsdGenCurveSetDesc const &curves);
+USDGEN_USD_API usdGen::UsdGenInputRecord Lower(usdGen::UsdGenSurfaceDesc const &surface);
+USDGEN_USD_API usdGen::UsdGenInputRecord Lower(usdGen::UsdGenMapDesc const &map);
+USDGEN_USD_API usdGen::UsdGenInputRecord Lower(usdGen::UsdGenGeometryDesc const &geometry);
+USDGEN_USD_API usdGen::UsdGenInputRecord Lower(usdGen::UsdGenExpressionDesc const &expression);
+USDGEN_USD_API usdGen::UsdGenParamBinding Lower(usdGen::UsdGenExpressionBinding const &binding);
 /// Lower(item) read through its kind's view; the view keeps the record's
 /// columns alive, so it outlives the temporary record.
-usdGen::UsdGenCurveSetInputView View(usdGen::UsdGenCurveSetDesc const &curves);
-usdGen::UsdGenSurfaceInputView View(usdGen::UsdGenSurfaceDesc const &surface);
+USDGEN_USD_API usdGen::UsdGenCurveSetInputView View(usdGen::UsdGenCurveSetDesc const &curves);
+USDGEN_USD_API usdGen::UsdGenSurfaceInputView View(usdGen::UsdGenSurfaceDesc const &surface);
 
 /// The address of a temporary, valid to the end of the full expression: a
 /// lowered host item passed where an engine call takes a pointer.
@@ -118,56 +119,56 @@ template <class T>
 T const *Addr(T const &value) noexcept { return &value; }
 
 /// The key a map gives 'path' when no other path collides with it.
-usdGen::UsdGenNodeKey KeyOf(PXR_NS::SdfPath const &path);
+USDGEN_USD_API usdGen::UsdGenNodeKey KeyOf(PXR_NS::SdfPath const &path);
 
 /// The table a spec, generation or routing snapshot carries, or null.
-PathTable const *Paths(usdGen::UsdGenGraphSpec const &spec);
-PathTable const *Paths(usdGen::UsdGenGeneration const &generation);
-PathTable const *Paths(usdGen::UsdGenGraphRoutingSnapshot const &routing);
-PathTable const *Paths(usdGen::UsdGenHostDataRef const &host);
+USDGEN_USD_API PathTable const *Paths(usdGen::UsdGenGraphSpec const &spec);
+USDGEN_USD_API PathTable const *Paths(usdGen::UsdGenGeneration const &generation);
+USDGEN_USD_API PathTable const *Paths(usdGen::UsdGenGraphRoutingSnapshot const &routing);
+USDGEN_USD_API PathTable const *Paths(usdGen::UsdGenHostDataRef const &host);
 /// The presentation a spec, generation or host data carries, or null.
-UsdGenPresentation const *Presentation(usdGen::UsdGenHostDataRef const &host);
-UsdGenPresentation const *Presentation(usdGen::UsdGenGraphSpec const &spec);
-UsdGenPresentation const *Presentation(usdGen::UsdGenGeneration const &generation);
+USDGEN_USD_API UsdGenPresentation const *Presentation(usdGen::UsdGenHostDataRef const &host);
+USDGEN_USD_API UsdGenPresentation const *Presentation(usdGen::UsdGenGraphSpec const &spec);
+USDGEN_USD_API UsdGenPresentation const *Presentation(usdGen::UsdGenGeneration const &generation);
 /// A device generation's presentation scalars (its spec's presentation);
 /// empty for a host publication.
-std::optional<UsdGenDevicePresentationMetadata> DevicePresentation(
+USDGEN_USD_API std::optional<UsdGenDevicePresentationMetadata> DevicePresentation(
     usdGen::UsdGenGeneration const &generation);
 /// Path of 'key' through 'table', else the empty path.
-PXR_NS::SdfPath PathOf(PathTable const *table, usdGen::UsdGenNodeKey key);
+USDGEN_USD_API PXR_NS::SdfPath PathOf(PathTable const *table, usdGen::UsdGenNodeKey key);
 /// Key of 'path' through 'table'; KeyOf(path) when the table lacks it.
-usdGen::UsdGenNodeKey KeyFor(PathTable const *table, PXR_NS::SdfPath const &path);
+USDGEN_USD_API usdGen::UsdGenNodeKey KeyFor(PathTable const *table, PXR_NS::SdfPath const &path);
 
 /// Lower + UsdGenCompiler::Compile / Recompile.
-usdGen::UsdGenCompileResult Compile(usdGen::UsdGenCompiler &compiler,
+USDGEN_USD_API usdGen::UsdGenCompileResult Compile(usdGen::UsdGenCompiler &compiler,
                                     usdGen::UsdGenGraphDesc const &desc,
                                     usdGen::UsdGenGraph *graph, NodeKeyMap *map = nullptr);
-usdGen::UsdGenCompileResult Recompile(usdGen::UsdGenCompiler &compiler,
+USDGEN_USD_API usdGen::UsdGenCompileResult Recompile(usdGen::UsdGenCompiler &compiler,
                                       usdGen::UsdGenGraphDesc const &desc,
                                       usdGen::UsdGenGraph *graph, NodeKeyMap *map = nullptr);
-usdGen::UsdGenCompileResult CompileInjectedDevice(
+USDGEN_USD_API usdGen::UsdGenCompileResult CompileInjectedDevice(
     usdGen::UsdGenCompiler &compiler, usdGen::UsdGenGraphDesc const &desc,
     usdGen::UsdGenGraph *graph, usdGen::UsdGenDevicePlanCompiler const &device,
     std::shared_ptr<const usdGen::UsdGenExecutionPlanHandle> *plan, NodeKeyMap *map = nullptr);
 
 /// Lower + UsdGenSession::SetGraphSpec / PostGraphSpec.
-void SetGraphDesc(usdGen::UsdGenSession &session, usdGen::UsdGenGraphDesc const &desc,
+USDGEN_USD_API void SetGraphDesc(usdGen::UsdGenSession &session, usdGen::UsdGenGraphDesc const &desc,
                   NodeKeyMap *map = nullptr);
-bool PostGraphDesc(usdGen::UsdGenSession &session, usdGen::UsdGenGraphDesc const &desc,
+USDGEN_USD_API bool PostGraphDesc(usdGen::UsdGenSession &session, usdGen::UsdGenGraphDesc const &desc,
                    NodeKeyMap *map = nullptr);
 
 /// The node of 'path' in a compiled graph or a session graph snapshot.
-usdGen::UsdGenNodeId NodeIdForPath(usdGen::UsdGenGraph const &graph, PXR_NS::SdfPath const &path);
-usdGen::UsdGenNodeId NodeIdForPath(usdGen::UsdGenSessionGraphSnapshot const &graph,
+USDGEN_USD_API usdGen::UsdGenNodeId NodeIdForPath(usdGen::UsdGenGraph const &graph, PXR_NS::SdfPath const &path);
+USDGEN_USD_API usdGen::UsdGenNodeId NodeIdForPath(usdGen::UsdGenSessionGraphSnapshot const &graph,
                                    PXR_NS::SdfPath const &path);
 /// A graph's node path (its key through the graph's table).
-PXR_NS::SdfPath NodePath(usdGen::UsdGenGraph const &graph, usdGen::UsdGenNodeId id);
+USDGEN_USD_API PXR_NS::SdfPath NodePath(usdGen::UsdGenGraph const &graph, usdGen::UsdGenNodeId id);
 
 /// Dirties every node reading geometry at or under 'prim' (UsdGenGraph::DirtyGeometry).
-void DirtyGeometry(usdGen::UsdGenGraph &graph, PXR_NS::SdfPath const &prim);
-void DirtyInput(usdGen::UsdGenGraph &graph, PXR_NS::SdfPath const &input,
+USDGEN_USD_API void DirtyGeometry(usdGen::UsdGenGraph &graph, PXR_NS::SdfPath const &prim);
+USDGEN_USD_API void DirtyInput(usdGen::UsdGenGraph &graph, PXR_NS::SdfPath const &input,
                 uint64_t generation = UINT64_MAX);
-void DirtyMap(usdGen::UsdGenGraph &graph, PXR_NS::SdfPath const &map,
+USDGEN_USD_API void DirtyMap(usdGen::UsdGenGraph &graph, PXR_NS::SdfPath const &map,
               uint64_t generation = UINT64_MAX);
 
 }  // namespace usdGenUsd

@@ -5,6 +5,7 @@
 #define USDGEN_IMAGING_IMAGE_MAP_CACHE_H
 
 #include "usdGenUsd/graphDesc.h"
+#include "usdGenUsd/export.h"
 #include "usdGenSurface/imagePayload.h"
 
 #include <cstdint>
@@ -29,22 +30,22 @@ struct UsdGenDecodedImageMap {
 // payload object. The path must already have been resolved by the caller's
 // source-specific asset layer (UsdStage or Hydra); this API never opens a
 // stage or reads a scene-index data source.
-UsdGenDecodedImageMap ResolveUsdGenImageMap(
+USDGEN_USD_API UsdGenDecodedImageMap ResolveUsdGenImageMap(
     std::string const& resolvedAssetPath);
 
 // Bumps the global image generation and drops cache-owned references. Existing
 // plans/jobs retain their shared immutable payloads and therefore remain safe.
 // Returns the new generation, which is never zero.
-uint64_t InvalidateUsdGenImageMapCache() noexcept;
+USDGEN_USD_API uint64_t InvalidateUsdGenImageMapCache() noexcept;
 
 // The generation that a newly resolved image will carry. Primarily useful to
 // coordinate resolver-change handling before graph descriptor capture.
-uint64_t CurrentUsdGenImageMapGeneration() noexcept;
+USDGEN_USD_API uint64_t CurrentUsdGenImageMapGeneration() noexcept;
 
 // Re-resolves every ImageMap in one descriptor against a single coherent
 // cache generation and stamps every map kind with that reload epoch. Decode
 // diagnostics owned by this helper are replaced, not accumulated.
-void ResolveUsdGenImageMaps(usdGen::UsdGenGraphDesc* desc);
+USDGEN_USD_API void ResolveUsdGenImageMaps(usdGen::UsdGenGraphDesc* desc);
 
 } // namespace usdGenImaging
 

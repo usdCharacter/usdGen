@@ -7,6 +7,7 @@
 // Token arrays convert per element. Included by convert/math.h.
 #pragma once
 #include "usdGen/api/cowArray.h"
+#include "usdGenUsd/export.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/value.h"
 #include "usdGenUsd/convert/math.h"
@@ -23,8 +24,8 @@
 
 namespace usdGenUsd {
 
-usdGen::UsdGenToken ToToken(PXR_NS::TfToken const &t);   // convert/token.h
-PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
+USDGEN_USD_API usdGen::UsdGenToken ToToken(PXR_NS::TfToken const &t);   // convert/token.h
+USDGEN_USD_API PXR_NS::TfToken const &ToTf(usdGen::UsdGenToken t);
 
 namespace convert_detail {
 /// The engine element with a host element's bytes (void when none).
@@ -79,7 +80,7 @@ usdGen::UsdGenCowArray<E> ToCow(PXR_NS::VtArray<H> const &a)
     return usdGen::UsdGenCowArray<E>::Adopt(reinterpret_cast<E const *>(pin->array.cdata()), pin->array.size(), pin);
 }
 /// Interns each token text the engine has not seen (compile phase).
-usdGen::UsdGenTokenArray ToCow(PXR_NS::VtArray<PXR_NS::TfToken> const &a);
+USDGEN_USD_API usdGen::UsdGenTokenArray ToCow(PXR_NS::VtArray<PXR_NS::TfToken> const &a);
 
 /// Zero copy: the VtArray reads the engine arena (it holds a reference).
 template <class E, class H = HostElemOf<E>,
@@ -91,7 +92,7 @@ PXR_NS::VtArray<H> ToVt(usdGen::UsdGenCowArray<E> const &a)
     auto *source = new convert_detail::ArenaSource(a.ArenaRef());
     return PXR_NS::VtArray<H>(source, reinterpret_cast<H *>(const_cast<E *>(a.cdata())), a.size());
 }
-PXR_NS::VtArray<PXR_NS::TfToken> ToVt(usdGen::UsdGenTokenArray const &a);
+USDGEN_USD_API PXR_NS::VtArray<PXR_NS::TfToken> ToVt(usdGen::UsdGenTokenArray const &a);
 
 /// The array spellings of ToEngine and ToHost (convert/math.h).
 template <class H>

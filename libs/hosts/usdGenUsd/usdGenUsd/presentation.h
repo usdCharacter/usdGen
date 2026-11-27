@@ -9,6 +9,7 @@
 #define USDGENUSD_PRESENTATION_H
 
 #include "usdGenUsd/convert/math.h"
+#include "usdGenUsd/export.h"
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/api/primRef.h"
 
@@ -92,7 +93,7 @@ struct UsdGenPresentation
 };
 
 /// FNV-1a over every field above: UsdGenGraphSpec::hostDigest.
-uint64_t PresentationDigest(UsdGenPresentation const &presentation);
+USDGEN_USD_API uint64_t PresentationDigest(UsdGenPresentation const &presentation);
 
 /// The scalars a renderer needs to publish a device generation, from the
 /// accepted spec's presentation (never a later scene read).
