@@ -70,6 +70,36 @@ set_tests_properties(testUsdGenRegistrarLoad testUsdGenRegistrarLoadDefaults PRO
     LABELS "T0;registries"
     ENVIRONMENT_MODIFICATION "USDGEN_EXTENSIONS=unset:")
 
+# 12.0: UsdGenEngine::Create/Get and the extension manifest (links usdGen only).
+# The test manifest sits beside usdGen: a comment, a blank line, a CRLF line,
+# and the backends in the reverse of the default order.
+string(ASCII 13 _usdgen_cr)
+set(_usdgen_engine_create_manifest
+    "# testUsdGenEngineCreate\n$<TARGET_FILE_NAME:usdGenSurface>${_usdgen_cr}\n\n  $<TARGET_FILE_NAME:usdGenExpr>  \n$<TARGET_FILE_NAME:usdGenCurves>\n")
+add_executable(testUsdGenEngineCreate tests/core/testUsdGenEngineCreate.cpp)
+target_link_libraries(testUsdGenEngineCreate PRIVATE usdGen)
+target_include_directories(testUsdGenEngineCreate PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+add_dependencies(testUsdGenEngineCreate usdGenSurface usdGenExpr usdGenCurves usdGenCuda)
+if(TARGET usdGenVulkan AND USDGEN_ENABLE_VULKAN_RUNTIME)
+    add_dependencies(testUsdGenEngineCreate usdGenVulkan)
+    target_compile_definitions(testUsdGenEngineCreate PRIVATE USDGEN_TEST_VULKAN_BACKEND)
+    string(APPEND _usdgen_engine_create_manifest "$<TARGET_FILE_NAME:usdGenVulkan>\n")
+endif()
+string(APPEND _usdgen_engine_create_manifest "$<TARGET_FILE_NAME:usdGenCuda>\n")
+file(GENERATE OUTPUT "$<TARGET_FILE_DIR:usdGen>/testUsdGenEngineCreate.extensions.txt"
+    CONTENT "${_usdgen_engine_create_manifest}")
+target_compile_definitions(testUsdGenEngineCreate PRIVATE
+    "USDGEN_TEST_MANIFEST=\"$<TARGET_FILE_DIR:usdGen>/testUsdGenEngineCreate.extensions.txt\"")
+foreach(_mode get manifest missing)
+    add_test(NAME testUsdGenEngineCreate_${_mode} COMMAND testUsdGenEngineCreate ${_mode})
+endforeach()
+set_tests_properties(testUsdGenEngineCreate_get testUsdGenEngineCreate_manifest
+    testUsdGenEngineCreate_missing PROPERTIES
+    LABELS "T0;registries"
+    ENVIRONMENT_MODIFICATION "USDGEN_EXTENSIONS=unset:")
+unset(_usdgen_engine_create_manifest)
+unset(_usdgen_cr)
+
 # Step 6.5: the engine builds and runs without any primitive (links usdGen only).
 add_executable(testUsdGenEngineBare tests/core/testUsdGenEngineBare.cpp)
 target_link_libraries(testUsdGenEngineBare PRIVATE usdGen)
