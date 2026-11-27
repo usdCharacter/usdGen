@@ -57,7 +57,6 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenTokenNoTextCtor` (11.5, replaces `testUsdGenNoTokenIntern`: `UsdGenToken t("x")` must not compile) | green | stays |
 | `testUsdGenEngineNoOpCoupling` | empty | empty |
 | `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
-| `testUsdGenNoShimIncludes` (old include spellings) | see `noShimIncludes.txt` | empty at step 12 |
 | `testUsdGenCookGoldens`, `testUsdGenOutputGoldens`, `testUsdGenOpContracts` | byte-identical | never regenerated without a reviewed output change |
 | `testUsdGenEngineNoCurveBuffer` | empty | empty (subsumed by the 6.5 gate) |
 | `testUsdGenNoPrimitiveInEngine` (op names, primitive words, basisCurves, render namespace, CUDA/Vulkan/primitive includes in libs/core/usdGen; comments count) | empty | empty |

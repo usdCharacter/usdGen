@@ -102,8 +102,8 @@ int RunLayoutChecks(const std::string &prefix,
     rc |= CheckNotInstalled(prefix + "/" + libDir + "/libusdGen_seexpr.a");
 
     // Headers: advertised layout <prefix>/include/<api>/...
-    rc |= CheckFile(prefix + "/include/usdGen/usdGen.h");
-    rc |= CheckFile(prefix + "/include/usdGen/export.h");
+    rc |= CheckFile(prefix + "/include/usdGen/api/usdGen.h");
+    rc |= CheckFile(prefix + "/include/usdGen/api/export.h");
     rc |= CheckNotInstalled(prefix + "/include/usdGenMath/usdGenMath.h");
     rc |= CheckFile(prefix + "/include/usdGenSchema/usdGenSchema.h");
     rc |= CheckFile(prefix + "/include/usdGenImaging/api.h");

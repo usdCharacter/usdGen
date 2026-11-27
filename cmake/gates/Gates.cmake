@@ -323,20 +323,6 @@ add_test(NAME testUsdGenWarmAllocations COMMAND testUsdGenWarmAllocations)
 set_tests_properties(testUsdGenWarmAllocations PROPERTIES
     LABELS "T0;perf;gate;gate:zero-alloc" RUN_SERIAL TRUE)
 
-# Directory move (M0): no include through the old spellings that
-# cmake/IncludeShim.cmake forwards. Step 12 empties the baseline and deletes
-# the shim; a file without a baseline line must have zero hits.
-string(REPLACE "." "[.]" _usdgen_shim_alts "${USDGEN_SHIM_OLD_SPELLINGS}")
-string(REPLACE ";" "|" _usdgen_shim_alts "${_usdgen_shim_alts}")
-add_test(NAME testUsdGenNoShimIncludes
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-        -DNAME=no-shim-includes
-        -DDIRS=libs,tests,testutils,plugin
-        "-DPATTERN=^[ ]*#[ ]*include[ ]*[<\"](${_usdgen_shim_alts})[>\"]"
-        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noShimIncludes.txt
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
-set_tests_properties(testUsdGenNoShimIncludes PROPERTIES LABELS "T0;build;gate;gate:no-shim")
 # Gate 8e (step 8.3), checked at configure: one CUDA block cache. Only
 # usdGenCuda compiles the runtime's gpu/deviceBuffer.cu, and no STATIC
 # target holds a .cu file of the CUDA runtime (each would be a copy).

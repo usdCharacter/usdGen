@@ -126,7 +126,6 @@ install(FILES
 #   usdGen        libs/core/usdGen     -> #include "usdGen/{api,registries,compile,exec}/..."
 #   usdGenCurves, usdGenSurface, usdGenExpr (libs/core/primitives/<name>),
 #   usdGenCuda, usdGenVulkan (libs/core/backends/<name>) -> #include "<name>/..."
-#   the include shim (<build>/shim) -> the pre-move "usdGen/..." spellings
 #   usdGenSchema  libs/hosts/usdGenUsd/schema -> #include "usdGenSchema/..."
 #   usdGenImaging libs/hosts/usdGenHydra -> #include "usdGenImaging/..."
 #   usdGenHydraCurves libs/hosts/usdGenHydra/primitives/curves -> #include "usdGenHydraCurves/..."
@@ -161,10 +160,6 @@ foreach(_usdgen_root primitives/usdGenCurves primitives/usdGenSurface
         DESTINATION include/${_usdgen_name}
         FILES_MATCHING PATTERN "*.h")
 endforeach()
-install(DIRECTORY "${USDGEN_SHIM_DIR}/usdGen/"
-    DESTINATION include/usdGen
-    FILES_MATCHING PATTERN "*.h"
-    PATTERN "sessionBackendExecutor.h" EXCLUDE)
 install(DIRECTORY libs/hosts/usdGenUsd/usdGenUsd/
     DESTINATION include/usdGenUsd
     FILES_MATCHING PATTERN "*.h")

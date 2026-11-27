@@ -10,15 +10,13 @@
 # engine only. usdGenCuda (cuda.cmake, step 8.3) and usdGenVulkan
 # (vulkan.cmake, step 8.2) are their own DLLs.
 file(GLOB_RECURSE USDGEN_CORE_SOURCES libs/core/usdGen/*.cpp)
-# Include roots plus the old-spelling shim (cmake/IncludeShim.cmake).
-include(cmake/IncludeShim.cmake)
+# Include roots.
 set(USDGEN_ENGINE_INCLUDE_DIRS
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/core/usdGen>
     # Step 11.2: api and engine headers name the math types, so the
     # "usdGenMath/<type>.h" root is part of usdGen's interface (D16). Headers
     # only: the alias-phase math types are inline over Gf; no link to usdGenMath.
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath>
-    $<BUILD_INTERFACE:${USDGEN_SHIM_DIR}>)
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/libs/base/usdGenMath>)
 # Primitive roots: each primitive target publishes its own; usdGen publishes
 # none (step 8.5). The backends still read primitive headers in their public
 # headers until step 8.6 and republish these.
