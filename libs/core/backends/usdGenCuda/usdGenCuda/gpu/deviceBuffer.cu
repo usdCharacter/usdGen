@@ -231,12 +231,12 @@ size_t UsdGenGpuDeviceBufferCacheBytes() noexcept {
     return g_cacheBytes.load(std::memory_order_acquire);
 }
 
-template class DeviceBuffer<float>;
-template class DeviceBuffer<double>;
-template class DeviceBuffer<int>;
-template class DeviceBuffer<unsigned char>;
-template class DeviceBuffer<uint32_t>;
-template class DeviceBuffer<uint64_t>;
-template class DeviceBuffer<float3>;
-template class DeviceBuffer<float2>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<double>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<int>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<unsigned char>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<uint32_t>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<uint64_t>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float3>;
+template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float2>;
 }}

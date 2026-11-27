@@ -39,7 +39,7 @@ struct ParallelFor {
 // Test-only DisplaceBatch path seam. While forced, DisplaceBatch runs the
 // scalar blocks even where the NEON block is available, so a test can
 // compare the two paths bitwise on the same field.
-void TestForceScalarDisplace(bool force) noexcept;
+USDGEN_MATH_API void TestForceScalarDisplace(bool force) noexcept;
 
 class CubicField
 {
@@ -47,11 +47,11 @@ public:
     /// Factors the system for `rest`. False, with the reason, for fewer than
     /// four samples, non-finite input, zero extent, or samples that do not
     /// span 3D (coplanar or collinear: the affine term is then undetermined).
-    bool Bind(std::vector<UsdGenVec3d> const &rest, std::string *error);
+    USDGEN_MATH_API bool Bind(std::vector<UsdGenVec3d> const &rest, std::string *error);
 
     /// Coefficients for the samples at `current` (same order as the bound
     /// rest samples).
-    bool Solve(std::vector<UsdGenVec3d> const &current, std::string *error);
+    USDGEN_MATH_API bool Solve(std::vector<UsdGenVec3d> const &current, std::string *error);
 
     /// F(x) - x: the displacement of a rest-space point.
     ///
@@ -74,7 +74,7 @@ public:
     /// fills zeros. Large batches split over `parallel` when given;
     /// every query still runs the same operations, so the bits match the
     /// serial loop.
-    void DisplaceBatch(UsdGenVec3d const *qs, UsdGenVec3d *ds, size_t count,
+    USDGEN_MATH_API void DisplaceBatch(UsdGenVec3d const *qs, UsdGenVec3d *ds, size_t count,
                        ParallelFor const &parallel = {}) const;
 
     /// A planar run of queries: (dx[t], dy[t], dz[t]) is bitwise
@@ -86,7 +86,7 @@ public:
     /// as DisplaceBatch, so the bits match. Tails fall back to
     /// Displacement, and an unbound field fills zeros. Large batches
     /// split over `parallel` when given, bitwise as above.
-    void DisplaceBatchPlanar(float const *qx, float const *qy, float const *qz,
+    USDGEN_MATH_API void DisplaceBatchPlanar(float const *qx, float const *qy, float const *qz,
                              double *dx, double *dy, double *dz,
                              size_t count, ParallelFor const &parallel = {}) const;
 
@@ -117,7 +117,7 @@ private:
 /// Up to `budget` well-spread indices into `points`: exact duplicates
 /// (within `epsilon`) are dropped, then farthest-point sampling starts at the
 /// first point. Deterministic for a given input.
-std::vector<size_t> SelectSamples(std::vector<UsdGenVec3d> const &points, size_t budget,
+USDGEN_MATH_API std::vector<size_t> SelectSamples(std::vector<UsdGenVec3d> const &points, size_t budget,
                                   double epsilon);
 
 inline UsdGenVec3d CubicField::Displacement(UsdGenVec3d const &x) const

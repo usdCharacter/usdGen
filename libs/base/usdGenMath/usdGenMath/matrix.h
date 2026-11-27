@@ -128,15 +128,15 @@ public:
     }
     bool operator!=(UsdGenMatrix4d const &m) const noexcept { return !(*this == m); }
 
-    UsdGenMatrix4d GetTranspose() const noexcept;
-    UsdGenMatrix4d GetInverse(double *det = nullptr, double eps = 0) const noexcept;
-    double GetDeterminant() const noexcept;
+    USDGEN_MATH_API UsdGenMatrix4d GetTranspose() const noexcept;
+    USDGEN_MATH_API UsdGenMatrix4d GetInverse(double *det = nullptr, double eps = 0) const noexcept;
+    USDGEN_MATH_API double GetDeterminant() const noexcept;
     double GetDeterminant3() const noexcept { return _GetDeterminant3(0, 1, 2, 0, 1, 2); }
 
-    UsdGenMatrix4d &operator*=(UsdGenMatrix4d const &m) noexcept;
-    UsdGenMatrix4d &operator*=(double d) noexcept;
-    UsdGenMatrix4d &operator+=(UsdGenMatrix4d const &m) noexcept;
-    UsdGenMatrix4d &operator-=(UsdGenMatrix4d const &m) noexcept;
+    USDGEN_MATH_API UsdGenMatrix4d &operator*=(UsdGenMatrix4d const &m) noexcept;
+    USDGEN_MATH_API UsdGenMatrix4d &operator*=(double d) noexcept;
+    USDGEN_MATH_API UsdGenMatrix4d &operator+=(UsdGenMatrix4d const &m) noexcept;
+    USDGEN_MATH_API UsdGenMatrix4d &operator-=(UsdGenMatrix4d const &m) noexcept;
     friend UsdGenMatrix4d operator-(UsdGenMatrix4d const &m) noexcept
     {
         UsdGenMatrix4d r;
@@ -190,7 +190,7 @@ public:
     }
 
 private:
-    double _GetDeterminant3(size_t r1, size_t r2, size_t r3, size_t c1, size_t c2, size_t c3) const noexcept;
+    USDGEN_MATH_API double _GetDeterminant3(size_t r1, size_t r2, size_t r3, size_t c1, size_t c2, size_t c3) const noexcept;
     double _mtx[4][4];
 };
 

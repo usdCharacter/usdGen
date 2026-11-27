@@ -4,8 +4,10 @@
 
 #include <cuda_runtime.h>
 #include "deviceResources.h"
+#include "usdGenCuda/export.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
@@ -22,12 +24,12 @@ template <class T> struct DeviceView {
 // owners requested (blocks are allocated in size classes). Cached storage is uncharged (its
 // permit released at insert), so pool accounting reads as if freed; this
 // gauge is the only window into the retained physical bytes.
-size_t UsdGenGpuDeviceBufferCacheBytes() noexcept;
+USDGEN_CUDA_INTERNAL_API size_t UsdGenGpuDeviceBufferCacheBytes() noexcept;
 
 // A move-only allocation.  The event is deliberately owned by the allocation:
 // a published generation records its last producer use, and a consumer can put
 // a wait on its own stream before dereferencing view().
-template <class T> class DeviceBuffer {
+template <class T> class USDGEN_CUDA_TEMPLATE_CLASS_API DeviceBuffer {
 public:
     DeviceBuffer() = default;
     ~DeviceBuffer() { release(); }
@@ -81,6 +83,20 @@ private:
     size_t capacity_ = 0;  // size class allocated, >= bytes()
     UsdGenExecutionResourcePermit permit_;
 };
+
+// The element types usdGenCuda instantiates (gpu/deviceBuffer.cu) are exported;
+// a module that needs another element type instantiates it itself from
+// deviceBufferImpl.h (the block cache stays shared, in usdGenCuda).
+#if !defined(usdGenCuda_EXPORTS)  // the defining DSO has the definitions (C4910)
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<double>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<int>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<unsigned char>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<uint32_t>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<uint64_t>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float3>;
+extern template class USDGEN_CUDA_TEMPLATE_API DeviceBuffer<float2>;
+#endif
 
 }} // namespace usdGen::gpu
 #endif

@@ -5,11 +5,12 @@
 #define USDGEN_VULKAN_CHARGED_BUFFER_H
 
 #include "deviceContext.h"
+#include "usdGenVulkan/export.h"
 
 #include <memory>
 
 namespace usdGen::vulkan {
-class ChargedBuffer final {
+class USDGEN_VULKAN_API ChargedBuffer final {
 public:
     static std::shared_ptr<ChargedBuffer> Create(std::shared_ptr<DeviceContext> const&, VkBufferCreateInfo const&,
                                                  VkMemoryPropertyFlags, UsdGenExecutionResourceKind, VkResult* = nullptr);

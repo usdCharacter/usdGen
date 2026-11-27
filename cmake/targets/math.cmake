@@ -44,6 +44,9 @@ target_link_libraries(usdGenMath PUBLIC
 if(TARGET rigExec::rigExecMath)
     target_link_libraries(usdGenMath PUBLIC rigExec::rigExecMath)
 endif()
+# Targets that link the archive use its private copy of the out-of-line members;
+# usdGen compiles matrix.cpp and rbf.cpp itself and exports them (vec.h, USDGEN_MATH_API).
+target_compile_definitions(usdGenMath PUBLIC USDGEN_MATH_STATIC)
 set_target_properties(usdGenMath PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     CXX_VISIBILITY_PRESET hidden

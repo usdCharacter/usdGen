@@ -20,6 +20,26 @@
 #pragma warning(disable : 4244)   // Gf's implicit narrowing in *= and conversions
 #endif
 
+// USDGEN_MATH_API tags the out-of-line members of the installed math headers
+// (matrix.cpp, rbf.cpp). They are compiled into usdGen (usdGen_EXPORTS: exported)
+// so an install-tree consumer reaches them through usdGen. Build-tree targets that
+// link the usdGenMath archive get USDGEN_MATH_STATIC and use their private copy.
+#ifndef USDGEN_MATH_API
+#  if defined(usdGen_EXPORTS)
+#    if defined(_WIN32)
+#      define USDGEN_MATH_API __declspec(dllexport)
+#    else
+#      define USDGEN_MATH_API __attribute__((visibility("default")))
+#    endif
+#  elif defined(USDGEN_MATH_STATIC)
+#    define USDGEN_MATH_API
+#  elif defined(_WIN32)
+#    define USDGEN_MATH_API __declspec(dllimport)
+#  else
+#    define USDGEN_MATH_API __attribute__((visibility("default")))
+#  endif
+#endif
+
 namespace usdGen {
 
 /// A host type with the same bytes (Gf). usdGenUsd/convert/math.h
@@ -289,7 +309,7 @@ inline UsdGenVec3h UsdGenCross(UsdGenVec3h const &v1, UsdGenVec3h const &v2) noe
 
 /// GfRotation(from, to).TransformDir(v) in Gf's operation order
 /// (SetRotateInto, GetQuat, the rotation matrix). matrix.cpp.
-UsdGenVec3d UsdGenRotateInto(UsdGenVec3d const &from, UsdGenVec3d const &to, UsdGenVec3d const &v) noexcept;
+USDGEN_MATH_API UsdGenVec3d UsdGenRotateInto(UsdGenVec3d const &from, UsdGenVec3d const &to, UsdGenVec3d const &v) noexcept;
 
 static_assert(std::is_trivially_copyable<UsdGenVec3f>::value && std::is_standard_layout<UsdGenVec3f>::value &&
               sizeof(UsdGenVec3f) == 12 && alignof(UsdGenVec3f) == 4, "Gf layout");

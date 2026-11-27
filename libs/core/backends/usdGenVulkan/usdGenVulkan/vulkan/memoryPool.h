@@ -17,6 +17,10 @@
 #ifndef USDGEN_VULKAN_MEMORY_POOL_H
 #define USDGEN_VULKAN_MEMORY_POOL_H
 
+#include "usdGenVulkan/export.h"
+
+#include "usdGenVulkan/export.h"
+
 #include <vulkan/vulkan.h>
 
 #include <atomic>
@@ -24,7 +28,7 @@
 
 namespace usdGen::vulkan {
 
-class VulkanDeviceMemoryPool final {
+class USDGEN_VULKAN_API VulkanDeviceMemoryPool final {
 public:
     struct Block {
         VkDeviceMemory memory = VK_NULL_HANDLE;

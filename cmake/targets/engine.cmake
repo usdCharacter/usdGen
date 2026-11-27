@@ -29,6 +29,12 @@ set(USDGEN_PRIMITIVE_INCLUDE_DIRS
 # expressions/irExec.h is the design, shared by the CUDA kernel and by
 # expressions/cpuEvaluator.cpp.
 add_library(usdGen SHARED ${USDGEN_CORE_SOURCES})
+# The compiled members of the installed math headers (matrix.h, vec.h's UsdGenRotateInto,
+# rbf.h) live in usdGen and are exported from it (USDGEN_MATH_API): an install-tree
+# consumer links usdGen only. Build-tree targets keep linking the usdGenMath archive.
+target_sources(usdGen PRIVATE
+    libs/base/usdGenMath/usdGenMath/matrix.cpp
+    libs/base/usdGenMath/usdGenMath/rbf.cpp)
 # The host suffix port (deformEvaluateCpu.h, inlined into
 # deformPipeline.cpp) needs sqrt vectorized: with math-errno the vectorizer
 # keeps the explicit-fma loop's sqrt scalar and the suffix runs ~2x slower.
