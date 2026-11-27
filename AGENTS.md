@@ -10,7 +10,9 @@ usdGen is an OpenUSD 26.08 plugin that generates and grooms hair and fur and pub
 
 | Path | What it is |
 |---|---|
-| `libs/usdGen`, `libs/usdGenMath` | Stage-free groom engine. Gate B-1 forbids linking `usd`/`hd` from `libusdGen`. |
+| `libs/core/usdGen`, `libs/base/usdGenMath` | Stage-free groom engine. Links no pxr library. `usdGen/api/` (with the extension SDK in `api/ext/`) is the public surface; `registries/`, `compile/` and `exec/` are private |
+| `libs/core/primitives/usdGen{Surface,Expr,Curves}`, `libs/core/backends/usdGen{Cuda,Vulkan}` | Primitives and execution backends, loaded by `usdGen` as extensions (`usdGenExtensions.txt`) |
+| `libs/hosts/usdGenHydra/primitives/curves` | Hydra adapter for curves (`usdGenHydraCurves`) and the hair shaders |
 | `libs/hosts/usdGenHydra/usdGenImaging`, `plugin/usdGenImaging` | Hydra scene index, tile publisher, brush and expression C ABI |
 | `libs/hosts/usdGenUsd/usdGenUsd` | USD host: SdfPath to node keys, `Lower`, the stage builder (`walk/`) and image maps (`resolve/`) |
 | `libs/hosts/usdGenUsd/schema` | Hand-written `schema.usda` and the checked-in generated resources (`resources/`) |

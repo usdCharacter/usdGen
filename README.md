@@ -6,7 +6,7 @@ The intended result is a set of plugins and tools a studio pipeline can build, i
 
 ## What ships in this repository
 
-- **Engine** (`libs/usdGen`, `libs/usdGenMath`). A stage-free operator graph. Example scenes exercise scatter, grow, noise, length, width, clumping, guide interpolation, curve import, and deformation.
+- **Engine** (`libs/core/usdGen`, `libs/base/usdGenMath`, with primitives under `libs/core/primitives` and the CUDA and Vulkan backends under `libs/core/backends`). A stage-free operator graph. Example scenes exercise scatter, grow, noise, length, width, clumping, guide interpolation, curve import, and deformation.
 - **Hydra** (`libs/hosts/usdGenHydra/usdGenImaging`, `plugin/usdGenImaging`). A groom scene index that publishes curve tiles into Hydra, including Storm shading and optional instanced fur.
 - **Schema** (`libs/hosts/usdGenUsd/schema`, with the checked-in `resources/`). Codeless `usdGen:` types. The checked-in resources are generated from `libs/hosts/usdGenUsd/schema/schema.usda`.
 - **Pomade** (`libs/usdGenPomade`, `plugin/usdGenPomadeTools`). A usdview tool for hierarchical groom authoring: tubes, fills, guides, and a commit back to USD. See [docs/pomade-tool.md](docs/pomade-tool.md).
@@ -67,7 +67,7 @@ Install:
 cmake --install build --prefix /path/to/usdGen-install
 ```
 
-That writes the libraries, headers, and plugin resources under the prefix.
+That writes the libraries and plugin resources under the prefix, plus the public headers: `include/usdGen/api/` and the `include/usdGenMath/` headers it uses. The CMake package exports one target, `usdGen::usdGen`, with no OpenUSD dependency; `find_package(usdGen)` is enough (`tests/consumer/` is the example). The other libraries are installed as runtime libraries only. Configure with `-DUSDGEN_EXPORT_INTERNALS=OFF` for a release build: it exports only the api surface, and the white-box tests under `tests/internal/` are not built.
 
 Turn the groom scene index off for one process with `USDGEN_ENABLE=0`.
 
@@ -103,9 +103,9 @@ configure.
 
 The runtime finds its shader bundle relative to the library, including after
 installation under `share/usdGen/vulkan`. `USDGEN_VULKAN_SHADER_DIR` overrides
-that location. Native Vulkan consumers link the exported
-`usdGen::usdGenVulkanNative` target and use `GetVulkanGenerationAccess` to hold
-the generation and its queue owner while consuming device buffers.
+that location. In-tree native Vulkan consumers link the `usdGenVulkanNative`
+target (not installed) and use `GetVulkanGenerationAccess` to hold the
+generation and its queue owner while consuming device buffers.
 
 The default Vulkan memory pool follows CUDA's policy: use the initial available
 device-local memory and reserve the greater of 1 GiB or 20% as headroom.
