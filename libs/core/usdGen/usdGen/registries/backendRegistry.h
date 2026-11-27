@@ -4,12 +4,11 @@
 #pragma once
 #include "usdGen/export.h"
 #include "usdGen/registries/handles.h"
-#include "pxr/base/tf/span.h"
+#include "usdGen/api/span.h"
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 struct UsdGenParamView;
@@ -22,7 +21,7 @@ struct UsdGenKernelDef {
     uint32_t capabilityVersion = 0;      // executionPlan.h:46
     int minimumAlgorithmVersion = 0, maximumAlgorithmVersion = 0;
     uint32_t flags = 0;                  // UsdGenExecutionCapabilityFlag, executionPlan.h:26-39
-    TfSpan<const UsdGenParamSlot> paramMap;   // backend param index -> op slot
+    UsdGenSpan<const UsdGenParamSlot> paramMap;   // backend param index -> op slot
     bool (*profileLut)(UsdGenParamView const &, float *lut, size_t size) = nullptr;
 };
 
@@ -32,7 +31,7 @@ public:
     /// null: this backend cannot run the op; callers fail closed with a diagnostic.
     UsdGenKernelDef const *Find(UsdGenOpId, UsdGenBackendId) const noexcept;
     /// Ops with a kernel on the backend, in registration order (capability rows).
-    TfSpan<const UsdGenOpId> Ops(UsdGenBackendId) const noexcept;
+    UsdGenSpan<const UsdGenOpId> Ops(UsdGenBackendId) const noexcept;
 private:
     friend class UsdGenRegistrar;
     friend void UsdGenFreezeRegistries();

@@ -42,11 +42,11 @@ UsdGenKernelDef const *UsdGenBackendRegistry::Find(UsdGenOpId op, UsdGenBackendI
     return &_kernels[b][o];
 }
 
-TfSpan<const UsdGenOpId> UsdGenBackendRegistry::Ops(UsdGenBackendId backend) const noexcept
+UsdGenSpan<const UsdGenOpId> UsdGenBackendRegistry::Ops(UsdGenBackendId backend) const noexcept
 {
     uint32_t const b = UsdGenIndex(backend);
     if (b >= kUsdGenMaxBackends) return {};
-    return TfSpan<const UsdGenOpId>(_order[b], _orderCount[b]);
+    return UsdGenSpan<const UsdGenOpId>(_order[b], _orderCount[b]);
 }
 
 }  // namespace usdGen

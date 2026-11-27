@@ -52,7 +52,7 @@ inline void Note(std::size_t bytes)
 
 #ifdef _WIN32
 // Every module links its own operator new, and the pxr DLLs instantiate
-// VtArray storage and TfToken/SdfPath tables inside themselves, so no single
+// VtArray storage and UsdGenToken/SdfPath tables inside themselves, so no single
 // operator new sees the process. All of them end in the CRT heap imports;
 // counting wraps those import slots in every loaded module (the ELF
 // equivalent of an exe-level operator new, which interposes everywhere).

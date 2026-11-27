@@ -7,12 +7,11 @@
 #include "usdGen/api/valueShape.h"        // expr::Domain, expr::ScalarType
 #include "usdGen/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
 
-#include "pxr/base/tf/span.h"
+#include "usdGen/api/span.h"
 #include <cstdint>
 #include <memory>
 #include <string>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 namespace usdGen {
 
 class UsdGenOp;
@@ -39,7 +38,7 @@ struct UsdGenParamDecl {
     UsdGenParamClass cls;
     bool routed = true;                  // appears in the node's dirty-routing table
     UsdGenExprAdmission expr{};
-    TfSpan<char const *const> enumerants{};   // token params read with GetEnum
+    UsdGenSpan<char const *const> enumerants{};   // token params read with GetEnum
 };
 
 enum class UsdGenPlaneRate : uint8_t { Vertex, Uniform, Constant };
@@ -117,8 +116,8 @@ enum UsdGenOpTrait : uint32_t {
     kUsdGenOpFixedOutputPlaneLayout   = 1u << 10,  // scheduler.cpp:228-236
 };
 
-/// TfSpan has no C-array constructor: `d.params = UsdGenSpan(kParams);`
-/// (api/span.h) converts through TfSpan's container constructor.
+/// UsdGenSpan has no C-array constructor: `d.params = UsdGenSpan(kParams);`
+/// (api/span.h) converts through UsdGenSpan's container constructor.
 
 using UsdGenOpCreateFn = std::unique_ptr<UsdGenOp> (*)(UsdGenOpRecord const &, void *context);
 
@@ -136,15 +135,15 @@ struct UsdGenOpDef {
     /// primitive. Every geometry input accepts inputTypes (empty: the default
     /// only; a null entry adds the default). The compiler rejects other edges.
     char const *outputType = nullptr;
-    TfSpan<char const *const> inputTypes;
+    UsdGenSpan<char const *const> inputTypes;
     uint32_t traits = 0;
-    TfSpan<const UsdGenParamDecl> params;
-    TfSpan<char const *const> referenceInputs;      // was ReferenceInputs(), op.h:344
-    TfSpan<const UsdGenPlaneDecl> inputPlanes;      // was InputPrimvars(), op.h:348
-    TfSpan<const UsdGenPlaneDecl> outputPlanes;     // static outputs; unused with hooks.emittedPlanes
+    UsdGenSpan<const UsdGenParamDecl> params;
+    UsdGenSpan<char const *const> referenceInputs;      // was ReferenceInputs(), op.h:344
+    UsdGenSpan<const UsdGenPlaneDecl> inputPlanes;      // was InputPrimvars(), op.h:348
+    UsdGenSpan<const UsdGenPlaneDecl> outputPlanes;     // static outputs; unused with hooks.emittedPlanes
     char const *indexedPlaneFamily = nullptr;       // "clumpId_": authored-collision prefix
-    TfSpan<const UsdGenMapSlotDecl> mapSlots;
-    TfSpan<char const *const> tokens;               // other names the op compares; Record().Token(i)
+    UsdGenSpan<const UsdGenMapSlotDecl> mapSlots;
+    UsdGenSpan<char const *const> tokens;               // other names the op compares; Record().Token(i)
     UsdGenOpHooks hooks;
 };
 

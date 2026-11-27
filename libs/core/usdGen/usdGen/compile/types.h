@@ -6,16 +6,15 @@
 #ifndef USDGEN_TYPES_H
 #define USDGEN_TYPES_H
 
-#include "pxr/base/gf/range3f.h"
-#include "pxr/base/tf/token.h"
-#include "pxr/base/tf/span.h"
-#include "pxr/base/vt/array.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/span.h"
+#include "usdGen/api/cowArray.h"
 
 #include <array>
 #include <cmath>
 #include <cstdint>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -160,12 +159,12 @@ inline int ComputeNumTiles(int nChunks, int tileTarget = kUsdGenTileTargetDefaul
 /// the payload.
 struct UsdGenPlane
 {
-    TfToken      name;
-    TfToken      interpolation;   // vertex | uniform | constant
-    TfToken      type;            // float | int
+    UsdGenToken      name;
+    UsdGenToken      interpolation;   // vertex | uniform | constant
+    UsdGenToken      type;            // float | int
     uint8_t      arity = 1;
-    VtFloatArray f;
-    VtIntArray   i;
+    UsdGenFloatArray f;
+    UsdGenIntArray   i;
 };
 
 }  // namespace usdGen

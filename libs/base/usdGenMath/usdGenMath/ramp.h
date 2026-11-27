@@ -17,14 +17,13 @@
 
 #include "usdGenMath/usdGenMath.h"
 
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/tf/token.h"
-#include "pxr/base/vt/array.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/token.h"
+#include "usdGen/api/cowArray.h"
 
 #include <cstddef>
 #include <cstdint>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -39,16 +38,16 @@ constexpr size_t kUsdGenRampLutSize = 257;
 /// `interpolation` is one of the R11 tokens (anything else falls back to
 /// linear, matching 02 §2.17's "unknown token -> no special mode").
 void UsdGenBuildRampLut(
-    VtVec2fArray const &knots,
-    TfToken const &interpolation,
+    UsdGenVec2fArray const &knots,
+    UsdGenToken const &interpolation,
     float *lut,
     size_t lutSize = kUsdGenRampLutSize);
 
 /// Evaluate one scalar ramp at parameter u in [0,1] (for tests and the
 /// single-sample paths); delegates to the same spline code as the LUT.
 float UsdGenEvalRamp(
-    VtVec2fArray const &knots,
-    TfToken const &interpolation,
+    UsdGenVec2fArray const &knots,
+    UsdGenToken const &interpolation,
     float u);
 
 }  // namespace usdGen

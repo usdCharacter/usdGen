@@ -8,7 +8,7 @@
 #include "usdGen/exec/epoch.h"
 #include "usdGen/exec/pool.h"
 #include "usdGenMath/rbf.h"
-#include "pxr/base/vt/array.h"          // VtVec3fArray until step 11
+#include "usdGen/api/cowArray.h"          // UsdGenVec3fArray until step 11
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -17,7 +17,7 @@ namespace usdGen {
 
 struct UsdGenDeformBindingGroup {
     uint16_t group = 0;                  // publication group; the host names its prim
-    PXR_NS::VtVec3fArray restPoints;
+    UsdGenVec3fArray restPoints;
     double widthPadding = 0.0;
 };
 

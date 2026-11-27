@@ -9,7 +9,7 @@ UsdGenTypeRegistry &UsdGenMutableTypeRegistry() noexcept;
 
 namespace {
 std::atomic<UsdGenTypeRegistry *> gTypeRegistry{nullptr};
-TfToken const kNoTypeName;
+UsdGenToken const kNoTypeName;
 UsdGenTypeDef const kNoTypeDef;
 }  // namespace
 
@@ -35,7 +35,7 @@ UsdGenTypeRegistry const &UsdGenTypeRegistry::Get() noexcept
     return UsdGenMutableTypeRegistry();
 }
 
-UsdGenTypeId UsdGenTypeRegistry::Find(TfToken const &name) const noexcept
+UsdGenTypeId UsdGenTypeRegistry::Find(UsdGenToken const &name) const noexcept
 {
     if (name.IsEmpty()) return UsdGenTypeId::Invalid;
     for (uint32_t i = 0; i < _count; ++i)
@@ -55,7 +55,7 @@ UsdGenTypeId UsdGenTypeRegistry::DefaultPrimitive() const noexcept
     return UsdGenTypeId::Invalid;
 }
 
-TfToken const &UsdGenTypeRegistry::Name(UsdGenTypeId id) const noexcept
+UsdGenToken const &UsdGenTypeRegistry::Name(UsdGenTypeId id) const noexcept
 {
     return UsdGenIndex(id) < _count ? _names[UsdGenIndex(id)] : kNoTypeName;
 }

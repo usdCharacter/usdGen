@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cmath>
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 
@@ -21,7 +20,7 @@ float ClampU(float u) { return std::min(std::max(u, 0.0f), 1.0f); }
 /// Find the segment index: the last knot with x <= u, clamped to size-2.
 /// Knots are x-sorted (adapter guarantee); u is already clamped to [0,1]
 /// and knot positions are authored in [0,1] (02 §2.17).
-size_t SegmentAt(VtVec2fArray const &knots, float u)
+size_t SegmentAt(UsdGenVec2fArray const &knots, float u)
 {
     size_t lo = 0, hi = knots.size() - 1;
     while (lo < hi) {
@@ -32,7 +31,7 @@ size_t SegmentAt(VtVec2fArray const &knots, float u)
     return std::min(lo, knots.size() - 2);
 }
 
-float KnotY(VtVec2fArray const &knots, int i)
+float KnotY(UsdGenVec2fArray const &knots, int i)
 {
     // Clamp the index into [0, size-1] (endpoint clamping for CR / B-spline).
     int const n = int(knots.size());
@@ -40,16 +39,16 @@ float KnotY(VtVec2fArray const &knots, int i)
     return knots[size_t(i)][1];
 }
 
-float EvalOne(VtVec2fArray const &knots, TfToken const &interpolation, float u)
+float EvalOne(UsdGenVec2fArray const &knots, UsdGenToken const &interpolation, float u)
 {
     u = ClampU(u);
     // Interned once: EvalOne runs per LUT sample (257x per chunk per node on
-    // workers); each TfToken("literal") re-hashes + re-probes the global
+    // workers); each UsdGenToken("literal") re-hashes + re-probes the global
     // token registry under a lock — the E-7 negative-scaling term.
-    static const TfToken sConstant{"constant"};
-    static const TfToken sLinear{"linear"};
-    static const TfToken sCatmullRom{"catmullRom"};
-    static const TfToken sBspline{"bspline"};
+    static const UsdGenToken sConstant{"constant"};
+    static const UsdGenToken sLinear{"linear"};
+    static const UsdGenToken sCatmullRom{"catmullRom"};
+    static const UsdGenToken sBspline{"bspline"};
     if (knots.size() < 2) return 1.0f;
     // Endpoints: u before the first knot / after the last resolves to that
     // knot's value (clamped-end behaviour, 02 §2.17).
@@ -100,8 +99,8 @@ float EvalOne(VtVec2fArray const &knots, TfToken const &interpolation, float u)
 }  // namespace
 
 void UsdGenBuildRampLut(
-    VtVec2fArray const &knots,
-    TfToken const &interpolation,
+    UsdGenVec2fArray const &knots,
+    UsdGenToken const &interpolation,
     float *lut,
     size_t lutSize)
 {
@@ -115,8 +114,8 @@ void UsdGenBuildRampLut(
 }
 
 float UsdGenEvalRamp(
-    VtVec2fArray const &knots,
-    TfToken const &interpolation,
+    UsdGenVec2fArray const &knots,
+    UsdGenToken const &interpolation,
     float u)
 {
     return EvalOne(knots, interpolation, u);

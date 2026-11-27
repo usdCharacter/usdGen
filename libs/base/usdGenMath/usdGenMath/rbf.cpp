@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usdGenMath/rbf.h"
 
-#include "pxr/base/gf/vec3i.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <atomic>
@@ -16,16 +16,17 @@
 #include <arm_neon.h>
 #endif
 
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGenMath {
 namespace rbf {
+
+using usdGen::UsdGenVec3i;
 
 namespace {
 
 double Cube(double r) { return r * r * r; }
 
-bool Finite(GfVec3d const &p)
+bool Finite(UsdGenVec3d const &p)
 {
     return std::isfinite(p[0]) && std::isfinite(p[1]) && std::isfinite(p[2]);
 }
@@ -33,10 +34,10 @@ bool Finite(GfVec3d const &p)
 // The rank test gpu::CudaRbfBinding applies to the polynomial Gram matrix:
 // scaled elimination with a relative threshold, which also catches tilted
 // coplanar layouts that never produce an exact zero.
-bool FullAffineRank(std::vector<GfVec3d> const &y)
+bool FullAffineRank(std::vector<UsdGenVec3d> const &y)
 {
     double g[16] = {};
-    for (GfVec3d const &p : y) {
+    for (UsdGenVec3d const &p : y) {
         double const v[4] = {1.0, p[0], p[1], p[2]};
         for (int r = 0; r < 4; ++r)
             for (int c = 0; c < 4; ++c) g[r * 4 + c] += v[r] * v[c];
@@ -61,7 +62,7 @@ bool FullAffineRank(std::vector<GfVec3d> const &y)
 
 }  // namespace
 
-bool CubicField::Bind(std::vector<GfVec3d> const &rest, std::string *error)
+bool CubicField::Bind(std::vector<UsdGenVec3d> const &rest, std::string *error)
 {
     auto fail = [&](char const *message) {
         _order = 0;
@@ -74,9 +75,9 @@ bool CubicField::Bind(std::vector<GfVec3d> const &rest, std::string *error)
     };
     size_t const n = rest.size();
     if (n < 4) return fail("an RBF needs at least four samples");
-    GfVec3d lo(std::numeric_limits<double>::infinity());
-    GfVec3d hi(-std::numeric_limits<double>::infinity());
-    for (GfVec3d const &p : rest) {
+    UsdGenVec3d lo(std::numeric_limits<double>::infinity());
+    UsdGenVec3d hi(-std::numeric_limits<double>::infinity());
+    for (UsdGenVec3d const &p : rest) {
         if (!Finite(p)) return fail("the RBF rest samples contain non-finite values");
         for (int d = 0; d < 3; ++d) {
             lo[d] = std::min(lo[d], p[d]);
@@ -141,7 +142,7 @@ bool CubicField::Bind(std::vector<GfVec3d> const &rest, std::string *error)
     return true;
 }
 
-bool CubicField::Solve(std::vector<GfVec3d> const &current, std::string *error)
+bool CubicField::Solve(std::vector<UsdGenVec3d> const &current, std::string *error)
 {
     size_t const n = _rest.size(), m = _order;
     if (!m) {
@@ -224,10 +225,10 @@ namespace {
 // and add. Eight is the measured sweet spot on ARM64 (four leaves FMA
 // latency exposed, sixteen spills).
 template <size_t W>
-void DisplaceBlocked(GfVec3d const &centre, double invScale, double scale,
+void DisplaceBlocked(UsdGenVec3d const &centre, double invScale, double scale,
                      double const *restX, double const *restY, double const *restZ,
                      double const *cx, double const *cy, double const *cz,
-                     size_t n, GfVec3d const *qs, GfVec3d *ds)
+                     size_t n, UsdGenVec3d const *qs, UsdGenVec3d *ds)
 {
     double p[W][3];
     for (size_t t = 0; t < W; ++t) {
@@ -256,16 +257,16 @@ void DisplaceBlocked(GfVec3d const &centre, double invScale, double scale,
         }
     }
     for (size_t t = 0; t < W; ++t)
-        ds[t] = GfVec3d(o[t][0] * scale, o[t][1] * scale, o[t][2] * scale);
+        ds[t] = UsdGenVec3d(o[t][0] * scale, o[t][1] * scale, o[t][2] * scale);
 }
 
 #if defined(__aarch64__) || defined(_M_ARM64)
-// Block pointer bundles for the NEON 4-block template: AoS GfVec3d runs
+// Block pointer bundles for the NEON 4-block template: AoS UsdGenVec3d runs
 // (the DisplaceBatch shape) and planar float-in/double-out (the deform
 // strands shape, whose queries already sit in planar float planes).
 struct AosBlock4 {
-    GfVec3d const *qs;
-    GfVec3d *ds;
+    UsdGenVec3d const *qs;
+    UsdGenVec3d *ds;
 };
 struct PlanarFBlock4 {
     float const *qx, *qy, *qz;
@@ -288,7 +289,7 @@ struct PlanarFBlock8 {
 // pass, and the FMA association below are one shared text, so both bundles
 // evaluate bitwise what the other does.
 template <class B>
-void DisplaceBlockedNeon4T(GfVec3d const &centre, double invScale, double scale,
+void DisplaceBlockedNeon4T(UsdGenVec3d const &centre, double invScale, double scale,
                            double const *restX, double const *restY, double const *restZ,
                            double const *cx, double const *cy, double const *cz,
                            size_t n, B blk)
@@ -434,7 +435,7 @@ void DisplaceBlockedNeon4T(GfVec3d const &centre, double invScale, double scale,
 // x16: x8/x16/x32 all tie (the overhead fully amortizes), so the middle
 // keeps the code small. Other compilers see no pragma and keep the rolled
 // loop.
-void DisplaceBlockedNeon8Planar(GfVec3d const &centre, double invScale,
+void DisplaceBlockedNeon8Planar(UsdGenVec3d const &centre, double invScale,
                                double scale, double const *restX,
                                double const *restY, double const *restZ,
                                double const *cx, double const *cy,
@@ -561,7 +562,7 @@ void DisplaceBlockedNeon8Planar(GfVec3d const &centre, double invScale,
 // runs the same operations whatever its batch position, so any partition
 // (one serial run, or one slice per pool worker) is bitwise identical.
 struct DisplaceParams {
-    GfVec3d centre{0.0};
+    UsdGenVec3d centre{0.0};
     double invScale = 1.0;
     double scale = 1.0;
     double const *rx = nullptr, *ry = nullptr, *rz = nullptr;
@@ -573,7 +574,7 @@ struct DisplaceParams {
 // (scalar blocks when forced, or off AArch64) plus the Displacement
 // tail. One text for the serial entry and the pool workers' slices.
 void DisplaceRangeAos(CubicField const &field, DisplaceParams const &p,
-                      bool scalar, GfVec3d const *qs, GfVec3d *ds,
+                      bool scalar, UsdGenVec3d const *qs, UsdGenVec3d *ds,
                       size_t count)
 {
 #if defined(__aarch64__) || defined(_M_ARM64)
@@ -644,7 +645,7 @@ void DisplaceRangePlanar(CubicField const &field, DisplaceParams const &p,
             count -= 4;
         }
         for (size_t t = 0; t < count; ++t) {
-            GfVec3d const d = field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
+            UsdGenVec3d const d = field.Displacement(UsdGenVec3d(qx[t], qy[t], qz[t]));
             dx[t] = d[0];
             dy[t] = d[1];
             dz[t] = d[2];
@@ -658,8 +659,8 @@ void DisplaceRangePlanar(CubicField const &field, DisplaceParams const &p,
     // its AoS spelling (and its FMA association), and the gather/scatter
     // convert exactly.
     while (count >= 8) {
-        GfVec3d q[8], d[8];
-        for (size_t t = 0; t < 8; ++t) q[t] = GfVec3d(qx[t], qy[t], qz[t]);
+        UsdGenVec3d q[8], d[8];
+        for (size_t t = 0; t < 8; ++t) q[t] = UsdGenVec3d(qx[t], qy[t], qz[t]);
         DisplaceBlocked<8>(p.centre, p.invScale, p.scale, p.rx, p.ry, p.rz,
                            p.cx, p.cy, p.cz, p.n, q, d);
         for (size_t t = 0; t < 8; ++t) {
@@ -676,8 +677,8 @@ void DisplaceRangePlanar(CubicField const &field, DisplaceParams const &p,
         count -= 8;
     }
     if (count >= 4) {
-        GfVec3d q[4], d[4];
-        for (size_t t = 0; t < 4; ++t) q[t] = GfVec3d(qx[t], qy[t], qz[t]);
+        UsdGenVec3d q[4], d[4];
+        for (size_t t = 0; t < 4; ++t) q[t] = UsdGenVec3d(qx[t], qy[t], qz[t]);
         DisplaceBlocked<4>(p.centre, p.invScale, p.scale, p.rx, p.ry, p.rz,
                            p.cx, p.cy, p.cz, p.n, q, d);
         for (size_t t = 0; t < 4; ++t) {
@@ -694,7 +695,7 @@ void DisplaceRangePlanar(CubicField const &field, DisplaceParams const &p,
         count -= 4;
     }
     for (size_t t = 0; t < count; ++t) {
-        GfVec3d const d = field.Displacement(GfVec3d(qx[t], qy[t], qz[t]));
+        UsdGenVec3d const d = field.Displacement(UsdGenVec3d(qx[t], qy[t], qz[t]));
         dx[t] = d[0];
         dy[t] = d[1];
         dz[t] = d[2];
@@ -714,8 +715,8 @@ struct AosJob {
     CubicField const *field;
     DisplaceParams params;
     bool scalar;
-    GfVec3d const *qs;
-    GfVec3d *ds;
+    UsdGenVec3d const *qs;
+    UsdGenVec3d *ds;
     size_t count;
 };
 
@@ -769,13 +770,13 @@ void TestForceScalarDisplace(bool force) noexcept
     g_forceScalarDisplace.store(force, std::memory_order_relaxed);
 }
 
-void CubicField::DisplaceBatch(GfVec3d const *qs, GfVec3d *ds, size_t count,
+void CubicField::DisplaceBatch(UsdGenVec3d const *qs, UsdGenVec3d *ds, size_t count,
                                ParallelFor const &parallel) const
 {
     if (count == 0) return;
     size_t const n = _rest.size(), m = _order;
     if (!m) {
-        for (size_t t = 0; t < count; ++t) ds[t] = GfVec3d(0.0);
+        for (size_t t = 0; t < count; ++t) ds[t] = UsdGenVec3d(0.0);
         return;
     }
     DisplaceParams const p{_centre,
@@ -820,12 +821,12 @@ void CubicField::DisplaceBatchPlanar(float const *qx, float const *qy, float con
     DisplaceRangePlanar(*this, p, scalar, qx, qy, qz, dx, dy, dz, count);
 }
 
-std::vector<size_t> SelectSamples(std::vector<GfVec3d> const &points, size_t budget,
+std::vector<size_t> SelectSamples(std::vector<UsdGenVec3d> const &points, size_t budget,
                                   double epsilon)
 {
     // Exact duplicates first: they make the system singular.
     struct KeyHash {
-        size_t operator()(GfVec3i const &k) const
+        size_t operator()(UsdGenVec3i const &k) const
         {
             return size_t(uint64_t(uint32_t(k[0])) * 73856093ULL ^
                           uint64_t(uint32_t(k[1])) * 19349663ULL ^
@@ -833,16 +834,16 @@ std::vector<size_t> SelectSamples(std::vector<GfVec3d> const &points, size_t bud
         }
     };
     double const cell = epsilon > 0.0 ? epsilon : 1e-9;
-    std::unordered_set<GfVec3i, KeyHash> seen;
+    std::unordered_set<UsdGenVec3i, KeyHash> seen;
     std::vector<size_t> unique;
     unique.reserve(points.size());
     for (size_t i = 0; i < points.size(); ++i) {
         if (!Finite(points[i])) continue;
-        GfVec3d const q = points[i] / cell;
+        UsdGenVec3d const q = points[i] / cell;
         auto clampInt = [](double v) {
             return int(std::max(-2.0e9, std::min(2.0e9, std::floor(v + 0.5))));
         };
-        if (seen.insert(GfVec3i(clampInt(q[0]), clampInt(q[1]), clampInt(q[2]))).second)
+        if (seen.insert(UsdGenVec3i(clampInt(q[0]), clampInt(q[1]), clampInt(q[2]))).second)
             unique.push_back(i);
     }
     if (unique.size() <= budget) return unique;
@@ -854,7 +855,7 @@ std::vector<size_t> SelectSamples(std::vector<GfVec3d> const &points, size_t bud
     size_t next = 0;
     while (chosen.size() < budget) {
         chosen.push_back(unique[next]);
-        GfVec3d const &p = points[unique[next]];
+        UsdGenVec3d const &p = points[unique[next]];
         size_t best = 0;
         double bestDistance = -1.0;
         for (size_t k = 0; k < unique.size(); ++k) {

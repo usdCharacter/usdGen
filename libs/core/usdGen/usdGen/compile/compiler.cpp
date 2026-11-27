@@ -22,10 +22,7 @@
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/types.h"
-
-#include "pxr/pxr.h"
-#include "pxr/base/tf/diagnostic.h"
-#include "pxr/base/trace/trace.h"
+#include "usdGen/api/trace.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -43,10 +40,6 @@
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
-
-PXR_NAMESPACE_USING_DIRECTIVE
-
-
 namespace usdGen {
 namespace {
 
@@ -105,7 +98,7 @@ bool ValidateInputRecords(UsdGenGraphSpec const &desc, UsdGenCompileResult &resu
 bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &record,
                          UsdGenCompiledNode *node, UsdGenCompileResult *result)
 {
-    auto bindNames = [&](TfSpan<const TfToken> names, std::vector<TfToken> *slots,
+    auto bindNames = [&](UsdGenSpan<const UsdGenToken> names, std::vector<UsdGenToken> *slots,
                          char const *direction) {
         if (names.size() > kUsdGenMaxExtraPlaneSlots) {
             result->errors.push_back(std::string("UsdGenCompiler: operator '") +
@@ -115,7 +108,7 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
         }
         slots->clear();
         slots->reserve(names.size());
-        for (TfToken const &name : names) {
+        for (UsdGenToken const &name : names) {
             // At most kUsdGenMaxExtraPlaneSlots names: a scan, no set.
             if (name.IsEmpty() ||
                 std::find(slots->begin(), slots->end(), name) != slots->end()) {
@@ -129,7 +122,7 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
         return true;
     };
     // The record's static planes.
-    auto bind = [&](TfSpan<const UsdGenPlane> planes, std::vector<TfToken> *slots,
+    auto bind = [&](UsdGenSpan<const UsdGenPlane> planes, std::vector<UsdGenToken> *slots,
                     char const *direction) {
         if (planes.size() > kUsdGenMaxExtraPlaneSlots) {
             result->errors.push_back(std::string("UsdGenCompiler: operator '") +
@@ -137,15 +130,15 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
                 direction + " primvar slots");
             return false;
         }
-        TfToken names[kUsdGenMaxExtraPlaneSlots];
+        UsdGenToken names[kUsdGenMaxExtraPlaneSlots];
         for (size_t i = 0; i < planes.size(); ++i) names[i] = planes[i].name;
-        return bindNames(TfSpan<const TfToken>(names, planes.size()), slots, direction);
+        return bindNames(UsdGenSpan<const UsdGenToken>(names, planes.size()), slots, direction);
     };
     bool outputs = false;
     if (auto const emit = record.Def().hooks.emittedPlanes) {
         // Parameter-dependent names (4a): interned here, compile scope.
         struct Sink final : UsdGenPlaneSink {
-            TfToken names[kUsdGenMaxExtraPlaneSlots + 1];
+            UsdGenToken names[kUsdGenMaxExtraPlaneSlots + 1];
             size_t count = 0;
             void Add(std::string const &name, UsdGenPlaneRate, UsdGenPlaneScalar,
                      uint8_t) override
@@ -157,7 +150,7 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
         emit(node->paramView, node->indexedPlaneBase, sink);
         // One past the limit is enough for bindNames to reject.
         size_t const kept = std::min(sink.count, size_t(kUsdGenMaxExtraPlaneSlots) + 1);
-        outputs = bindNames(TfSpan<const TfToken>(sink.names, kept), &node->outputPrimvars,
+        outputs = bindNames(UsdGenSpan<const UsdGenToken>(sink.names, kept), &node->outputPrimvars,
                             "output");
     } else {
         outputs = bind(record.OutputPlanes(), &node->outputPrimvars, "output");
@@ -166,7 +159,7 @@ bool BindExtraPlaneSlots(UsdGenGraphSpec const &desc, UsdGenOpRecord const &reco
 }
 
 /// Same slot names in the same order, without allocating.
-bool SameSlots(TfSpan<const UsdGenPlane> planes, std::vector<TfToken> const &slots)
+bool SameSlots(UsdGenSpan<const UsdGenPlane> planes, std::vector<UsdGenToken> const &slots)
 {
     if (planes.size() != slots.size()) return false;
     for (size_t i = 0; i < slots.size(); ++i)
@@ -257,7 +250,7 @@ uint64_t Fnv1aText(uint64_t h, std::string_view s)
     }
     return h;
 }
-uint64_t Fnv1aToken(uint64_t h, TfToken const &t)
+uint64_t Fnv1aToken(uint64_t h, UsdGenToken const &t)
 {
     // GetText(): the interned c-string; GetString() would allocate a
     // std::string per call on the E-6 hot path.
@@ -276,7 +269,7 @@ bool EffectiveMapBindings(UsdGenOpNode const &node, Bindings *out,
     if (node.mapBindings.empty()) {
         out->reserve(node.maps.size());
         for (UsdGenNodeKey const path : node.maps)
-            out->push_back({path, TfToken()});
+            out->push_back({path, UsdGenToken()});
         return true;
     }
     if (!node.maps.empty()) {
@@ -309,7 +302,7 @@ bool ValidateMapBinding(UsdGenMapBinding const &binding,
     if (binding.relationship.IsEmpty()) return true;
     // The op's declared map slots (UsdGenOpDef::mapSlots); the operators
     // enforce their own map types.
-    TfSpan<const TfToken> const slots = record.MapRelationships();
+    UsdGenSpan<const UsdGenToken> const slots = record.MapRelationships();
     if (std::find(slots.begin(), slots.end(), binding.relationship) == slots.end()) {
         *error = "relationship '" + binding.relationship.GetString() +
             "' is not a map relationship";
@@ -327,10 +320,10 @@ UsdGenEpoch ComputeNodeDigest(
     UsdGenOpNode const &nd,
     uint64_t typeSeed,
     UsdGenOpRecord const *record,
-    TfSpan<const UsdGenNodeKey> inputPaths,
-    TfSpan<const UsdGenNodeKey> refPaths,
-    TfSpan<const UsdGenMapBinding> mapBindings,
-    TfSpan<const std::pair<UsdGenNodeKey, UsdGenEpoch>> childDigests)
+    UsdGenSpan<const UsdGenNodeKey> inputPaths,
+    UsdGenSpan<const UsdGenNodeKey> refPaths,
+    UsdGenSpan<const UsdGenMapBinding> mapBindings,
+    UsdGenSpan<const std::pair<UsdGenNodeKey, UsdGenEpoch>> childDigests)
 {
     uint64_t h0 = 1469598103934665603ULL;
     uint64_t h1 = 1469598103934665603ULL;
@@ -348,11 +341,11 @@ UsdGenEpoch ComputeNodeDigest(
         mix(0x00060009ULL ^ Fnv1aToken(0, binding.relationship));
     }
     // Digest terms: authored params named exactly like a Structural slot.
-    TfSpan<const UsdGenParamSlot> const digestSlots =
-        record ? record->DigestSlots() : TfSpan<const UsdGenParamSlot>();
+    UsdGenSpan<const UsdGenParamSlot> const digestSlots =
+        record ? record->DigestSlots() : UsdGenSpan<const UsdGenParamSlot>();
     for (auto const &param : nd.params) {
         for (UsdGenParamSlot const s : digestSlots) {
-            TfToken const &t = record->ParamName(s);
+            UsdGenToken const &t = record->ParamName(s);
             if (param.name == t) {
                 mix(0x00070007ULL ^ Fnv1aToken(0, t));
                 mix(0x00080008ULL ^ param.value.GetHash());
@@ -368,13 +361,13 @@ UsdGenEpoch ComputeNodeDigest(
 }
 
 /// FNV-1a of a node's type name: the digest's type term.
-uint64_t TypeSeed(TfToken const &type) { return Fnv1aCstr(0, type.GetText()); }
+uint64_t TypeSeed(UsdGenToken const &type) { return Fnv1aCstr(0, type.GetText()); }
 /// The graph-level digest's type term: FNV-1a of the pseudo type
 /// UsdGenTerminal, a constant so the compiler names no type.
 constexpr uint64_t kTerminalTypeSeed = 0x48b05df1120bb972ULL;
 
 /// The slot declared with exactly this spelling, or kUsdGenNoParam.
-UsdGenParamSlot ExactSlot(UsdGenOpRecord const &record, TfToken const &name)
+UsdGenParamSlot ExactSlot(UsdGenOpRecord const &record, UsdGenToken const &name)
 {
     UsdGenParamSlot const s = record.FindParam(name);
     return s != kUsdGenNoParam && record.ParamName(s) == name ? s : kUsdGenNoParam;
@@ -385,7 +378,7 @@ UsdGenParamSlot ExactSlot(UsdGenOpRecord const &record, TfToken const &name)
 /// Unknown params feed it: value-dirty is the safe superset.
 uint64_t ParamValueDigest(UsdGenOpNode const &nd, UsdGenOpRecord const &record)
 {
-    TfToken const &seed = UsdGenTokens().seed;
+    UsdGenToken const &seed = UsdGenTokens().seed;
     uint64_t vh = 1469598103934665603ULL;
     auto feed = [&vh](uint64_t v) { vh ^= v; vh *= 0x100000001b3ULL; };
     feed(static_cast<uint64_t>(nd.enabled));
@@ -590,7 +583,7 @@ bool ValueOnlyEdit(UsdGenOpNode const &a, UsdGenOpNode const &b,
 
 UsdGenCompileResult UsdGenCompiler::Compile(UsdGenGraphSpec const &desc, UsdGenGraph *out)
 {
-    TRACE_FUNCTION();
+    USDGEN_TRACE_FUNCTION();
     UsdGenCompileResult result;
     if (!ValidateExpressionBindings(desc, result)) return result;
     UsdGenGraph candidate;
@@ -615,7 +608,7 @@ UsdGenCompileResult UsdGenCompiler::CompileWithDevicePlan(
     UsdGenGraphSpec const &desc, UsdGenGraph *out, DevicePlanCompiler const &compile,
     std::shared_ptr<const UsdGenExecutionPlanHandle> *plan)
 {
-    TRACE_FUNCTION();
+    USDGEN_TRACE_FUNCTION();
     UsdGenCompileResult result;
     if (!out || !plan || !compile) {
         result.errors.push_back("device plan compilation requires a provider and valid outputs");
@@ -962,12 +955,12 @@ void UsdGenCompiler::_Build(
     // Declared types must be registered.
     {
         UsdGenTypeRegistry const &types = UsdGenTypeRegistry::Get();
-        auto typeText = [](TfToken const &t) {
+        auto typeText = [](UsdGenToken const &t) {
             return t.IsEmpty() ? std::string("the default primitive") : t.GetString();
         };
         for (int i = 0; i < n; ++i) {
             UsdGenOpRecord const &consumer = *descRecord[size_t(i)];
-            TfToken const &declared = consumer.OutputType();
+            UsdGenToken const &declared = consumer.OutputType();
             if (!declared.IsEmpty() && types.Find(declared) == UsdGenTypeId::Invalid) {
                 result.errors.push_back("UsdGenCompiler: operator '" + desc.Label(desc.nodes[i].key) +
                     "' (type '" + desc.nodes[i].type.GetString() + "') produces unregistered type '" +
@@ -976,15 +969,15 @@ void UsdGenCompiler::_Build(
             }
             for (int k = edgeOff[size_t(i)]; k < edgeOff[size_t(i) + 1]; ++k) {
                 int const producer = edgeIds[size_t(k)];
-                TfToken const &produced = descRecord[size_t(producer)]->OutputType();
+                UsdGenToken const &produced = descRecord[size_t(producer)]->OutputType();
                 if (consumer.AcceptsInput(produced)) continue;
-                if (!produced.IsEmpty() && consumer.AcceptsInput(TfToken()) &&
+                if (!produced.IsEmpty() && consumer.AcceptsInput(UsdGenToken()) &&
                     types.Has(types.Find(produced), kUsdGenTypeConvertsToDefault))
                     continue;
                 std::string accepted;
-                for (TfToken const &t : consumer.InputTypes())
+                for (UsdGenToken const &t : consumer.InputTypes())
                     accepted += (accepted.empty() ? "" : " or ") + typeText(t);
-                if (accepted.empty()) accepted = typeText(TfToken());
+                if (accepted.empty()) accepted = typeText(UsdGenToken());
                 result.errors.push_back("UsdGenCompiler: operator '" + desc.Label(desc.nodes[i].key) +
                     "' (type '" + desc.nodes[i].type.GetString() + "') cannot take input '" +
                     desc.Label(desc.nodes[size_t(producer)].key) + "': it produces " + typeText(produced) +
@@ -1141,7 +1134,7 @@ void UsdGenCompiler::_Build(
     }
     // Desc copy elision (E-6): node entries byte-identical to the previous
     // graph's copy move instead of copying — a 201-entry copy is ~600 small
-    // allocs (vectors + VtValue holders per param). Scalars always copy.
+    // allocs (vectors + UsdGenValue holders per param). Scalars always copy.
     // Entry identity is by path; equality is field-wise (no allocs on hit).
     // Correctness: nodes read their desc entry read-only through desc/paramView.
     auto sameNodeDesc = [](UsdGenOpNode const &a, UsdGenOpNode const &b) {
@@ -1594,7 +1587,7 @@ void UsdGenCompiler::_Build(
 
         // Parameter routing table (02 §6): every routed parameter of this
         // type gets exactly one entry, copied from the record.
-        TfSpan<const std::pair<TfToken, uint32_t>> const routing = record->Routing();
+        UsdGenSpan<const std::pair<UsdGenToken, uint32_t>> const routing = record->Routing();
         node->paramRouting.assign(routing.begin(), routing.end());
 
         // E-6 reuse: a digest-STABLE node moves whole — op, capture, buffer,
@@ -1727,7 +1720,7 @@ void UsdGenCompiler::_Build(
         for (UsdGenNodeKey const path : node.inputRefs)
             if (referenceByPath.count(path) && !addReference(path)) return;
 
-        TfSpan<const TfToken> const declaredReferences = node.record->ReferenceInputs();
+        UsdGenSpan<const UsdGenToken> const declaredReferences = node.record->ReferenceInputs();
         if ((!node.referenceValues.empty() || node.lane == UsdGenLane::Reference) &&
             node.referenceValues.size() != declaredReferences.size()) {
             result.errors.push_back("UsdGenCompiler: node '" +
@@ -1776,8 +1769,8 @@ void UsdGenCompiler::_Build(
     std::pair<UsdGenNodeKey, UsdGenEpoch> const terminalDigest{desc.terminal, digests[terminalId]};
     result.structuralDigest = ComputeNodeDigest(
         out->_desc->nodes[termIt->second], kTerminalTypeSeed, nullptr,
-        TfSpan<const UsdGenNodeKey>(&desc.terminal, 1), {}, {},
-        TfSpan<const std::pair<UsdGenNodeKey, UsdGenEpoch>>(&terminalDigest, 1));
+        UsdGenSpan<const UsdGenNodeKey>(&desc.terminal, 1), {}, {},
+        UsdGenSpan<const std::pair<UsdGenNodeKey, UsdGenEpoch>>(&terminalDigest, 1));
 }
 
 
@@ -1791,8 +1784,8 @@ void UsdGenResolveParams(UsdGenOpRecord const &rec, UsdGenOpNode const &node,
         if (s == kUsdGenNoParam || out[s].authored) continue;
         UsdGenResolvedParam &r = out[s];
         r.authored = &p;
-        if (p.value.IsHolding<TfToken>())
-            r.token = p.value.UncheckedGet<TfToken>();
+        if (p.value.IsHolding<UsdGenToken>())
+            r.token = p.value.UncheckedGet<UsdGenToken>();
         else if (p.value.IsHolding<std::string>())
             r.token = UsdGenInternToken(p.value.UncheckedGet<std::string>());
         else
