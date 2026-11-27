@@ -53,7 +53,7 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenNoPxrLink_usdGenMath` | arch tf gf vt work | none |
 | `testUsdGenWarmAllocations` | 0 per warm cook, 0 per param edit (10k curves, all modules counted); 0 interns each | 0 / 0 |
 | `testUsdGenNoOpNameLiterals` | empty | empty |
-| `testUsdGenNoTokenIntern` | token.cpp, curveLoader.cpp, furOcclusion.cpp | token.cpp only |
+| `testUsdGenNoTokenIntern` | token.cpp | token.cpp only |
 | `testUsdGenEngineNoOpCoupling` | empty | empty |
 | `testUsdGenTokenChecks` (+`Off`) | an exec-phase intern fails `Run` | stays |
 | `testUsdGenNoShimIncludes` (old include spellings) | see `noShimIncludes.txt` | empty at step 12 |
@@ -61,9 +61,11 @@ Gates (ctest label `gate`). The baselines only go down; lower them in the same c
 | `testUsdGenEngineNoCurveBuffer` | empty | empty (subsumed by the 6.5 gate) |
 | `testUsdGenNoPrimitiveInEngine` (op names, primitive words, basisCurves, render namespace, CUDA/Vulkan/primitive includes in libs/core/usdGen; comments count) | empty | empty |
 | `testUsdGenNoBackendInEngine` (8a: CUDA, Vulkan, Metal, `USDGEN_ENABLE_` in libs/core/usdGen; comments count) | empty | empty |
-| `testUsdGenNoBlockingGpuWait` (8b) | 132 hits in 35 files | the keep list at 8.7/8.8 |
-| `testUsdGenTimelineSubmitOnly` (8c) | 60 hits in 24 files | `queueTimeline.cpp` only at 8.8e |
-| `testUsdGenNoDisallowedLink_{usdGen,usdGenCuda,usdGenVulkan,usdGenImaging}` (8d) | green | stays |
+| `testUsdGenNoBlockingGpuWait` (8b) | 91 hits in 28 files, each a `// shutdown wait` site (M8b keep list) | test-hook rows leave at 12 |
+| `testUsdGenTimelineSubmitOnly` (8c) | `queueTimeline.cpp` 1 | stays |
+| `testUsdGenNoDisallowedLink_{usdGen,usdGenCuda,usdGenVulkan,usdGenImaging}` (8d), `_usdGenHydraCurves` (9c) | green | stays |
+| `testUsdGenNoHydraInEngine` (9a: presentation, primvar and curve-basis words in libs/core/usdGen) | empty | empty |
+| `testUsdGenHydraNoCurvesInclude` (9b: no usdGenCurves or curve-publication include in libs/hosts/usdGenHydra) | empty | empty |
 | `testUsdGenNoPxrLink_{usdGenCuda,usdGenVulkan}` | empty | empty |
 | `testUsdGenNoPxrLink_{usdGenSurface,usdGenExpr,usdGenCurves}` | arch work trace | none (11) |
 | `testUsdGenNoPxrLink_{usdGenCurvesCuda,usdGenCurvesVulkan}` | arch | none (11) |
@@ -316,10 +318,75 @@ Left over:
 | What | Where it goes |
 |---|---|
 | usdGenCuda and usdGenCurvesCuda exist in CUDA-off builds (CPU-side admission, "cuda" registered unavailable); the brief's L8 wanted no target | design call |
-| Gates 8b and 8c at their 8.0 ceilings | 8.7, 8.8 |
+| ~~Gates 8b and 8c at their 8.0 ceilings~~ | done in M8b: 8b is the keep list, 8c `queueTimeline.cpp` only |
 | CUDA-off trees: `testUsdGenPomadeHierarchy` TN-1 (CPU tessellation, ~4-5 ms against 4 ms) and `testUsdGenPomadeIndex` G6 (no pinned memory, 6-9 ms against 8 ms) fail on this machine, the same at 2baa04c | Pomade budgets per lane |
 | Linux CI run (Vulkan on lavapipe, install check) | when the branch is pushed |
-| 8.7-8.11 (sync executor deletion, async CUDA/Vulkan cooks, channel tokens, worker pool into the scheduler) | M8b |
+| ~~8.7-8.9, 8.11 (sync executor deletion, async CUDA/Vulkan cooks, channel tokens)~~ | done in M8b; 8.10 (worker pool into the scheduler) did not land |
+
+
+M8b (8.7-8.9). Done:
+
+- **8.7a:** the synchronous CUDA executor is gone (`ExecuteCudaGraph`, `ExecuteCudaJobSource`, `ExecuteCudaJobOperator`, `FinalizeCudaExecutionJob`, `ExecutionState::Finalize/RunOperator`). `UsdGenCudaExecutionQueue` had no production user and is a test fixture (`tests/cudaExecutionQueueFixture.h`); tests drive plans through `tests/cudaPlanRunner.h`; testUsdGenCpuCurveSource and benchUsdGenCudaCook cook through a Session. Every kept wait carries a `// shutdown wait` comment.
+- **8.7b-d:** failure and rejection paths stop fencing (scatter-grow overlap rejection frees on the completion lane; source-upload and noise failures mark the work unproven and the relay quarantines). CUDA lease retirement completes through the completion lane, so warm Session cooks drive it. Synchronous `Apply`/`Finish` entry points with no Session caller are marked test hooks. `testUsdGenCudaAsyncCook`: 20 warm cooks, 0 `CudaFenceStream` calls, 40 lane passes.
+- **8.8a:** `VulkanCompletionService` watches the queue timeline (one waiter on `vkWaitSemaphores`); `SubmitOnTimeline`; external retirement runs on a `UsdGenSerialLane`.
+- **8.8b-e:** every pipeline (width, width blend, length, compaction, compare, topology, point override, curve grow, scatter grow, resample, style, noise, RBF deform, source upload, expression, map image, root frames, picktile) submits on the queue timeline and polls a timeline value; `ChargedBuffer::MarkSubmittedAt` proves on a value; a context without the timeline is refused at Begin.
+- **8.8f:** sourceWidthJob begins deform with the non-blocking `DeformPipeline::Launch` and checks the proof on the timeline. `VulkanQueueTimelineWaitsForTesting()`; `testUsdGenVulkanAsyncCook`: 20 warm cooks with 0 timeline waits (160 submits), async deform bitwise equal to the synchronous Begin.
+- **8.9:** device channel names are `UsdGenToken`s (curve table interned in `usdGenRegister`, Vulkan job-private names in the plan compiler).
+- Gates: 8b went from 132 hits in 35 files to 91 in 28, each a destructor, the fence primitive, device loss, the completion lane's no-callback path or a test hook. 8c is `queueTimeline.cpp 1`. Goldens, contracts and cook digests byte-identical; warm cook and param edit 0 / 0.
+
+Deviations: the Vulkan async test counts `VulkanQueueTimeline::Wait` calls, not `vkCreateFence` (gate 8c already leaves no fence outside queueTimeline.cpp). Noise and root frames keep their validate readback inside Begin, and point override its phase 1-2 gate, as timeline Waits (point override has no cook-path caller). **8.10 did not land:** restructure/s8p-810 (scheduler bench section, `UsdGenParallelLane`) stopped and is not merged; `workerPool.{h,cpp}` remain.
+
+Milestone verification M8b+M9 (Windows, RTX 4090, MSVC 14.36, CUDA 12.6, Vulkan on): clean configure and full build; serial `ctest -L '^(T0|T1)$'`: 464 run, 448 pass, 14 skipped, 2 failed. `testUsdGenScenePublication` fails as on main; `testUsdGenPomadeCommit` TN-4 (8.31 ms against 8) is load timing and passed 2 of 3 alone (other worktrees kept the CPU at 35-45%). `testUsdGenCudaAsyncCook` and `testUsdGenVulkanAsyncCook` pass 10 times each, and the CUDA and Vulkan session, deform, retirement, timeline and completion tests 5 times at -j6: no hang, no lost wake. T3 usdview tests (`-L T3 -E 'Soak|Perf'`): 17 of 29 pass, including the scene-index ones that load usdGenImaging; the 12 that read back pixels fail because this session has no OpenGL 4.5 context ("HgiGL minimum OpenGL requirements not met"), and main fails the two sampled (testUsdviewBrushSetup, testUsdviewPomadeTube) the same way. `cmake --install`: 14 DLLs in lib/ including usdGenHydraCurves, 52 SPIR-V files in share/usdGen/vulkan (53 less picktileVkIndices, 9.4), usdGenShaders resources and plugInfo unchanged, include/usdGenHydraCurves installed and the target in usdGenTargets. CUDA-off/Vulkan-on tree: builds, `-L '^vulkan$'` 130 run, 10 CUDA-parity skips, none failed. CUDA-off/Vulkan-off tree: builds, `-L '^(T0|T1)$'` 229 run, only ScenePublication failed (a 60 s timeout while another build loaded the machine; alone it fails the known check in 10-19 s, 5 runs). No fixes were needed.
+
+Linux audit (no Linux machine): the Clang-for-Linux syntax pass over all 534 translation units of both CUDA-off trees finds only the known environment misses (Windows Python headers in usdNoodles bindings, `isatty` in the generated SeExpr lexer). Load-time initializers under libs/: the only new rows are usdGenHydraCurves' `TF_DEFINE_ENV_SETTING`s, moved from curvePublisher.cpp; they reach Tf's env-setting registry, not a usdGen registry, and the library is now a link dependency rather than a dlopen'd extension. usdGenHydraCurves registers through an explicit `UsdGenHydraCurvesEnsureRegistered()` (usdGenImaging session and groom scene index, bakeFur, tracePlayback, `EnsureHydraPublishers()` in tests), never at load; it is a DT_NEEDED of usdGenImaging in the same lib/ dir (build RUNPATH, `CMAKE_INSTALL_RPATH $ORIGIN`). It exports a second `usdGenRegister`; the loader resolves with `dlsym(handle)`, which searches the opened object first, and nothing calls `usdGenRegister` by name, so interposition cannot redirect a primitive's registration. Changed headers add no function-local static in an inline function and no new cross-DSO polymorphic interface; the inline `TfStaticData` token variables (usdGenUsd/presentation.h, usdGenTilePublisher.h) may exist once per DSO, which is harmless for tokens.
+
+Bench, main (b741e6c) against M8b+M9, CPU, 4 threads, medians of 5 alternating rounds, machine not idle (CPU 25-43% from other worktrees):
+
+| Metric | main | M8b+M9 |
+|---|---|---|
+| Cold cook, 100k curves | 147.2 ms | 135.8 ms |
+| Warm recook | 136.8 ms | 123.9 ms |
+| Param-edit recook | 116.6 ms | 4.2 ms |
+| Hydra publish | 781.3 ms | 316.7 ms |
+| Hydra pull | 0.42 ms | 0.49 ms |
+| Allocations, warm cook / param edit | 0 / 0 | 0 / 0 |
+
+M8a (eb1559a) against M8b+M9, same conditions (CPU 25%):
+
+| Metric | M8a | M8b+M9 |
+|---|---|---|
+| Cold cook, 100k curves | 167.9 ms | 145.6 ms |
+| Warm recook | 139.9 ms | 151.3 ms |
+| Param-edit recook | 4.75 ms | 5.09 ms |
+| Hydra publish | 325.2 ms | 311.0 ms |
+| Hydra pull | 0.471 ms | 0.475 ms |
+| Allocations, Hydra publish / pull | 14,446 / 430 | 14,464 / 430 |
+
+Cold -13% and warm +8% in the same run is load noise; the main table, run minutes earlier, has warm at 0.91 of main. `hydra.publish` and `hydra.pull` do not regress against M8a (step 9 moved the publisher behind the API). main's allocation rows read 0 because its counter only sees the test exe.
+
+GPU Session section, M8a (eb1559a) against M8b+M9, 5 alternating rounds (CPU 10% before the CUDA run, 23% before Vulkan):
+
+| Metric | CUDA M8a | CUDA M8b+M9 | Vulkan M8a | Vulkan M8b+M9 |
+|---|---|---|---|---|
+| session.cold | 23.8 ms | 24.2 ms | 177.8 ms | 179.3 ms |
+| session.warm | 7.72 ms | 7.89 ms | 55.8 ms | 56.5 ms |
+| session.paramEdit | 22.3 ms | 22.9 ms | 123.4 ms | 119.2 ms |
+
+Every row within 3.5%: the async conversions cost nothing measurable.
+
+Left over (steps 8 and 9):
+
+| What | Where it goes |
+|---|---|
+| 8.10: `UsdGenWorkerPool` is not merged into `UsdGenTaskScheduler` (restructure/s8p-810 stopped; bench first) | 8.10, rerun on this head before 11 |
+| GPU-path cooks allocate: 852 per warm CUDA Session cook (`testUsdGenCudaAsyncCook` prints it); the Vulkan test does not count (R11) | 11 (arena-backed types), with an allocation gate for the device path |
+| Synchronous CUDA `Apply`/`Finish` entry points kept only for kernel and parity tests (most of the 91 gate-8b hits) | 12 (re-home the tests, delete the hooks) |
+| Noise and root-frame validate readback and the point-override phase 1-2 gate are timeline Waits inside Begin | design call when they get an async cook caller |
+| usdGenImaging still links usdGenSurface and usdGenExpr (brush and tools APIs) | 13 |
+| `api/deformBinding.h` is installed but includes `usdGenMath/rbf.h`, which is not (as do the `ops/rbfField.h` shim and usdGenCurves/ops/deform.h); it also carries `VtVec3fArray` | 11 (usdGenMath to base types), 12 (install only api/) |
+| 9.6 zero-copy VtArray (D16): deliberately not attempted | after 11 (arena-backed CowArray), only if `hydra.publish` needs it |
+| T3 usdview pixel tests need an OpenGL 4.5 desktop session; not green on this box this run | CI / an interactive session |
+| Linux CI run (Vulkan on lavapipe, install check, `testUsdGenInstallTree`, `testUsdGenConsumer`) | when the branch is pushed |
 
 
 ### 9. PublishDesc and the Hydra adapters
@@ -331,6 +398,16 @@ Left over:
 - **Done:** usdGen has no Hydra vocabulary.
 - **Proves it:** `hydra.publish` and `hydra.pull` must not regress; scene publication and pomade index behave as on main.
 - **Depends on:** 6 and 7.
+
+
+M9 (9.2-9.5). Done:
+
+- **9.2:** SHARED `usdGenHydraCurves` (`libs/hosts/usdGenHydra/primitives/curves/usdGenHydraCurves`): publisher and publication types, fur occlusion with `UsdGenFurOcclusionCache`, preview colours, tile publisher and instancer. It reads curve sets through usdGen/api by channel and attribute name (`curveColumns.h`), not `UsdGenCurveSetView`, and never links usdGenCurves. `api/deformBinding.h` (`UsdGenDeformBinding`, the publish desc's `deformBinding` hook) replaces `UsdGenRbfAnimationBinding`. `usdGenRegister_usdGenHydraCurves` registers the publisher for `UsdGenCurveSet`; usdGenCurves no longer does, and the cooker reports once per session when a published type has no publisher. usdGenImaging links no usdGenCurves. Gates 9b `testUsdGenHydraNoCurvesInclude` (empty) and 9c `testUsdGenNoDisallowedLink_usdGenHydraCurves`.
+- **9.3:** presentation (look, purpose, visibility, material, basis, preview colour map, range and shading) is usdGenUsd host data (`usdGenUsd/presentation.h`); `UsdGenGraphSpec::hostDigest` keys the execution cache (testUsdGenExecutionCache flips every field); `UsdGenDevicePresentationMetadata` is gone. Curve input words live in `usdGenCurves/types/curveTokens`, publication words in the adapter's tokens. Gate 9a `testUsdGenNoHydraInEngine` empty; `noTokenIntern.txt` is `token.cpp` only.
+- **9.4:** the Storm curve index builder is `usdGenHydraCurves/cuda/stormIndices.{h,cu}` (CUDA builds only); the unused Vulkan Storm index pipeline (`PicktileVkIndicesPipeline`, picktileVkIndices.comp) is deleted (R10, recoverable from history).
+- **9.5:** `api/routing.h`, `UsdGenSession::Routing()`; the groom scene index routes value-only dirties through `UsdGenDirtyRouter` and posts them before the commit; structural rows, unrouted locators and namespace changes keep the old path.
+- **9.6 not attempted** (zero-copy VtArray): deliberately left out; see the leftovers under step 8.
+- Goldens, contracts and cook digests byte-identical; warm cook and param edit 0 / 0. Verification, benches and leftovers are in the M8b+M9 paragraphs under step 8.
 
 ### 10. OpenSubdiv Far replaces pxOsd. Done
 
