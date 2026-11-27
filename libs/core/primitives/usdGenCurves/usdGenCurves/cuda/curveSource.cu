@@ -333,22 +333,11 @@ CurveSourceStatus CudaCurveSource::copyPending(
                                            pendingRootPrim_.size() * sizeof(int32_t));
     if (error == cudaSuccess) error = copy(pendingStorage_.rootUV.data(), pendingRootUV_.data(),
                                            pendingRootUV_.size() * sizeof(float2));
-    if (error != cudaSuccess) {
-        // Some earlier copies can already be queued.  A failed cleanup fence
-        // is not permission to destroy their device buffers or host staging.
-        if (CudaFenceStream(stream) != cudaSuccess)
-            MarkUnprovenUpload();
-        else
-            DiscardPendingCandidate();
-        return CurveSourceStatus::CudaError;
-    }
-    if (cudaEventRecord(ready_, stream) != cudaSuccess) {
-        // The copies preceding a failed event record still need a terminal
-        // proof before ordinary source destruction is safe.
-        if (CudaFenceStream(stream) != cudaSuccess)
-            MarkUnprovenUpload();
-        else
-            DiscardPendingCandidate();
+    if (error != cudaSuccess || cudaEventRecord(ready_, stream) != cudaSuccess) {
+        // Earlier copies may be queued and nothing proves them done. Do not
+        // wait: keep the candidate unproven so the relay quarantines it and
+        // destruction never frees storage a copy may still write.
+        MarkUnprovenUpload();
         return CurveSourceStatus::CudaError;
     }
     pending_ = true;
@@ -422,6 +411,7 @@ CurveSourceStatus CudaCurveSource::Set(
     return copyPending(stream, reservation);
 }
 
+// Test hook: no production caller (relays use FinishFreshAsync).
 CurveSourceStatus CudaCurveSource::Finish(cudaStream_t stream) {
     if (!pending_) return CurveSourceStatus::NoPendingUpdate;
     CurveSourceStatus streamStatus = validateStream(stream);
@@ -430,11 +420,13 @@ CurveSourceStatus CudaCurveSource::Finish(cudaStream_t stream) {
         return streamStatus;
     }
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
+        // shutdown wait: test hook.
         CudaFenceStream(stream) != cudaSuccess) {
         MarkUnprovenUpload();
         return CurveSourceStatus::CudaError;
     }
     CurveSourceStatus status = active_.waitOn(stream);
+    // shutdown wait: test hook.
     if (status != CurveSourceStatus::Ok || CudaFenceStream(stream) != cudaSuccess) {
         MarkUnprovenUpload();
         return CurveSourceStatus::CudaError;

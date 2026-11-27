@@ -11,7 +11,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/cuda/cudaTools.cpp 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/curveCompaction.cu 7
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/curveGrow.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/curveResample.cu 6
-libs/core/primitives/usdGenCurves/usdGenCurves/cuda/curveSource.cu 5
+libs/core/primitives/usdGenCurves/usdGenCurves/cuda/curveSource.cu 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/deformCurves.cu 4
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/length.cu 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/namedChannelTopology.cu 1
