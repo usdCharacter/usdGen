@@ -1,11 +1,11 @@
 #ifndef USDGEN_SESSION_H
 #define USDGEN_SESSION_H
 
-#include "usdGen/executionPipeline.h"
+#include "usdGen/exec/executionPipeline.h"
 #include "usdGen/exec/device/executionBackend.h"
-#include "usdGen/generationStore.h"
-#include "usdGen/graph.h"
-#include "usdGen/stats.h"
+#include "usdGen/exec/generationStore.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/exec/stats.h"
 
 #include <atomic>
 #include <functional>

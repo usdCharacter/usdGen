@@ -26,13 +26,13 @@
 // root. When 1e-6 < s_cut < L - 1e-6 the strand is resampled to its own CV
 // count uniformly over [0, max(s_cut, 1e-4)]; strands that miss every blade
 // are untouched.
-#include "usdGen/ops/trim.h"
+#include "usdGenCurves/ops/trim.h"
 #include "usdGenSurface/surfaceInput.h"
 
-#include "usdGen/ops/lengthRange.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/lengthRange.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <cmath>

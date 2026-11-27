@@ -8,9 +8,9 @@
 #include "usdGenCurves/types/curveTokens.h"
 
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
-#include "usdGen/op.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenMath/usdGenMath/ramp.h"

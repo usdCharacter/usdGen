@@ -4,8 +4,8 @@
 #include "completionService.h"
 #include "usdGen/exec/executionRuntimeInternal.h"
 #include "usdGen/exec/serialLane.h"
-#include "usdGen/parkingWord.h"
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/parkingWord.h"
+#include "usdGen/exec/sharedCell.h"
 
 #include <algorithm>
 #include <cstdlib>

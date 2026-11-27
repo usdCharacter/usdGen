@@ -29,7 +29,7 @@
 #ifndef USDGEN_EXPRESSIONS_EXPR_MATH_H
 #define USDGEN_EXPRESSIONS_EXPR_MATH_H
 
-#include "usdGen/expressions/exprNoiseTables.h"
+#include "usdGenExpr/expressions/exprNoiseTables.h"
 
 #include <climits>
 #include <cmath>

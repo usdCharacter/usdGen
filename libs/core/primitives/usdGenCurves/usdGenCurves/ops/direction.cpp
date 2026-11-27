@@ -4,17 +4,17 @@
 // values and, when direction:source targets a curve set, bakes the
 // nearest-sample tangent per strand root; Evaluate shapes the target in the
 // root frame and rotates rigidly or per segment. Roots never move.
-#include "usdGen/ops/direction.h"
+#include "usdGenCurves/ops/direction.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveTokens.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/scratch.h"
+#include "usdGen/exec/scratch.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include <nanoflann.hpp>
 

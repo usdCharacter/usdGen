@@ -5,7 +5,7 @@
 #include "usdGen/api/span.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/api/valueShape.h"        // expr::Domain, expr::ScalarType
-#include "usdGen/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
+#include "usdGen/compile/types.h"                 // UsdGenCountsAtLevel, UsdGenLane
 
 #include "usdGen/api/span.h"
 #include <cstdint>

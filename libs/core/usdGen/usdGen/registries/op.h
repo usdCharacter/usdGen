@@ -15,7 +15,7 @@
 #define USDGEN_OP_H
 
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/pool.h"
+#include "usdGen/exec/pool.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/registries/token.h"

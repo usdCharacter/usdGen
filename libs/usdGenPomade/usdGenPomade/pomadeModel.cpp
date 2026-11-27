@@ -4,11 +4,11 @@
 
 #include "usdGenPomade/pomadeCheck.h"
 #include "usdGenPomade/pomadeModelState.h"
-#include "usdGen/concaveMaterialRemap.h"
+#include "usdGenSurface/concaveMaterialRemap.h"
 
 #ifdef USDGEN_POMADE_HAS_CUDA
 #include "usdGenPomade/pomadeKernels.h"
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include <cuda_runtime.h>
 #endif
 

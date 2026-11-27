@@ -22,7 +22,7 @@
 #ifndef USDGEN_OP_FRIZZ_H
 #define USDGEN_OP_FRIZZ_H
 
-#include "usdGen/ops/wholeStrand.h"
+#include "usdGenCurves/ops/wholeStrand.h"
 #include "usdGen/registries/handles.h"
 
 

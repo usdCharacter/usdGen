@@ -8,7 +8,7 @@
 #ifndef USDGEN_OP_SCALE_H
 #define USDGEN_OP_SCALE_H
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/handles.h"
 
 

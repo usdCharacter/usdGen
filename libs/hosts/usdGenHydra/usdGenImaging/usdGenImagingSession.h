@@ -14,9 +14,9 @@
 #define USDGEN_IMAGING_SESSION_H
 
 #include "usdGenImaging/api.h"
-#include "usdGen/session.h"
+#include "usdGen/exec/session.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/refBase.h"

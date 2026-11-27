@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // The engine's one text -> UsdGenToken door, with intern counters.
 #pragma once
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 #include "usdGen/api/token.h"
 #include <cstdint>
 #include <string_view>

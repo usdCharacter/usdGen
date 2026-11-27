@@ -7,16 +7,16 @@
 #include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/scatter.h"
+#include "usdGenSurface/ops/scatter.h"
 #include "usdGenOpFixture.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/sessionCooker.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/exec/sessionCooker.h"
 
 #include <cstdio>
 

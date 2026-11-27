@@ -10,10 +10,10 @@
 //   * Attribute-cook digest stability/sensitivity lives in
 //     testUsdGenAttributeInstance (it exercises the same lane helper).
 #include "utils/pxrInterop.h"
-#include "usdGen/digest.h"
+#include "usdGen/compile/digest.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
-#include "usdGen/ops/scatter.h"
+#include "usdGen/registries/op.h"
+#include "usdGenSurface/ops/scatter.h"
 #include "usdGenOpFixture.h"
 
 #include <cstdio>

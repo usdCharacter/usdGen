@@ -1,5 +1,5 @@
 // usdGen — ordered binary WidthBlend operator.
-#include "usdGen/ops/widthBlend.h"
+#include "usdGenCurves/ops/widthBlend.h"
 
 #include <cmath>
 #include <algorithm>

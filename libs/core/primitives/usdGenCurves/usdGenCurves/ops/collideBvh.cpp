@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — UsdGenCollide's exact closest-point index. See collideBvh.h.
-#include "usdGen/ops/collideBvh.h"
+#include "usdGenCurves/ops/collideBvh.h"
 #include "usdGenMath/math.h"
 
 #include <algorithm>

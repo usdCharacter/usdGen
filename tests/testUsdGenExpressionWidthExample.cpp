@@ -10,11 +10,11 @@
 //   * follow the AUTHORED literal, so usdGen:width is still $value;
 //   * change when the expression source is edited on the stage.
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/pxr.h"

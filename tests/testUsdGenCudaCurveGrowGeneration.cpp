@@ -2,8 +2,8 @@
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "testBackend.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/gpu/deviceResources.h"
-#include "usdGen/executionRetirement.h"
+#include "usdGenCuda/gpu/deviceResources.h"
+#include "usdGen/exec/device/executionRetirement.h"
 
 #include <atomic>
 #include <cstdio>

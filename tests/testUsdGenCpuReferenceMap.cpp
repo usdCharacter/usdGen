@@ -3,16 +3,16 @@
 // finishes before ordinary curve work regardless of Kahn tie-break order.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/imagePayload.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGenSurface/imagePayload.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"

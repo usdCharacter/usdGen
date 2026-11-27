@@ -10,10 +10,10 @@
 // wave controls and input arc lengths already give identical displacement.
 // Clump motion metadata therefore does not alter this deterministic styler;
 // changing its frequency or root frame would override authored wave shape.
-#include "usdGen/ops/wave.h"
+#include "usdGenCurves/ops/wave.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
 

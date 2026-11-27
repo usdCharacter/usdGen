@@ -3,9 +3,9 @@
 #include "usdGen/api/token.h"
 #include "usdGenCurves/cuda/cudaParameters.h"
 #include "usdGenExpr/exprInput.h"
-#include "usdGen/gpu/cudaCompat.h"
-#include "usdGen/gpu/cudaCompletionLane.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenCuda/gpu/cudaCompat.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+#include "usdGenExpr/expressions/frontend.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenMath/math.h"
 #include <algorithm>

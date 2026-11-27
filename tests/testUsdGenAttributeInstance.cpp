@@ -11,8 +11,8 @@
 //     lands on the last prototype.
 //   * The cook is deterministic and its digest folds map, params and
 //     assignments for the capture epoch.
-#include "usdGen/maps/attributeInstance.h"
-#include "usdGen/maps/attributeMap.h"
+#include "usdGenSurface/maps/attributeInstance.h"
+#include "usdGenSurface/maps/attributeMap.h"
 
 
 #include <cmath>

@@ -1,9 +1,9 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <cstdio>
 #include <cstdlib>

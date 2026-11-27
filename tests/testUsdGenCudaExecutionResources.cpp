@@ -1,6 +1,6 @@
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include "testBackend.h"
-#include "usdGen/gpu/deviceResources.h"
+#include "usdGenCuda/gpu/deviceResources.h"
 
 #include <cstdio>
 

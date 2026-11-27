@@ -1,8 +1,8 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceRootBindings.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/surfaceRootFrames.h"
-#include "usdGen/curveRootCapture.h"
+#include "usdGenSurface/surfaceRootFrames.h"
+#include "usdGenCurves/curveRootCapture.h"
 
 #include <cmath>
 #include <cstdio>

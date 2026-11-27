@@ -7,9 +7,9 @@
 // be live in two buffers at once (checked by a CAS registry and a per-owner
 // tag written to and read back from the block), and accounting must return to
 // zero with the cache gauge equal to the idle bytes.
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include "testBackend.h"
-#include "usdGen/gpu/deviceResources.h"
+#include "usdGenCuda/gpu/deviceResources.h"
 
 #include <atomic>
 #include <cstdint>

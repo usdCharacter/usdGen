@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — size-class pools. See pool.h.
-#include "usdGen/pool.h"
+#include "usdGen/exec/pool.h"
 
-#include "usdGen/allocCounter.h"
+#include "usdGen/exec/allocCounter.h"
 
 #include <atomic>
 #include <cstring>

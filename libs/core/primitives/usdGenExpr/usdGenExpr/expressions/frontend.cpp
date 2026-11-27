@@ -1,6 +1,6 @@
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/frontend.h"
 
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 // This translation unit is compiled with SeExpr2=UsdGenSeExprFrontend so the
 // complete vendored parser is private and cannot collide with the legacy noise

@@ -16,7 +16,7 @@
 #include "usdGenCurves/vulkan/publicationJob.h"
 #include "usdGenCurves/vulkan/rbfVkDeformPipeline.h"
 #include "usdGenCurves/vulkan/resampleVkPipeline.h"
-#include "usdGen/executionValueRevisions.h"
+#include "usdGen/exec/executionValueRevisions.h"
 
 #include <atomic>
 #include <exception>

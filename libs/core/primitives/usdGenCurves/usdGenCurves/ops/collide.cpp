@@ -21,16 +21,16 @@
 // the input, and an unknown resolveType falls back to flexible. Capture
 // still hard-errors on every one of those states; the Evaluate fallbacks
 // only cover a literal edited after capture and can never write NaN.
-#include "usdGen/ops/collide.h"
+#include "usdGenCurves/ops/collide.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/limitSurface.h"
+#include "usdGenSurface/limitSurface.h"
 
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 
 #include "usdGenMath/math.h"
 

@@ -5,7 +5,7 @@
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGenCurves/types/curveSet.h"

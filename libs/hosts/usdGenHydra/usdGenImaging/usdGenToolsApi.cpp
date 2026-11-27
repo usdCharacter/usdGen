@@ -1,7 +1,7 @@
 #include "usdGenImaging/usdGenToolsApi.h"
 
-#include "usdGen/expressions/context.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/context.h"
+#include "usdGenExpr/expressions/frontend.h"
 
 #include <cctype>
 #include <cstring>

@@ -6,9 +6,9 @@
 #include "usdGen/api/token.h"
 #include "usdGenExpr/exprInput.h"
 
-#include "usdGen/expressions/exprMath.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/exprMath.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include "usdGenMath/math.h"
 

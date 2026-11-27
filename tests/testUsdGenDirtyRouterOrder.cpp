@@ -5,9 +5,9 @@
 // stays quiet; a whole-container resync still routes structural.
 #include "utils/pxrInterop.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
-#include "usdGen/graph.h"
-#include "usdGen/session.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/exec/session.h"
+#include "usdGen/compile/types.h"
 #include "usdGenUsd/lower.h"
 
 #include "pxr/imaging/hd/dataSourceLocator.h"

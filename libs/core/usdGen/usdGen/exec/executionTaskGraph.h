@@ -1,7 +1,7 @@
 #ifndef USDGEN_EXECUTION_TASK_GRAPH_H
 #define USDGEN_EXECUTION_TASK_GRAPH_H
 
-#include "usdGen/executionPipeline.h"
+#include "usdGen/exec/executionPipeline.h"
 
 #include <cstdint>
 #include <exception>

@@ -3,13 +3,13 @@
 // Bake the stage's usdGen operator graph to ordinary USD BasisCurves for
 // offline renderers. The compiler and scheduler are the same CPU cook tested
 // by testUsdGenGroomExamples; this tool never synthesizes strand geometry.
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/curveBuffer.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 
 #include "pxr/usd/usd/stage.h"

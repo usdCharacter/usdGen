@@ -8,13 +8,13 @@
 // E-2 lives in benchUsdGenSparse (same 1%-chunk form).
 
 #include "../utils/pxrInterop.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/types.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/compile/types.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 

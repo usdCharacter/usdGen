@@ -1,8 +1,8 @@
-#include "usdGen/executionCache.h"
+#include "usdGen/exec/executionCache.h"
 #include "usdGen/exec/generationStore.h"
 
-#include "usdGen/executionRuntimeInternal.h"
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/executionRuntimeInternal.h"
+#include "usdGen/exec/parkingWord.h"
 #include "usdGen/compile/types.h"
 
 #include <algorithm>

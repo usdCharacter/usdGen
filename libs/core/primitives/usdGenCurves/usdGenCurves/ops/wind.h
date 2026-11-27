@@ -41,7 +41,7 @@
 #ifndef USDGEN_OP_WIND_H
 #define USDGEN_OP_WIND_H
 
-#include "usdGen/ops/recordedOp.h"
+#include "usdGenCurves/ops/recordedOp.h"
 #include "usdGen/registries/handles.h"
 
 

@@ -11,7 +11,7 @@
 // engine allocation (allocCounter.h). No locks, no once_flag.
 #pragma once
 
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 
 #include <cstddef>
 #include <cstdint>

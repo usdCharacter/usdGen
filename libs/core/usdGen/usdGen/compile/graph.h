@@ -8,10 +8,10 @@
 
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/routing.h"
-#include "usdGen/executionCache.h"
-#include "usdGen/op.h"
+#include "usdGen/exec/executionCache.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/handles.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 
 #include <array>
 #include <cstddef>

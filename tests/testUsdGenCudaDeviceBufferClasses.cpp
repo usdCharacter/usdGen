@@ -4,9 +4,9 @@
 // DeviceBuffer size classes: a count that moves within its class keeps its
 // block (in place or from the pool), permits charge the requested bytes, and
 // concurrent resizes keep data and accounting exact.
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include "testBackend.h"
-#include "usdGen/gpu/deviceResources.h"
+#include "usdGenCuda/gpu/deviceResources.h"
 
 #include <atomic>
 #include <cstdio>

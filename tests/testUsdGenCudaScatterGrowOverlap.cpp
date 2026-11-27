@@ -9,7 +9,7 @@
 #include "usdGenCurves/cuda/scatterGrow.h"
 #include "testBackend.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 
 #include <atomic>
 #include <chrono>

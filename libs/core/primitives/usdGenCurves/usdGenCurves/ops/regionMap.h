@@ -1,12 +1,12 @@
 #ifndef USDGEN_OPS_REGION_MAP_H
 #define USDGEN_OPS_REGION_MAP_H
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenExpr/cpuParameters.h"   // UsdGenNodeEmitsLimitSurfaceUv
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
-#include "usdGen/maps/ptexMap.h"
-#include "usdGen/ops/opUtil.h"
+#include "usdGenSurface/maps/ptexMap.h"
+#include "usdGenCurves/ops/opUtil.h"
 #include "usdGen/api/token.h"
 #include <algorithm>
 #include <cmath>

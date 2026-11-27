@@ -16,7 +16,7 @@
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
-#include "usdGen/imagePayload.h"
+#include "usdGenSurface/imagePayload.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/matrix4d.h"

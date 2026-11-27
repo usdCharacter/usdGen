@@ -14,9 +14,9 @@
 //   * Stress: producers on many threads, a UI thread taking completions and
 //     diagnostics, and a pausing thread race the lock-free lane; every
 //     request is baked, dropped or diagnosed exactly once.
-#include "usdGen/maps/attributeBake.h"
-#include "usdGen/maps/attributeMap.h"
-#include "usdGen/maps/ptexMap.h"
+#include "usdGenSurface/maps/attributeBake.h"
+#include "usdGenSurface/maps/attributeMap.h"
+#include "usdGenSurface/maps/ptexMap.h"
 
 #include <atomic>
 #include <chrono>

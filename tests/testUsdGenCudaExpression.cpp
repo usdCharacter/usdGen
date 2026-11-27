@@ -1,6 +1,6 @@
 #include "usdGenExpr/cuda/expression.h"
 #include "usdGenCurves/cuda/styleOps.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/frontend.h"
 #include "usdGenSeExprOracle.h"
 
 #include <cmath>

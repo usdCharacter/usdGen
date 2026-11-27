@@ -13,13 +13,13 @@
 //   Resample spacing: per-strand counts, ragged layout, arc-length
 //     uniformity, hairT, carried planes, a ragged downstream sweep.
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <cmath>

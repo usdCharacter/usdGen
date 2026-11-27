@@ -25,7 +25,7 @@
 #include "pxr/imaging/hd/materialSchema.h"
 #include "pxr/imaging/hd/sceneIndexObserver.h"
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
 #include "usdGen/registries/opRegistry.h"

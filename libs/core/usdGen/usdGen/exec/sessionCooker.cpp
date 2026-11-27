@@ -2,18 +2,18 @@
 //
 // Private serial work-owner implementation. The command owner supplies a
 // copied request and alone decides whether this candidate may publish.
-#include "usdGen/sessionCooker.h"
+#include "usdGen/exec/sessionCooker.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/api/debug.h"
-#include "usdGen/digest.h"
-#include "usdGen/executionBackend.h"
+#include "usdGen/compile/digest.h"
+#include "usdGen/exec/device/executionBackend.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/typeRegistry.h"
 #include "usdGen/api/publishDesc.h"
-#include "usdGen/executionTaskGraph.h"
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/exec/taskScheduler.h"
 #include "usdGen/api/trace.h"
 
 #include <algorithm>

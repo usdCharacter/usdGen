@@ -3,9 +3,9 @@
 #include "cudaPlanRunner.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/imagePayload.h"
+#include "usdGenSurface/imagePayload.h"
 
 #include <chrono>
 #include <cstdio>

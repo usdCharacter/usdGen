@@ -40,7 +40,7 @@
 #include "usdGenSurface/vulkan/surfaceVk.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
 #include "usdGenVulkan/vulkan/deviceContext.h"
 #include "usdGenVulkan/vulkan/chargedBuffer.h"

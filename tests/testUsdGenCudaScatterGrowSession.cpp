@@ -1,15 +1,15 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"
-#include "usdGen/graph.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/session.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/exec/session.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/imagePayload.h"
+#include "usdGenSurface/imagePayload.h"
 
 #include <algorithm>
 #include <array>

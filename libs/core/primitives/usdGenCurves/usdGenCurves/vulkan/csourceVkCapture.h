@@ -5,11 +5,11 @@
 
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"
-#include "usdGen/curveLoader.h"
+#include "usdGenCurves/curveLoader.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
-#include "usdGen/op.h"
-#include "usdGen/surfaceCageSource.h"
+#include "usdGen/registries/op.h"
+#include "usdGenSurface/surfaceCageSource.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenMath/math.h"
 

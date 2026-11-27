@@ -6,7 +6,7 @@
 // sampling, transport frames, root re-snap, and the triangle BVH against a
 // brute-force closest-point scan.
 #include "utils/pxrInterop.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 
 #include <cmath>
 #include <cstdio>

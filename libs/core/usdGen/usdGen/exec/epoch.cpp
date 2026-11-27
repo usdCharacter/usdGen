@@ -5,7 +5,7 @@
 // destructible, so nothing here runs in a static destructor or atexit. The
 // orderings that make a pin visible to the advancer are seq_cst (the pin store
 // is the store-load fence the scheme needs).
-#include "usdGen/epoch.h"
+#include "usdGen/exec/epoch.h"
 
 #if defined(_WIN32)
 #  define WIN32_LEAN_AND_MEAN

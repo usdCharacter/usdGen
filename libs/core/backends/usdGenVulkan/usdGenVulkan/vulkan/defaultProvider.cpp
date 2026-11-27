@@ -18,9 +18,9 @@
 #include "defaultResources.h"
 #include "externalRetirement.h"
 #include "usdGen/exec/executionPipeline.h"
-#include "usdGen/executionCache.h"
-#include "usdGen/executionTaskGraph.h"
-#include "usdGen/sessionDeviceProvider.h"
+#include "usdGen/exec/executionCache.h"
+#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/exec/sessionDeviceProvider.h"
 #include "usdGenVulkan/exec/shaderLibrary.h"
 
 #include <vulkan/vulkan.h>

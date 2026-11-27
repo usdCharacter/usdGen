@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — randomRange length math. See lengthRange.h.
-#include "usdGen/ops/lengthRange.h"
+#include "usdGenCurves/ops/lengthRange.h"
 
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenMath/math.h"
 
 #include <algorithm>

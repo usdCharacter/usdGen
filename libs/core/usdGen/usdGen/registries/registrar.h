@@ -8,7 +8,7 @@
 // (and usdGenRegister_<lib> for a static link). Registries freeze on the
 // first compile; after that every lookup reads immutable state.
 #pragma once
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
 #include "usdGen/registries/opRegistry.h"

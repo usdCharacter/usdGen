@@ -1,6 +1,6 @@
-#include "usdGen/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
 
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include <cmath>
 #include <limits>

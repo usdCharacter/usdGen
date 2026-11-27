@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "exprVkRun.h"
 #include "usdGen/api/token.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
 #include <cmath>
 #include <cstring>
 #include <map>

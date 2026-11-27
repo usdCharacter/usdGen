@@ -3,10 +3,10 @@
 #ifndef USDGEN_CURVE_LOADER_H
 #define USDGEN_CURVE_LOADER_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include <memory>
 
 

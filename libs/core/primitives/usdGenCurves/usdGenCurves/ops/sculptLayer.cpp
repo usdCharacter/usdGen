@@ -16,9 +16,9 @@
 // than a diagnostic. rootPrims/rootUVs exist for the tool's "Rebase sculpt"
 // action and are validated, never consumed; lockedCurves freezes downstream
 // stylers, never this layer. Stage-free: ctx/desc/params only.
-#include "usdGen/ops/sculptLayer.h"
+#include "usdGenCurves/ops/sculptLayer.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include "usdGenMath/math.h"
 #include "usdGenMath/math.h"

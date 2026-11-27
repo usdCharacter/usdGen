@@ -13,7 +13,7 @@
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"
 #include "usdGenMath/math.h"
-#include "usdGen/authoredNamedChannels.h"
+#include "usdGenCurves/types/authoredNamedChannels.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenCurves/vulkan/vkStages.h"
 #include "usdGenMath/math.h"

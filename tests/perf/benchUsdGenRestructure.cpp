@@ -24,17 +24,17 @@
 // backend prints the Session diagnostics and exits 77 (cpu: 1).
 
 #include "../utils/pxrInterop.h"
-#include "usdGen/allocCounter.h"
+#include "usdGen/exec/allocCounter.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "../testBackend.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGen/exec/session.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 

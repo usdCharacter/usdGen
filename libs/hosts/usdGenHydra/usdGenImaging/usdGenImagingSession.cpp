@@ -6,15 +6,15 @@
 // (a)/(b)/(c). GetPrim paths never commit — they atomic_load the latest
 // generation (I7). Superseded commits leave the session dirty (03 §5.6).
 #include "usdGenImaging/usdGenImagingSession.h"
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 #include "usdGenImaging/cleanupQueue.h"
 #include "usdGenHydraCurves/register.h"
 #include "usdGenUsd/resolve/imageMapCache.h"
 
-#include "usdGen/epoch.h"
-#include "usdGen/generationStore.h"
-#include "usdGen/maps/ptexMap.h"
-#include "usdGen/session.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/generationStore.h"
+#include "usdGenSurface/maps/ptexMap.h"
+#include "usdGen/exec/session.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/tf/diagnostic.h"

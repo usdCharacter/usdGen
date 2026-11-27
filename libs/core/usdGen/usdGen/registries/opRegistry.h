@@ -3,7 +3,7 @@
 // The op registry: immutable records, dense ids, frozen before the first
 // compile. Registration goes through UsdGenRegistrar (registrar.h).
 #pragma once
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 #include "usdGen/registries/opDef.h"
 #include "usdGen/registries/paramEvaluator.h"
 #include "usdGen/api/channel.h"

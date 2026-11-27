@@ -1,6 +1,6 @@
 #ifndef USDGEN_EXPRESSIONS_IR_H
 #define USDGEN_EXPRESSIONS_IR_H
-#include "usdGen/expressions/context.h"
+#include "usdGenExpr/expressions/context.h"
 #include <cstdint>
 #include <memory>
 #include <string>

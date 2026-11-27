@@ -9,12 +9,12 @@
 // one-pass emitRange fan and the two-pass fanFace+spill fan) must publish
 // the fallback on every rootN.
 #include "utils/pxrInterop.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenUsd/lower.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/scatter.h"
+#include "usdGenSurface/ops/scatter.h"
 #include "usdGenOpFixture.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"

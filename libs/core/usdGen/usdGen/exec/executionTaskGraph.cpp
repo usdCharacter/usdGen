@@ -1,7 +1,7 @@
-#include "usdGen/executionTaskGraph.h"
-#include "usdGen/executionRuntimeInternal.h"
-#include "usdGen/epoch.h"
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/exec/executionRuntimeInternal.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>

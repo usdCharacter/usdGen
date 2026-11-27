@@ -14,10 +14,10 @@
 #include "usdGenVulkan/vulkan/completionService.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
 #include "usdGenCurves/vulkan/widthBlendPipeline.h"
-#include "usdGen/curveLoader.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/curveLoader.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/exec/scheduler.h"
 #include "vulkanNativeFixture.h"
 
 #include <algorithm>

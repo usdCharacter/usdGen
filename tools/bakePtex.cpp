@@ -8,7 +8,7 @@
 // still covers the whole PARENT mesh (Ptex face ids are parent-mesh ids, rule
 // 2), but scattered voronoi seeds land on the subset's faces only, so its
 // cells tile the region a subset-bound description grows from.
-#include "usdGen/maps/ptexMap.h"
+#include "usdGenSurface/maps/ptexMap.h"
 
 #include "pxr/base/gf/range3d.h"
 #include "pxr/usd/usd/stage.h"

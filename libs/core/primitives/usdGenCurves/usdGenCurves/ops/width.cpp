@@ -7,11 +7,11 @@
 // [0,1], midShift to [0.1,0.9]; all three controls 0 -> mid = 1), and
 // target = max(width, 0) * clamp01(f) with f <= 1e-6 -> 1.
 // TopologyEffect = None.
-#include "usdGen/ops/width.h"
+#include "usdGenCurves/ops/width.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"
 

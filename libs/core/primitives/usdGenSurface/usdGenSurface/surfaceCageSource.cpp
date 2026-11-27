@@ -1,4 +1,4 @@
-#include "usdGen/surfaceCageSource.h"
+#include "usdGenSurface/surfaceCageSource.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"
@@ -10,8 +10,8 @@
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
 
-#include "usdGen/maps/ptexMap.h"
-#include "usdGen/surfaceCageInterpolate.h"
+#include "usdGenSurface/maps/ptexMap.h"
+#include "usdGenSurface/surfaceCageInterpolate.h"
 
 #include "usdGenMath/math.h"
 

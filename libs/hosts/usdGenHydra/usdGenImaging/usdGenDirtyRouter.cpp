@@ -4,10 +4,10 @@
 #include "usdGenImaging/usdGenDirtyRouter.h"
 #include "usdGenUsd/convert/token.h"
 
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 #include "usdGenImaging/primAdapter.h"
 #include "usdGenUsd/walk/usdGenTokens.h"
-#include "usdGen/executionPipeline.h"
+#include "usdGen/exec/executionPipeline.h"
 
 #include "pxr/base/tf/diagnostic.h"
 

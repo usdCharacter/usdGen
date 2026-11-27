@@ -1,6 +1,6 @@
 // usdGen M0 consumer probe: link the installed usdGen and call its one
 // canonical M0 API (sol S-8).
-#include "usdGen/usdGen.h"
+#include "usdGen/api/usdGen.h"
 #include <cstdio>
 
 int main() {

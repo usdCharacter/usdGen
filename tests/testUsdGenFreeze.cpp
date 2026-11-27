@@ -20,19 +20,19 @@
 // upstream ones (asserted by the immunity checks below). The default
 // expression Reject covers Freeze (asserted below).
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/expressions/context.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGenExpr/expressions/context.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/freeze.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/freeze.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <cmath>

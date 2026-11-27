@@ -1,4 +1,4 @@
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/frontend.h"
 #include <cstdio>
 int main() {
     auto r = usdGen::expr::Frontend::Compile("$value * (1 - 0.95 * $t)", {usdGen::expr::Domain::Point, usdGen::expr::ScalarType::Float32, 1});

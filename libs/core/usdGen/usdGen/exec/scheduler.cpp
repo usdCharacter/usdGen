@@ -16,17 +16,17 @@
 //   - tile interleave: extents + dirty flags over dirty tiles only.
 //
 // I8: every parallel region runs over the worker pool, never pxr work::.
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGen/registries/engineTokens.h"
 
 #include "usdGen/api/debug.h"
 #include "usdGen/api/env.h"
 #include "usdGen/api/status.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/fastCores.h"
-#include "usdGen/types.h"
+#include "usdGen/exec/fastCores.h"
+#include "usdGen/compile/types.h"
 #include "usdGen/api/writeSet.h"
 #include "usdGen/exec/epoch.h"
 #include "usdGenMath/math.h"

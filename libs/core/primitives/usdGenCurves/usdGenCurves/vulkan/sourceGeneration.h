@@ -16,8 +16,8 @@
 #include "usdGenCurves/vulkan/resampleVkPipeline.h"
 #include "usdGenCurves/vulkan/curveGrowPipeline.h"
 #include "usdGenExpr/vulkan/exprVkApply.h"
-#include "usdGen/curveBuffer.h"
-#include "usdGen/deviceGeneration.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/exec/device/deviceGeneration.h"
 #include "usdGenCurves/types/deviceChannelTokens.h"
 
 #include <memory>

@@ -3,9 +3,9 @@
 
 #include "utils/pxrInterop.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
-#include "usdGen/curveLoader.h"
+#include "usdGenCurves/curveLoader.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 
 #include <array>
 #include <atomic>

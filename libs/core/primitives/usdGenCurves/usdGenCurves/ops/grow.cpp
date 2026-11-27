@@ -5,7 +5,7 @@
 // per-curve target length (kSaltGrow draw); Evaluate writes the CV
 // positions and hairT. Direction: surfaceNormal (root frame N), attribute
 // (M1: root frame T), vector (usdGen:directionVector).
-#include "usdGen/ops/grow.h"
+#include "usdGenCurves/ops/grow.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenSurface/types/rootSet.h"

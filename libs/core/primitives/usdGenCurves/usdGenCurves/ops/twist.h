@@ -21,7 +21,7 @@
 #ifndef USDGEN_OP_TWIST_H
 #define USDGEN_OP_TWIST_H
 
-#include "usdGen/ops/wholeStrand.h"
+#include "usdGenCurves/ops/wholeStrand.h"
 #include "usdGen/registries/handles.h"
 
 

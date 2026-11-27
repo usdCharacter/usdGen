@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/fastCores.h"
+#include "usdGen/exec/fastCores.h"
 
 #include <cstdio>
 #include <cstdlib>

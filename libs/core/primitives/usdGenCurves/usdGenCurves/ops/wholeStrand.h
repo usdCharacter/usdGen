@@ -20,7 +20,7 @@
 #ifndef USDGEN_OPS_WHOLE_STRAND_H
 #define USDGEN_OPS_WHOLE_STRAND_H
 
-#include "usdGen/ops/recordedOp.h"
+#include "usdGenCurves/ops/recordedOp.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGen/api/token.h"

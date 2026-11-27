@@ -4,7 +4,7 @@
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenImaging/usdGenImagingSession.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/generationStore.h"
+#include "usdGen/exec/generationStore.h"
 
 #include <atomic>
 #include <array>

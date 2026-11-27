@@ -12,8 +12,8 @@
 // unfused lane. The admission below is a verbatim copy of
 // expr::EvaluateProgram's (cpuEvaluator.cpp); the semantics still have one
 // definition in irExec.h, this file only re-hosts the per-element loop.
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 namespace usdGen::expr {
 

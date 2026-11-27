@@ -1,10 +1,10 @@
 // usdGen — authored attribute maps into groom cooking/instancing.
 // See attributeInstance.h for the contract and its distance from Pomade.
-#include "usdGen/maps/attributeInstance.h"
+#include "usdGenSurface/maps/attributeInstance.h"
 
-#include "usdGen/digest.h"
+#include "usdGen/compile/digest.h"
 
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <algorithm>
 #include <type_traits>

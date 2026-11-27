@@ -11,7 +11,7 @@
 
 #include "../utils/pxrInterop.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceRootBindings.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"

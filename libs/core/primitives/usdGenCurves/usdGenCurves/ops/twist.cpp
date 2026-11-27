@@ -21,11 +21,11 @@
 //      falloff along the strand (strand::ResnapRoot).
 // Floating-point evaluation order follows the reference so results match it
 // bit for bit wherever the inputs do.
-#include "usdGen/ops/twist.h"
+#include "usdGenCurves/ops/twist.h"
 #include "usdGenSurface/surfaceInput.h"
 
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <cmath>

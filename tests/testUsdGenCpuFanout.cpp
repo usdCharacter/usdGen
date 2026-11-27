@@ -6,18 +6,18 @@
 // cannot leak one sibling's writes into the other or into the terminal branch.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "nodeSets.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
-#include "usdGen/ops/grow.h"
+#include "usdGenCurves/ops/grow.h"
 #include "usdGenOpFixture.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenExpr/cpuParameters.h"
 

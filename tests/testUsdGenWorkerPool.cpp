@@ -20,7 +20,7 @@
 //   6. An explicit claim chunk keeps every-index-once (prime counts,
 //      chunk 1 and a chunk past the count).
 
-#include "usdGen/workerPool.h"
+#include "usdGen/exec/workerPool.h"
 
 #include <atomic>
 #include <chrono>

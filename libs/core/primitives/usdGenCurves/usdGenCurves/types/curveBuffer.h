@@ -8,9 +8,9 @@
 
 #include "usdGen/api/primRef.h"
 #include "usdGenCurves/export.h"
-#include "usdGen/pool.h"
+#include "usdGen/exec/pool.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGenMath/math.h"

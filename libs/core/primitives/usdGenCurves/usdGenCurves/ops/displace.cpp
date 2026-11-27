@@ -15,15 +15,15 @@
 // and only through single scalar channels (r/g/b/a/luminance), so no vector
 // map type reaches the kernel. All work is per curve/CV in Evaluate (no
 // capture payload); Capture only validates literals and connected values.
-#include "usdGen/ops/displace.h"
+#include "usdGenCurves/ops/displace.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include "usdGenMath/math.h"
 

@@ -1,17 +1,17 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"
 #include "cudaExecutionQueueFixture.h"
-#include "usdGen/executionResources.h"
-#include "usdGen/graph.h"
+#include "usdGen/exec/device/executionResources.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/imagePayload.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/session.h"
+#include "usdGenSurface/imagePayload.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/exec/session.h"
 
 #include <cuda_runtime_api.h>
 

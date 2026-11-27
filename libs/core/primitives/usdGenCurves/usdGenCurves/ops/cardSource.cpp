@@ -3,7 +3,7 @@
 //
 // usdGen — UsdGenCardSourceOp implementation. See cardSource.h for the
 // behaviour and ops/cardGeometry.h for the card grids.
-#include "usdGen/ops/cardSource.h"
+#include "usdGenCurves/ops/cardSource.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/cowArray.h"
@@ -12,11 +12,11 @@
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/ops/cardGeometry.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/cardGeometry.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
 #include <algorithm>

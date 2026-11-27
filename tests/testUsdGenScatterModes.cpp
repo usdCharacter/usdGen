@@ -10,17 +10,17 @@
 // the math is wrong (counts, spacing, proximity radius, thinning fraction,
 // stable strand identity, determinism).
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/scatter.h"
-#include "usdGen/ops/scatterModes.h"
+#include "usdGenSurface/ops/scatter.h"
+#include "usdGenSurface/ops/scatterModes.h"
 #include "usdGenOpFixture.h"
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <cmath>

@@ -2,7 +2,7 @@
 // final image is read back; generated geometry never crosses the host.
 #include "utils/pxrInterop.h"
 #include "usdGenImaging/cudaGlComputation.h"
-#include "usdGen/executionPipeline.h"
+#include "usdGen/exec/executionPipeline.h"
 #include "cudaGlFixture.h"
 #include "eglctx.h"
 #include "pxr/base/tf/errorMark.h"

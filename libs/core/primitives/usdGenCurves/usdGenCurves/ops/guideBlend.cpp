@@ -11,7 +11,7 @@
 //   * "normalize" divides each component by the length and falls back to
 //     (1,0,0) at length <= 1e-6 unless a different fallback is stated;
 //   * float sums run in the reference's sequential order.
-#include "usdGen/ops/guideBlend.h"
+#include "usdGenCurves/ops/guideBlend.h"
 
 #include <algorithm>
 #include <cmath>

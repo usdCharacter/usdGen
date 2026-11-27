@@ -15,7 +15,7 @@
 #ifndef USDGEN_OP_SCULPT_LAYER_H
 #define USDGEN_OP_SCULPT_LAYER_H
 
-#include "usdGen/ops/recordedOp.h"
+#include "usdGenCurves/ops/recordedOp.h"
 #include "usdGen/registries/handles.h"
 
 

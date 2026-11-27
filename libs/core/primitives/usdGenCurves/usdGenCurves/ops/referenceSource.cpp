@@ -1,4 +1,4 @@
-#include "usdGen/ops/referenceSource.h"
+#include "usdGenCurves/ops/referenceSource.h"
 #include "usdGenCurves/types/curveCapture.h"
 
 #include <memory>

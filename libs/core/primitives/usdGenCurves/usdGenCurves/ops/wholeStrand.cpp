@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — whole-strand styler base. See wholeStrand.h.
-#include "usdGen/ops/wholeStrand.h"
+#include "usdGenCurves/ops/wholeStrand.h"
 #include "usdGenSurface/surfaceInput.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 #include "usdGen/api/token.h"
 #include "usdGenCurves/types/curveTokens.h"
 

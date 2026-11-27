@@ -1,7 +1,7 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceRootBindings.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/surfaceRootFrames.h"
+#include "usdGenSurface/surfaceRootFrames.h"
 
 #include <cmath>
 #include <cstdio>

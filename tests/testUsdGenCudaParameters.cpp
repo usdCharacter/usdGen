@@ -5,7 +5,7 @@
 #include "pxr/base/gf/vec2d.h"
 #include "pxr/base/gf/half.h"
 #include "usdGenCurves/cuda/cudaParameters.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/curveSource.h"
 #include <atomic>

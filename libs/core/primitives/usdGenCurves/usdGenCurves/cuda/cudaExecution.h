@@ -1,10 +1,10 @@
 #ifndef USDGEN_CUDA_EXECUTION_H
 #define USDGEN_CUDA_EXECUTION_H
 #include "usdGenCuda/backendId.h"
-#include "usdGen/deviceGeneration.h"
-#include "usdGen/executionPlan.h"
+#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/exec/device/executionPlan.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 
 #include <cstddef>
 #include <array>

@@ -4,11 +4,11 @@
 // per-node dirty bytes and the tile partition. All mutation happens on the
 // commit thread; readers only ever observe the published generation
 // (I7), never this structure.
-#include "usdGen/graph.h"
+#include "usdGen/compile/graph.h"
 
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/typeRegistry.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 
 #include <algorithm>
 #include <cstddef>

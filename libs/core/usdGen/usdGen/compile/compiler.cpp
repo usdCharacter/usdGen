@@ -12,16 +12,16 @@
 // digest is recomputed; a node whose digest is unchanged (same type,
 // inputs, topology-class params and relationship targets) keeps its op,
 // capture and buffer from the previous graph. Exactly one appended node therefore rebuilds exactly one node.
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/token.h"
-#include "usdGen/pool.h"
-#include "usdGen/executionBackend.h"
+#include "usdGen/exec/pool.h"
+#include "usdGen/exec/device/executionBackend.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/backendRegistry.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 #include "usdGen/api/trace.h"
 
 #include <algorithm>

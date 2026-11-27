@@ -30,7 +30,7 @@
 #include "usdGenHydraCurves/usdGenInstancer.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 
 #include "pxr/base/gf/matrix4d.h"
 #include "pxr/base/gf/quatd.h"

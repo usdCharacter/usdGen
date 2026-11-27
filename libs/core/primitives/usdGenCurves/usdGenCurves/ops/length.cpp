@@ -19,17 +19,17 @@
 // the per-strand reference length; Evaluate lerps input -> result by the
 // usdGen:mask envelope and writes the `restLength` plane. Its capture
 // tracks upstream VALUES (positions), unlike the factor modes.
-#include "usdGen/ops/length.h"
+#include "usdGenCurves/ops/length.h"
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
 
-#include "usdGen/ops/lengthRange.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/ops/wholeStrand.h"
+#include "usdGenCurves/ops/lengthRange.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGenCurves/ops/wholeStrand.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 

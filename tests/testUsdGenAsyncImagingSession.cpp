@@ -5,7 +5,7 @@
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"

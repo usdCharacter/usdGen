@@ -21,7 +21,7 @@
 #include "utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
-#include "usdGen/sessionCooker.h"
+#include "usdGen/exec/sessionCooker.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenHydraCurves/usdGenTilePublisher.h"
 

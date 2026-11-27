@@ -3,13 +3,13 @@
 // Native, source-grounded operator fixtures for the reference manual.
 // The values below are authored inputs; all displayed output planes come from
 // the usdGen compiler and CPU scheduler, including Part's partId channel.
-#include "usdGen/compiler.h"
-#include "usdGen/curveBuffer.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "pxr/usd/usd/stage.h"
 #include "pxr/usd/usdGeom/basisCurves.h"

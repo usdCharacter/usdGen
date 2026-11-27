@@ -4,9 +4,9 @@
 #include "usdGenCurves/vulkan/deformPipeline.h"
 #include "usdGenCurves/vulkan/deformEvaluateCpu.h"
 #include "usdGenVulkan/vulkan/queueTimeline.h"
-#include "usdGen/epoch.h"
-#include "usdGen/scratch.h"
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/scratch.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>

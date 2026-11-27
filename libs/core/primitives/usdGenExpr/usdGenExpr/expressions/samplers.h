@@ -24,8 +24,8 @@
 #ifndef USDGEN_EXPRESSIONS_SAMPLERS_H
 #define USDGEN_EXPRESSIONS_SAMPLERS_H
 
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/ir.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/ir.h"
 
 #include <cstddef>
 #include <cstdint>

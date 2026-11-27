@@ -1,4 +1,4 @@
-#include "usdGen/ops/curveSource.h"
+#include "usdGenCurves/ops/curveSource.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
@@ -7,12 +7,12 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 
-#include "usdGen/curveLoader.h"
-#include "usdGen/surfaceCageSource.h"
-#include "usdGen/op.h"
+#include "usdGenCurves/curveLoader.h"
+#include "usdGenSurface/surfaceCageSource.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 
 

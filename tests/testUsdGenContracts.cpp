@@ -25,9 +25,9 @@
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/usd/usd/schemaRegistry.h"
 
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/usdGenDirtyRouter.h"
 

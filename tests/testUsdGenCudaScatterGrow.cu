@@ -1,8 +1,8 @@
 #include "usdGenCurves/cuda/scatterGrow.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/executionRetirement.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "usdGenMath/hash.h"
 
 #include <atomic>

@@ -5,8 +5,8 @@
 #define USDGEN_VULKAN_LENGTH_COMPACTION_PIPELINE_H
 
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
-#include "usdGen/curveBuffer.h"
-#include "usdGen/deviceGeneration.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGen/exec/device/deviceGeneration.h"
 
 #include <functional>
 #include <memory>

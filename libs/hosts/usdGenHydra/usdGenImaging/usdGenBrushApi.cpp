@@ -5,7 +5,7 @@
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenImaging/testHook.h"
 
-#include "usdGen/maps/attributeMap.h"
+#include "usdGenSurface/maps/attributeMap.h"
 
 #include "pxr/base/gf/vec3f.h"
 #include "pxr/base/vt/array.h"

@@ -7,9 +7,9 @@
 #ifndef USDGEN_EXECUTION_BACKEND_H
 #define USDGEN_EXECUTION_BACKEND_H
 
-#include "usdGen/executionCache.h"
-#include "usdGen/executionPlan.h"
-#include "usdGen/executionPipeline.h"
+#include "usdGen/exec/executionCache.h"
+#include "usdGen/exec/device/executionPlan.h"
+#include "usdGen/exec/executionPipeline.h"
 #include "usdGen/registries/backend.h"
 
 #include <cstdint>

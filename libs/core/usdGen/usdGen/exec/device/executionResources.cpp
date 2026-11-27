@@ -1,4 +1,4 @@
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 
 #include <atomic>
 #include <limits>

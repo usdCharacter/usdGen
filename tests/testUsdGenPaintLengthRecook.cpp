@@ -14,7 +14,7 @@
 // and asserts the strands got shorter; then does the same for width.
 #include "utils/pxrInterop.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 
 #include "pxr/imaging/hd/dataSource.h"

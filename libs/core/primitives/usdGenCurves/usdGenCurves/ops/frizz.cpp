@@ -21,11 +21,11 @@
 //   test (seeded from T x (0,1,0), or T x (1,0,0) when |T.y| >= 0.95).
 //   Offsets come from the undisplaced curve; the root never moves.
 // Floating-point evaluation order follows the reference.
-#include "usdGen/ops/frizz.h"
+#include "usdGenCurves/ops/frizz.h"
 #include "usdGen/api/span.h"
 
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <cmath>

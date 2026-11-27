@@ -57,7 +57,7 @@
 #ifndef USDGEN_OP_COLLIDE_H
 #define USDGEN_OP_COLLIDE_H
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenSurface/surfaceInput.h"
 #include <array>
 #include <atomic>

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — engine heap-allocation counter. See allocCounter.h.
-#include "usdGen/allocCounter.h"
+#include "usdGen/exec/allocCounter.h"
 
 #include <atomic>
 #include <cstdlib>

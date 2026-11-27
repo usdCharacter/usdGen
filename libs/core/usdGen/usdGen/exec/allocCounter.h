@@ -12,7 +12,7 @@
 // Counting is off by default and costs one relaxed load per allocation.
 #pragma once
 
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 
 #include <cstddef>
 #include <cstdint>

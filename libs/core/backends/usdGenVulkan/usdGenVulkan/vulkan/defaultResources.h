@@ -3,7 +3,7 @@
 #ifndef USDGEN_VULKAN_DEFAULT_RESOURCES_H
 #define USDGEN_VULKAN_DEFAULT_RESOURCES_H
 
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 
 #include <vulkan/vulkan.h>
 #include <algorithm>

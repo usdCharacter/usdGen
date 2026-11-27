@@ -34,8 +34,8 @@
 // float rounding.
 #include "usdGenExpr/cuda/expression.h"
 #include "usdGenExpr/cuda/expressionContext.h"
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/frontend.h"
 
 #include <cuda_runtime.h>
 

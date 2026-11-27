@@ -19,13 +19,13 @@
 //   a = clamp(strength, 0, 1) * mask, w = usdGen:window (inclusive box,
 //   includes self), for k = 1 .. n-2; both endpoints are always fixed (no
 //   lockRoot), and there is no length preservation.
-#include "usdGen/ops/smooth.h"
+#include "usdGenCurves/ops/smooth.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/scratch.h"
+#include "usdGen/exec/scratch.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include <nanoflann.hpp>
 

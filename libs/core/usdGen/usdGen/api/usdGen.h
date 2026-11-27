@@ -8,7 +8,7 @@
 #ifndef USDGEN_USDGEN_H
 #define USDGEN_USDGEN_H
 
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 
 #include <string>
 

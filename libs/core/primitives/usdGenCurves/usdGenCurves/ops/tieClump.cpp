@@ -7,11 +7,11 @@
 // length recorded right after length-scale/trim; here the strand length on
 // entry to this operator is used (the upstream stack in between only adds
 // frizz, which lengthens strands slightly).
-#include "usdGen/ops/tieClump.h"
+#include "usdGenCurves/ops/tieClump.h"
 
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "usdGenMath/math.h"
 #include "usdGen/api/cowArray.h"

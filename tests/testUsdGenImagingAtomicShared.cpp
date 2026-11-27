@@ -15,7 +15,7 @@
 //      racers park until it is published) and destroys none; a throwing
 //      make reopens the slot for the next caller.
 
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 
 #include <atomic>
 #include <chrono>

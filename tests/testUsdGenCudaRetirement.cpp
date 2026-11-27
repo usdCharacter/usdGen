@@ -1,10 +1,10 @@
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "testBackend.h"
-#include "usdGen/executionRetirement.h"
-#include "usdGen/gpu/cudaRetirement.h"
+#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGenCuda/gpu/cudaRetirement.h"
 #include "usdGenCurves/cuda/curveCompaction.h"
-#include "usdGen/gpu/deviceBuffer.h"
-#include "usdGen/gpu/deviceResources.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceResources.h"
 #include "usdGenCurves/cuda/generation.h"
 
 #include <cuda_runtime.h>

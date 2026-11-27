@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "utils/pxrInterop.h"
-#include "usdGen/curveLoader.h"
+#include "usdGenCurves/curveLoader.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/vulkan/lengthScalePipeline.h"
 #include "usdGenCurves/vulkan/nonWidthComparePipeline.h"

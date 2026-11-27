@@ -4,9 +4,9 @@
 #ifndef USDGEN_SESSION_DEVICE_PROVIDER_H
 #define USDGEN_SESSION_DEVICE_PROVIDER_H
 
-#include "usdGen/deviceGeneration.h"
-#include "usdGen/executionBackend.h"
-#include "usdGen/executionValueRevisions.h"
+#include "usdGen/exec/device/deviceGeneration.h"
+#include "usdGen/exec/device/executionBackend.h"
+#include "usdGen/exec/executionValueRevisions.h"
 #include "usdGen/api/nodeKey.h"
 #include "usdGen/exec/epoch.h"
 #include "usdGen/registries/publisher.h"

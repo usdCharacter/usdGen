@@ -8,7 +8,7 @@
 // mode=cv evaluates at point rate, mode=curve at primitive rate with a
 // per-root broadcast. Every edge fails closed with a UsdGenDiagnostics
 // message; see exprOp.h for the contract.
-#include "usdGen/ops/exprOp.h"
+#include "usdGenExpr/ops/exprOp.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGenMath/math.h"
@@ -17,9 +17,9 @@
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/ops/opUtil.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include <algorithm>
 #include <cctype>

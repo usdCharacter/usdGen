@@ -10,7 +10,7 @@
 // fixed under the default taper; without it the whole coil (roots included)
 // offsets by r(0). All work is per curve/CV in Evaluate; Capture only
 // validates.
-#include "usdGen/ops/curl.h"
+#include "usdGenCurves/ops/curl.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
@@ -18,10 +18,10 @@
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/scratch.h"
-#include "usdGen/clumpMotion.h"
+#include "usdGen/exec/scratch.h"
+#include "usdGenCurves/clumpMotion.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"

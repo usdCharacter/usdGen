@@ -1,4 +1,4 @@
-#include "usdGen/maps/ptexMap.h"
+#include "usdGenSurface/maps/ptexMap.h"
 
 // Ptexture.h comes from the private usdGen_ptex archive (PTEX_STATIC,
 // PTEX_VENDOR=usdGen); only this translation unit sees it. On ELF/Mach-O its

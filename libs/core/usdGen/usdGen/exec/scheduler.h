@@ -13,10 +13,10 @@
 #ifndef USDGEN_SCHEDULER_H
 #define USDGEN_SCHEDULER_H
 
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
-#include "usdGen/types.h"
-#include "usdGen/workerPool.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
+#include "usdGen/compile/types.h"
+#include "usdGen/exec/workerPool.h"
 
 #include <atomic>
 #include <cstddef>

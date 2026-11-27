@@ -3,10 +3,10 @@
 #ifndef USDGEN_OP_UTIL_H
 #define USDGEN_OP_UTIL_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGenMath/math.h"

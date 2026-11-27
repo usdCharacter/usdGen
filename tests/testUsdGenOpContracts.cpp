@@ -16,10 +16,10 @@
 #include "utils/pxrInterop.h"
 #include "golden/goldenGraphs.h"
 
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 
 #include "pxr/pxr.h"

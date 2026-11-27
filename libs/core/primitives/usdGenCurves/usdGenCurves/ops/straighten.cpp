@@ -12,10 +12,10 @@
 // plan name only the two controlled planes, so there is nothing to scale it
 // by. All work is per curve/CV in Evaluate (no capture payload); Capture only
 // validates literals and fails closed on non-finite connected values.
-#include "usdGen/ops/straighten.h"
+#include "usdGenCurves/ops/straighten.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
 

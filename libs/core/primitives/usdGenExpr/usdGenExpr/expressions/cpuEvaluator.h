@@ -14,8 +14,8 @@
 #ifndef USDGEN_EXPRESSIONS_CPU_EVALUATOR_H
 #define USDGEN_EXPRESSIONS_CPU_EVALUATOR_H
 
-#include "usdGen/expressions/context.h"
-#include "usdGen/expressions/ir.h"
+#include "usdGenExpr/expressions/context.h"
+#include "usdGenExpr/expressions/ir.h"
 
 #include <cstddef>
 #include <cstdint>

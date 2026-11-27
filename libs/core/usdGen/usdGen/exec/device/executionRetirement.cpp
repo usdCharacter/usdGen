@@ -1,5 +1,5 @@
-#include "usdGen/executionRetirement.h"
-#include "usdGen/executionRuntimeInternal.h"
+#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGen/exec/executionRuntimeInternal.h"
 #include "usdGen/exec/parkingWord.h"
 #include "usdGen/exec/serialLane.h"
 

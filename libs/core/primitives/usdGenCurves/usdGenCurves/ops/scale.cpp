@@ -10,11 +10,11 @@
 // widths by the same L. All work is per curve/CV in Evaluate (no capture
 // payload — the draws are pure functions of seed, curveId and salt, so a
 // scaleRandom edit re-rolls by re-evaluating); Capture only validates.
-#include "usdGen/ops/scale.h"
+#include "usdGenCurves/ops/scale.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/stylerParams.h"
+#include "usdGenCurves/ops/stylerParams.h"
 #include "usdGen/registries/engineTokens.h"
 
 #include "usdGenMath/usdGenMath/hash.h"

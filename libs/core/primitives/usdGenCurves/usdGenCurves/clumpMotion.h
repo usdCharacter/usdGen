@@ -3,7 +3,7 @@
 #ifndef USDGEN_CLUMP_MOTION_H
 #define USDGEN_CLUMP_MOTION_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/export.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"

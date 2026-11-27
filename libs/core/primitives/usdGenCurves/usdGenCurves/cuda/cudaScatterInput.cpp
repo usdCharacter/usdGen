@@ -7,11 +7,11 @@
 #include "usdGenSurface/types/rootSet.h"
 
 #include "usdGenCurves/cuda/cudaStages.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/opRegistry.h"
 
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/token.h"

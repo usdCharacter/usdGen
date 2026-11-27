@@ -8,7 +8,7 @@
 // so a warm cook never reaches the heap. Single owner: no atomics.
 #pragma once
 
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 
 #include <cstddef>
 #include <cstring>

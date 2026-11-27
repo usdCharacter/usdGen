@@ -1,4 +1,4 @@
-#include "usdGen/deviceGeneration.h"
+#include "usdGen/exec/device/deviceGeneration.h"
 
 #include <algorithm>
 #include <cmath>

@@ -14,7 +14,7 @@
 #include "utils/pxrInterop.h"
 #include "usdGenImaging/attributePreviewSceneIndex.h"
 #include "usdGenTestUtils/hydraPublishers.h"
-#include "usdGen/maps/attributeMap.h"
+#include "usdGenSurface/maps/attributeMap.h"
 #include "usdGenHydraCurves/previewColor.h"
 
 #include "pxr/imaging/hd/primvarSchema.h"

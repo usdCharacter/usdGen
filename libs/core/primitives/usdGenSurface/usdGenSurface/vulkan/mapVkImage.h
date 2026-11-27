@@ -13,7 +13,7 @@
 // hardware samplers cannot provide that bit-exactness.
 
 #include "usdGenVulkan/vulkan/chargedBuffer.h"
-#include "usdGen/imagePayload.h"
+#include "usdGenSurface/imagePayload.h"
 
 #include <cstdint>
 #include <functional>

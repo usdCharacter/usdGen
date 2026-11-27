@@ -30,16 +30,16 @@
 // the Vulkan legs are skipped; an unavailable device skips (exit 77).
 
 #include "../utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenMath/rbf.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGen/exec/taskScheduler.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

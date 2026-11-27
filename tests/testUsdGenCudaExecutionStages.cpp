@@ -5,7 +5,7 @@
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"
 #include "usdGenCurves/cuda/cudaParameters.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "usdGenCurves/cuda/generation.h"
 
 #include <cmath>

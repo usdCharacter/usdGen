@@ -4,8 +4,8 @@
 // The CUDA completion lane and stream fence: results visible after a fence,
 // continuations run once with the event status, many threads at once, and an
 // idle lane runs no passes (nothing polls).
-#include "usdGen/gpu/cudaCompletionLane.h"
-#include "usdGen/taskScheduler.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <cuda_runtime.h>
 

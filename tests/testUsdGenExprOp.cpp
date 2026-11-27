@@ -18,18 +18,18 @@
 //   (5) determinism (two cooks are bit-identical);
 //   (6) the CUDA backend explicitly rejects the CPU-only graph, like Clump.
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/executionBackend.h"
-#include "usdGen/expressions/context.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/exec/device/executionBackend.h"
+#include "usdGenExpr/expressions/context.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <cmath>
 #include <cstdio>

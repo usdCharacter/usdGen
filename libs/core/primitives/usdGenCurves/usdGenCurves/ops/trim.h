@@ -7,7 +7,7 @@
 #ifndef USDGEN_OP_TRIM_H
 #define USDGEN_OP_TRIM_H
 
-#include "usdGen/ops/wholeStrand.h"
+#include "usdGenCurves/ops/wholeStrand.h"
 #include "usdGen/registries/handles.h"
 
 

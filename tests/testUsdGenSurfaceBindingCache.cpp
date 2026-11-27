@@ -1,9 +1,9 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceRootBindings.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/curveRootCapture.h"
-#include "usdGen/curveLoader.h"
+#include "usdGenCurves/curveRootCapture.h"
+#include "usdGenCurves/curveLoader.h"
 #ifdef USDGEN_TEST_CUDA_BINDING_CACHE
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "cudaPlanRunner.h"

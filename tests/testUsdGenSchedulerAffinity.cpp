@@ -20,8 +20,8 @@
 //   4. The product default is max(8, fast-core count), and the
 //      USDGEN_NO_FAST_CORE_PIN kill switch restores 8.
 
-#include "usdGen/scheduler.h"
-#include "usdGen/fastCores.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/exec/fastCores.h"
 
 #include <algorithm>
 #include <cstdio>

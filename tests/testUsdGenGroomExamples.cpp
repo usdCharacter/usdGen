@@ -14,15 +14,15 @@
 //   * retargeting the expression's input:guideCurves recooks them;
 //   * retargeting a UsdGenPtexMap's file recooks the clumps.
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/maps/ptexMap.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGenSurface/maps/ptexMap.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"
 

@@ -43,8 +43,8 @@
 #include "usdGenCurves/vulkan/deformRbfHost.h"
 #include "usdGenCurves/vulkan/csourceVkAdmission.h"
 
-#include "usdGen/curveLoader.h"
-#include "usdGen/curveRootCapture.h"
+#include "usdGenCurves/curveLoader.h"
+#include "usdGenCurves/curveRootCapture.h"
 #include "usdGenMath/rbf.h"
 #include "pxr/base/gf/range3d.h"
 

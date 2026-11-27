@@ -41,7 +41,7 @@
 #ifndef USDGEN_OP_FREEZE_H
 #define USDGEN_OP_FREEZE_H
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/handles.h"
 
 

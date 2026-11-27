@@ -1,10 +1,10 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
-#include "usdGen/epoch.h"
-#include "usdGen/executionRuntimeInternal.h"
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/executionRuntimeInternal.h"
+#include "usdGen/exec/parkingWord.h"
 
 #include <algorithm>
 #include <exception>

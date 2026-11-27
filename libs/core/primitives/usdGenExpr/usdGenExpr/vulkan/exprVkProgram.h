@@ -20,7 +20,7 @@
 #ifndef USDGEN_VULKAN_EXPR_VK_PROGRAM_H
 #define USDGEN_VULKAN_EXPR_VK_PROGRAM_H
 
-#include "usdGen/expressions/ir.h"
+#include "usdGenExpr/expressions/ir.h"
 #include "usdGen/api/graphSpec.h"
 
 #include <cstddef>

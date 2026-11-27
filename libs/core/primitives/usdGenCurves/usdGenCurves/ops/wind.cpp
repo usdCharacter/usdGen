@@ -13,13 +13,13 @@
 // gustStrength 0 skips the FBM entirely (pure constant deflection).
 // direction/constStrength/gustStrength sample per curve root (primitive);
 // stiffness and its ramp are groom-wide; the mask envelopes per CV.
-#include "usdGen/ops/wind.h"
+#include "usdGenCurves/ops/wind.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/scratch.h"
+#include "usdGen/exec/scratch.h"
 
-#include "usdGen/clumpMotion.h"
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/clumpMotion.h"
+#include "usdGenCurves/ops/opUtil.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"

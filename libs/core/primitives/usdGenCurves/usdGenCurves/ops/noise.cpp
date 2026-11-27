@@ -13,11 +13,11 @@
 // what keeps gate E-1 (full 5-op run <= 1.5 ms at 100 k x 8 CV) honest: a
 // per-frame SeExpr FBM over 800 k CVs measures ~100 ms single-thread /
 // ~12.5 ms at 8 threads on this host (MEASURED, fbmbench, M1 integration).
-#include "usdGen/ops/noise.h"
+#include "usdGenCurves/ops/noise.h"
 #include "usdGenCurves/ops/noiseGpuHook.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/clumpMotion.h"
+#include "usdGenCurves/clumpMotion.h"
 
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"

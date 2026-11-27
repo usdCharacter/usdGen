@@ -2,13 +2,13 @@
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/executionCache.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/exec/executionCache.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/sessionCooker.h"
+#include "usdGen/exec/sessionCooker.h"
 
 #include "pxr/base/gf/vec3f.h"
 

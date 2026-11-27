@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/parkingWord.h"
 
 namespace usdGen {
 namespace {

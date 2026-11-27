@@ -13,12 +13,12 @@
 // Tier T0: engine core only (no Hydra, no stage — gate B-1).
 
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 
 #include "pxr/pxr.h"
 

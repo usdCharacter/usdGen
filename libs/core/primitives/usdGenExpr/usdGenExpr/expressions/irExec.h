@@ -24,8 +24,8 @@
 #ifndef USDGEN_EXPRESSIONS_IR_EXEC_H
 #define USDGEN_EXPRESSIONS_IR_EXEC_H
 
-#include "usdGen/expressions/exprMath.h"
-#include "usdGen/expressions/ir.h"
+#include "usdGenExpr/expressions/exprMath.h"
+#include "usdGenExpr/expressions/ir.h"
 
 #include <climits>
 #include <cmath>

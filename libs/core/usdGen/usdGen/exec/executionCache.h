@@ -6,9 +6,9 @@
 #ifndef USDGEN_EXECUTION_CACHE_H
 #define USDGEN_EXECUTION_CACHE_H
 
-#include "usdGen/deviceGeneration.h"
+#include "usdGen/exec/device/deviceGeneration.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/epoch.h"
+#include "usdGen/exec/epoch.h"
 
 #include <cstdint>
 #include <cstring>

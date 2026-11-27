@@ -14,7 +14,7 @@
 
 #include "usdGenPomade/pomadeModel.h"
 
-#include "usdGen/epoch.h"
+#include "usdGen/exec/epoch.h"
 
 #include <map>
 #include <memory>

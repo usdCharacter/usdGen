@@ -1,4 +1,4 @@
-#include "usdGen/usdGen.h"
+#include "usdGen/api/usdGen.h"
 
 namespace usdGen {
 

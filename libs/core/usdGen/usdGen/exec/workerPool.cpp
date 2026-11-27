@@ -1,12 +1,12 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 
-#include "usdGen/workerPool.h"
-#include "usdGen/executionRuntimeInternal.h"
-#include "usdGen/fastCores.h"
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/workerPool.h"
+#include "usdGen/exec/executionRuntimeInternal.h"
+#include "usdGen/exec/fastCores.h"
+#include "usdGen/exec/parkingWord.h"
 #include "usdGen/exec/scratch.h"
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <algorithm>
 #include <atomic>

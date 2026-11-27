@@ -10,9 +10,9 @@
 //   - scratch: nesting, rewind, growth, one arena per thread
 //   - heap fallback (growth denied) keeps the 64-byte alignment above 256
 
-#include "usdGen/allocCounter.h"
-#include "usdGen/pool.h"
-#include "usdGen/scratch.h"
+#include "usdGen/exec/allocCounter.h"
+#include "usdGen/exec/pool.h"
+#include "usdGen/exec/scratch.h"
 
 #include <atomic>
 #include <cstdint>

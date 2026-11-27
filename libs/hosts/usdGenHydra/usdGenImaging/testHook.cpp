@@ -13,7 +13,7 @@
 // (usdGenTestUtilsHd -> usdGenImaging). No new public plugin API.
 #include "usdGenImaging/testHook.h"
 
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 #include "usdGenImaging/groomSceneIndexPlugin.h"
 
 #include "pxr/imaging/hd/dataSource.h"

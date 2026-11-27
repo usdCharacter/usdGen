@@ -1,7 +1,7 @@
-#include "usdGen/session.h"
-#include "usdGen/sessionBackendExecutor.h"
-#include "usdGen/sessionCooker.h"
-#include "usdGen/sessionDeviceIntegration.h"
+#include "usdGen/exec/session.h"
+#include "usdGen/exec/sessionBackendExecutor.h"
+#include "usdGen/exec/sessionCooker.h"
+#include "usdGen/exec/sessionDeviceIntegration.h"
 #include "usdGen/registries/backend.h"
 
 #include <limits>

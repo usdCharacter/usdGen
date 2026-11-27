@@ -3,11 +3,11 @@
 #include "usdGenCurves/types/deviceChannelTokens.h"
 #include "usdGenCuda/backendId.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/gpu/cudaCompat.h"
+#include "usdGenCuda/gpu/cudaCompat.h"
 #include "usdGenCurves/cuda/curveCompaction.h"
 #include "usdGenCurves/cuda/curveGrow.h"
 #include "usdGenCurves/cuda/scatterGrow.h"
-#include "usdGen/gpu/cudaRetirement.h"
+#include "usdGenCuda/gpu/cudaRetirement.h"
 #include "usdGenCuda/gpu/cudaCompletionLane.h"
 
 #include <algorithm>

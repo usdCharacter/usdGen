@@ -2,7 +2,7 @@
 #define USDGEN_GPU_STYLE_OPS_H
 
 #include "usdGenCurves/cuda/curveGeometry.h"
-#include "usdGen/expressions/context.h"
+#include "usdGenExpr/expressions/context.h"
 
 #include <cstdint>
 

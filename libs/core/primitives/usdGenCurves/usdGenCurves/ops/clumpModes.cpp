@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — reference clump modes. See clumpModes.h.
-#include "usdGen/ops/clumpModes.h"
+#include "usdGenCurves/ops/clumpModes.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/cowArray.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include <nanoflann.hpp>
 

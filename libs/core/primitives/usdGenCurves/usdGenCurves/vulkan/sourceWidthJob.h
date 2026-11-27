@@ -5,7 +5,7 @@
 #define USDGEN_VULKAN_SOURCE_WIDTH_JOB_H
 #include "usdGenVulkan/vulkan/completionService.h"
 #include "usdGenCurves/vulkan/deformPipeline.h"
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
 #include "usdGenExpr/vulkan/exprVkApply.h"
 #include "usdGenExpr/vulkan/exprVkPack.h"
@@ -19,8 +19,8 @@
 #include "usdGenCurves/vulkan/rbfVkDeformPipeline.h"
 #include "usdGenCurves/vulkan/resampleVkPipeline.h"
 #include "usdGenCurves/vulkan/sourceGeneration.h"
-#include "usdGen/executionPipeline.h"
-#include "usdGen/executionTaskGraph.h"
+#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/exec/executionTaskGraph.h"
 #include "usdGenCurves/vulkan/widthBlendPipeline.h"
 #include <atomic>
 #include <functional>

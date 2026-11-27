@@ -33,18 +33,18 @@
 #include "../utils/pxrInterop.h"
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "bufferOpCalls.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/maps/attributeInstance.h"
-#include "usdGen/maps/attributeMap.h"
-#include "usdGen/op.h"
+#include "usdGenSurface/maps/attributeInstance.h"
+#include "usdGenSurface/maps/attributeMap.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/scatter.h"
+#include "usdGenSurface/ops/scatter.h"
 #include "../usdGenOpFixture.h"
-#include "usdGen/sessionCooker.h"
-#include "usdGen/types.h"
+#include "usdGen/exec/sessionCooker.h"
+#include "usdGen/compile/types.h"
 #include "usdGenHydraCurves/usdGenInstancer.h"
 
 #include "pxr/pxr.h"
@@ -58,8 +58,8 @@
 
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/cuda/cudaScatterInput.h"
-#include "usdGen/executionResources.h"
-#include "usdGen/gpu/deviceResources.h"
+#include "usdGen/exec/device/executionResources.h"
+#include "usdGenCuda/gpu/deviceResources.h"
 #include "usdGenCurves/cuda/scatterGrow.h"
 #endif
 #ifdef USDGEN_ENABLE_VULKAN_RUNTIME

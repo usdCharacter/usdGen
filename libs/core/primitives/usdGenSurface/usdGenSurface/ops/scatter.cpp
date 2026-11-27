@@ -12,19 +12,19 @@
 // curveId-keyed it is order-invariant across thread counts and chunk splits
 // (review M-3 / engine rule E-8). Roots are Morton-sorted by rest position so
 // chunk placement is surface-major (plan/04 :641).
-#include "usdGen/ops/scatter.h"
+#include "usdGenSurface/ops/scatter.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 
-#include "usdGen/digest.h"
-#include "usdGen/limitSurface.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/taskScheduler.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/scatterModes.h"
+#include "usdGen/compile/digest.h"
+#include "usdGenSurface/limitSurface.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/exec/taskScheduler.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenSurface/ops/scatterModes.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 

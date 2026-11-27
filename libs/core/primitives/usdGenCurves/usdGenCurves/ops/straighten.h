@@ -11,7 +11,7 @@
 #ifndef USDGEN_OP_STRAIGHTEN_H
 #define USDGEN_OP_STRAIGHTEN_H
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/handles.h"
 
 

@@ -21,8 +21,8 @@
 #ifndef USDGEN_OPS_CLUMP_MODES_H
 #define USDGEN_OPS_CLUMP_MODES_H
 
-#include "usdGen/curveBuffer.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGenMath/math.h"

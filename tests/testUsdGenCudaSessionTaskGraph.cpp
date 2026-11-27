@@ -2,11 +2,11 @@
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
-#include "usdGen/executionTaskGraph.h"
+#include "usdGen/exec/executionTaskGraph.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/session.h"
+#include "usdGen/exec/session.h"
 
 #include <array>
 #include <atomic>

@@ -1,14 +1,14 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 #include "utils/pxrInterop.h"
-#include "usdGen/clumpMotion.h"
+#include "usdGenCurves/clumpMotion.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <cstdio>
 #include <cstring>

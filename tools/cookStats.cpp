@@ -12,14 +12,14 @@
 //   usdGenCookStats scene.usda [--only <substring>] [--bake out.usda] [--threads N] [--hash]
 // --hash prints the reference groomer's output hash (FNV-1a over points, counts,
 // lengths, clump ids in generation order) for comparison with its build log.
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "usdGenUsd/convert/array.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenCurves/types/curveBuffer.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"

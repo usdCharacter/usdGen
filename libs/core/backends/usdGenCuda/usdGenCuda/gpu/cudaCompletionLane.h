@@ -17,7 +17,7 @@
 // and in tests.
 #pragma once
 
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <cuda_runtime.h>
 

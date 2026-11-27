@@ -42,21 +42,21 @@
 // guide indices are curve indices of the guide set. Upstream uniform planes
 // (strandIndex, strandSeed, ...) are carried into the generated buffer.
 // Evaluate writes the captured strands, following their roots.
-#include "usdGen/ops/guideInterpolate.h"
+#include "usdGenCurves/ops/guideInterpolate.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenSurface/types/rootSet.h"
 
-#include "usdGen/clumpMotion.h"
-#include "usdGen/ops/guideBlend.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/regionMap.h"
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/clumpMotion.h"
+#include "usdGenCurves/ops/guideBlend.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/regionMap.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
-#include "usdGen/types.h"
+#include "usdGen/compile/types.h"
 #include "usdGenMath/usdGenMath/hash.h"
 
 #include "usdGenMath/math.h"

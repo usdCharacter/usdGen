@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: MIT
 
 #include "utils/pxrInterop.h"
-#include "usdGen/executionBackend.h"
+#include "usdGen/exec/device/executionBackend.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/compiler.h"
-#include "usdGen/curveLoader.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGenCurves/curveLoader.h"
+#include "usdGen/registries/op.h"
 #include "usdGenCurves/vulkan/executionPlan.h"
 
 #include <algorithm>

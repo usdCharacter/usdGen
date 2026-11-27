@@ -1,9 +1,9 @@
 // Pure runtime contract for sparse surface-cage C3 interpolation.
 #include "utils/pxrInterop.h"
-#include "usdGen/surfaceCageInterpolate.h"
+#include "usdGenSurface/surfaceCageInterpolate.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/surfaceCageSource.h"
-#include "usdGen/concaveMaterialRemap.h"
+#include "usdGenSurface/surfaceCageSource.h"
+#include "usdGenSurface/concaveMaterialRemap.h"
 
 #include <Ptexture.h>
 

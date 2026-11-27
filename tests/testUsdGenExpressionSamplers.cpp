@@ -9,12 +9,12 @@
 //     re-resolves when the sampled geometry changes;
 //   * ptex() reads a UsdGenPtexMap at the strand root, or a UsdGenPaintMap (bilinear at the root's face-local uv).
 #include "utils/pxrInterop.h"
-#include "usdGen/cpuParameters.h"
+#include "usdGenExpr/cpuParameters.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
-#include "usdGen/expressions/samplers.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
+#include "usdGenExpr/expressions/samplers.h"
 #include "usdGenCurves/types/curveBuffer.h"
 
 #include <Ptexture.h>

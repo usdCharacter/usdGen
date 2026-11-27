@@ -1,5 +1,5 @@
 #include "usdGenExpr/cuda/expressionContext.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/frontend.h"
 
 #include <cuda_runtime.h>
 #include <atomic>

@@ -5,10 +5,10 @@
 // and several with parked workers and a blocking task), pending-count
 // parking, fork/join regions (nested, concurrent, throwing) and a 64-thread
 // pipeline / task-graph submit stress.
-#include "usdGen/executionPipeline.h"
-#include "usdGen/executionTaskGraph.h"
-#include "usdGen/epoch.h"
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <atomic>
 #include <chrono>

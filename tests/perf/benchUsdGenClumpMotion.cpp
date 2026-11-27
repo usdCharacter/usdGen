@@ -3,9 +3,9 @@
 // Informational timings; correctness failures are always fatal. Run on a quiet
 // host, never alongside the documentation renderer. No absolute timing gates.
 #include "../utils/pxrInterop.h"
-#include "usdGen/clumpMotion.h"
+#include "usdGenCurves/clumpMotion.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/ops/wind.h"
+#include "usdGenCurves/ops/wind.h"
 #include "../bufferOpCalls.h"
 #include <algorithm>
 #include <chrono>

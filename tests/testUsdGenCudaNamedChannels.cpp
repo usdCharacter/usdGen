@@ -1,10 +1,10 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "testBackend.h"
-#include "usdGen/executionRetirement.h"
-#include "usdGen/gpu/cudaRetirement.h"
+#include "usdGen/exec/device/executionRetirement.h"
+#include "usdGenCuda/gpu/cudaRetirement.h"
 #include "usdGenCurves/cuda/generation.h"
-#include "usdGen/gpu/deviceResources.h"
+#include "usdGenCuda/gpu/deviceResources.h"
 
 #include <cuda_runtime.h>
 

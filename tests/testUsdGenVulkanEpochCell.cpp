@@ -5,7 +5,7 @@
 // on many threads race writers that Store, CompareExchange, Take and Reset;
 // every value a reader sees must be alive and intact, and every value must be
 // destroyed exactly once.
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 
 #include <atomic>
 #include <cstdio>

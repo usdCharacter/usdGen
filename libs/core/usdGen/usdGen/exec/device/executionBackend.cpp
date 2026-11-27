@@ -1,7 +1,7 @@
-#include "usdGen/executionBackend.h"
+#include "usdGen/exec/device/executionBackend.h"
 #include "usdGen/registries/backend.h"
 
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 
 #include <atomic>
 #include <cstring>

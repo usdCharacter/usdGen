@@ -5,9 +5,9 @@
 // unit body the CUDA kernel compiles (gpu/expression.cu). A bug found here is
 // a bug on the device too; testUsdGenCudaExpressionParity proves the two lanes
 // still produce identical bits for the exactly-rounded op set.
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include <algorithm>
 #include <cmath>

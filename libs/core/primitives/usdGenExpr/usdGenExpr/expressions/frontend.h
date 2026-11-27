@@ -1,7 +1,7 @@
 #ifndef USDGEN_EXPRESSIONS_FRONTEND_H
 #define USDGEN_EXPRESSIONS_FRONTEND_H
-#include "usdGen/expressions/context.h"
-#include "usdGen/expressions/ir.h"
+#include "usdGenExpr/expressions/context.h"
+#include "usdGenExpr/expressions/ir.h"
 #include <memory>
 #include <string>
 #include <vector>

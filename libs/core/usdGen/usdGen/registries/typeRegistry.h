@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Input types the engine branches on (step 4: the map prim types).
 #pragma once
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 #include "usdGen/api/ids.h"
 #include "usdGen/registries/handles.h"
 #include "usdGen/api/token.h"

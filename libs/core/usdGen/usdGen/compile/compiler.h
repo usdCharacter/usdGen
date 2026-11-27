@@ -9,10 +9,10 @@
 #ifndef USDGEN_COMPILER_H
 #define USDGEN_COMPILER_H
 
-#include "usdGen/graph.h"
+#include "usdGen/compile/graph.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/pool.h"
-#include "usdGen/types.h"
+#include "usdGen/exec/pool.h"
+#include "usdGen/compile/types.h"
 
 #include <string>
 #include <functional>

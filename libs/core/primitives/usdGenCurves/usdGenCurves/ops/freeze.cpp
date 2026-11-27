@@ -7,7 +7,7 @@
 // ValidForTopology is unconditional) nor corrupt the private planes. Live
 // mode owns nothing and Evaluate memcpys the chain input to the output.
 // TopologyEffect = CurveCount (static worst case; see freeze.h).
-#include "usdGen/ops/freeze.h"
+#include "usdGenCurves/ops/freeze.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
@@ -15,7 +15,7 @@
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 
 #include <algorithm>

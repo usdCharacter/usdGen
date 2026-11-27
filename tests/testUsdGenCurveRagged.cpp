@@ -17,14 +17,14 @@
 // main(): PASS/FAIL + exit code.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/types.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/compile/types.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec3f.h"

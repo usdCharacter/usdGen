@@ -22,7 +22,7 @@
 //   * density maps thin roots AFTER generation with the root existence hash,
 //     so a painted mask never renumbers strands (strandIndex keeps the
 //     generation index).
-#include "usdGen/ops/scatterModes.h"
+#include "usdGenSurface/ops/scatterModes.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/value.h"
 #include "usdGenMath/math.h"
@@ -31,12 +31,12 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 
-#include "usdGen/limitSurface.h"
-#include "usdGen/ops/scatter.h"
+#include "usdGenSurface/limitSurface.h"
+#include "usdGenSurface/ops/scatter.h"
 #include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 

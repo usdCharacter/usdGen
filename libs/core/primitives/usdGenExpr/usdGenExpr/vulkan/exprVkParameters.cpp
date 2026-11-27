@@ -4,7 +4,7 @@
 #include "exprVkParameters.h"
 #include "usdGen/api/token.h"
 
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include <cstring>
 #include <limits>

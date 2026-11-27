@@ -1,6 +1,6 @@
-#include "usdGen/expressions/samplers.h"
+#include "usdGenExpr/expressions/samplers.h"
 
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include <nanoflann.hpp>
 

@@ -1,8 +1,8 @@
 // usdGenPomade — model registry implementation (plan/18 §2.1).
 #include "usdGenPomade/pomadeRegistry.h"
 
-#include "usdGen/epoch.h"
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGen/exec/sharedCell.h"
 
 #include <algorithm>
 #include <utility>

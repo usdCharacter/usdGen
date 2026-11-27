@@ -25,10 +25,10 @@
 //
 // Host/device agreement is a separate claim, proved by
 // testUsdGenCudaExpressionParity.
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/exprMath.h"
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/exprMath.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
 
 #include <ExprBuiltins.h>
 #include <Noise.h>

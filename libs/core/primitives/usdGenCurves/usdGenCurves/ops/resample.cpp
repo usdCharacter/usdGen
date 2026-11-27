@@ -13,13 +13,13 @@
 // agrees). The capture keys on the upstream value version, so the counts
 // follow the strands. Distribution and restoreSegmentLengths apply per
 // strand exactly as with a fixed count.
-#include "usdGen/ops/resample.h"
+#include "usdGenCurves/ops/resample.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/scratch.h"
+#include "usdGen/exec/scratch.h"
 
-#include "usdGen/curveBuffer.h"
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include "usdGenMath/math.h"
 

@@ -30,9 +30,9 @@
 #include "usdGenPomade/pomadeRegion.h"
 #include "usdGenPomade/pomadeScalp.h"
 
-#include "usdGen/cpuParameters.h"
+#include "usdGenExpr/cpuParameters.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/gf/vec3f.h"

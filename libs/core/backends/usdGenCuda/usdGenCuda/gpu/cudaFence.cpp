@@ -3,9 +3,9 @@
 //
 // CudaFenceStream lives in usdGenGpu with the kernels that call it; it needs
 // only the parking word, not the scheduler (the lane is in usdGen).
-#include "usdGen/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
 
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/parkingWord.h"
 
 #include <atomic>
 #include <cstdint>

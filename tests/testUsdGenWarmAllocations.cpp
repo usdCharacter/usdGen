@@ -16,17 +16,17 @@
 // write into a buffer something still holds.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/allocCounter.h"
+#include "usdGen/exec/allocCounter.h"
 #include "nodeSets.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
-#include "usdGen/scheduler.h"
-#include "usdGen/types.h"
+#include "usdGen/exec/scheduler.h"
+#include "usdGen/compile/types.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

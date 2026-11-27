@@ -16,7 +16,7 @@
 #include "usdGenImaging/api.h"
 #include "usdGen/api/routing.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/session.h"
+#include "usdGen/exec/session.h"
 
 #include "pxr/pxr.h"
 #include "pxr/imaging/hd/dataSourceLocator.h"

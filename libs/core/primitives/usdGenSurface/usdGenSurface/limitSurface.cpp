@@ -2,12 +2,12 @@
 #ifndef _USE_MATH_DEFINES
 #define _USE_MATH_DEFINES
 #endif
-#include "usdGen/limitSurface.h"
+#include "usdGenSurface/limitSurface.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
-#include "usdGen/digest.h"
+#include "usdGen/compile/digest.h"
 #include "usdGen/registries/token.h"
 #include "usdGenMath/math.h"
 #include <opensubdiv/far/patchTableFactory.h>

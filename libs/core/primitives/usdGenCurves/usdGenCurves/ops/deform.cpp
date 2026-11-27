@@ -21,19 +21,19 @@
 // The capture digest carries the driver content, so an animated driver
 // re-captures on every frame it moves; the factorization is kept while the
 // rest samples do not change. Evaluate applies usdGen:mask.
-#include "usdGen/ops/deform.h"
+#include "usdGenCurves/ops/deform.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/span.h"
 #include "usdGenCurves/types/curveSetInput.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/ops/curveWrap.h"
-#include "usdGen/ops/regionMap.h"
+#include "usdGenCurves/ops/curveWrap.h"
+#include "usdGenCurves/ops/regionMap.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 #include "usdGen/api/deformBinding.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGen/exec/taskScheduler.h"
 
 #include "usdGenMath/math.h"

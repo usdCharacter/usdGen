@@ -18,12 +18,12 @@
 #ifndef USDGEN_OPS_SCATTER_MODES_H
 #define USDGEN_OPS_SCATTER_MODES_H
 
-#include "usdGen/curveBuffer.h"
+#include "usdGenCurves/types/curveBuffer.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 
 #include "usdGenMath/math.h"
 

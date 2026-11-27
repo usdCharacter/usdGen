@@ -1,7 +1,7 @@
 #ifdef USDGEN_ENABLE_CUDA
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGenCurves/cuda/tools.h"
-#include "usdGen/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
 #include <cmath>
 #include <cstdint>
 #include <limits>

@@ -6,7 +6,7 @@
 // rule; transcendentals take tolerance, and these kernels use none).
 #include "usdGenPomade/pomadeKernels.h"
 
-#include "usdGen/sharedCell.h"
+#include "usdGen/exec/sharedCell.h"
 
 #include <cfloat>
 #include <cstdio>

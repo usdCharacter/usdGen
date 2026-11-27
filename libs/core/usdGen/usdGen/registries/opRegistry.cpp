@@ -8,7 +8,7 @@
 
 #include "usdGen/api/engine.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 
 #include <bitset>
 

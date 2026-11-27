@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/gpu/cudaCompletionLane.h"
+#include "usdGenCuda/gpu/cudaCompletionLane.h"
 
-#include "usdGen/epoch.h"
+#include "usdGen/exec/epoch.h"
 #include "usdGen/exec/serialLane.h"
 
 #include <atomic>

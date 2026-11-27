@@ -1,9 +1,9 @@
-#include "usdGen/curveRootCapture.h"
+#include "usdGenCurves/curveRootCapture.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSetInput.h"
 
-#include "usdGen/surfaceRootBindings.h"
-#include "usdGen/surfaceRootFrames.h"
+#include "usdGenSurface/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceRootFrames.h"
 #include "usdGen/registries/token.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"

@@ -2,7 +2,7 @@
 // spec validation, texel access, sampling, dab falloff/modes, move
 // interpolation, and the press/move/release/abort stroke contract
 // (plan/08-tools.md §2.1: moves recompute from the press-time base).
-#include "usdGen/maps/attributeMap.h"
+#include "usdGenSurface/maps/attributeMap.h"
 
 #include <cmath>
 #include <cstdio>

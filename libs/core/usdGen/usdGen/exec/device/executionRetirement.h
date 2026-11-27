@@ -2,7 +2,7 @@
 #ifndef USDGEN_EXECUTION_RETIREMENT_H
 #define USDGEN_EXECUTION_RETIREMENT_H
 
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/device/executionResources.h"
 
 #include <cstddef>
 #include <cstdint>

@@ -1,4 +1,4 @@
-#include "usdGen/imagePayload.h"
+#include "usdGenSurface/imagePayload.h"
 
 #include <cmath>
 #include <cstdint>

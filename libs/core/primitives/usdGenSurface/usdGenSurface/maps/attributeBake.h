@@ -38,7 +38,7 @@
 #define USDGEN_MAPS_ATTRIBUTE_BAKE_H
 
 #include "usdGenSurface/export.h"
-#include "usdGen/maps/attributeMap.h"
+#include "usdGenSurface/maps/attributeMap.h"
 
 #include <atomic>
 #include <cstddef>

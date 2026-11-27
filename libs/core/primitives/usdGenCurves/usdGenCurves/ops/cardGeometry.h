@@ -29,8 +29,8 @@
 #ifndef USDGEN_OPS_CARD_GEOMETRY_H
 #define USDGEN_OPS_CARD_GEOMETRY_H
 
-#include "usdGen/curveBuffer.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/types/curveBuffer.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGenCurves/types/curveSet.h"
 
 #include "usdGenMath/math.h"

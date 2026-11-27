@@ -3,7 +3,7 @@
 
 #include "queueTimeline.h"
 
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/parkingWord.h"
 
 namespace usdGen::vulkan {
 

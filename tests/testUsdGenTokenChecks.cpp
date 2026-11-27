@@ -8,13 +8,13 @@
 // run succeeds. An intern inside UsdGenCompileTokenScope never fails a run.
 
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
-#include "usdGen/graph.h"
+#include "usdGen/compile/compiler.h"
+#include "usdGen/compile/graph.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/registrar.h"
 #include "usdGen/registries/token.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include "pxr/pxr.h"
 #include "pxr/base/gf/vec2f.h"

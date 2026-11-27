@@ -3,8 +3,8 @@
 #ifndef USDGEN_VULKAN_DEVICE_FACTORY_H
 #define USDGEN_VULKAN_DEVICE_FACTORY_H
 
-#include "usdGen/executionPipeline.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/exec/device/executionResources.h"
 
 #include <vulkan/vulkan.h>
 

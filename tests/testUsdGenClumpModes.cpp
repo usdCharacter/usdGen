@@ -18,18 +18,18 @@
 //       bound surface, determinism;
 //   (4) Width bezier profile (set and multiply).
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
 #include "usdGenOpFixture.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
-#include "usdGen/ops/clumpModes.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
-#include "usdGen/ops/width.h"
-#include "usdGen/scheduler.h"
+#include "usdGenCurves/ops/clumpModes.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
+#include "usdGenCurves/ops/width.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <algorithm>
 #include <climits>

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — per-thread bump scratch. See scratch.h.
-#include "usdGen/scratch.h"
+#include "usdGen/exec/scratch.h"
 
-#include "usdGen/pool.h"
+#include "usdGen/exec/pool.h"
 
 #include <cstdint>
 

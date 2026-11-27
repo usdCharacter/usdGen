@@ -4,7 +4,7 @@
 #include "usdGenPomade/pomadeHierarchy.h"
 #include "usdGenPomade/pomadeRegion.h"
 #include "usdGenPomade/pomadeScalp.h"
-#include "usdGen/concaveMaterialRemap.h"
+#include "usdGenSurface/concaveMaterialRemap.h"
 
 #include <algorithm>
 #include <cmath>

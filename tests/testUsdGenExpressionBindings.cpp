@@ -1,8 +1,8 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/expressions/context.h"
+#include "usdGenExpr/expressions/context.h"
 #include <cstdio>
 #include <algorithm>
 #include <string>

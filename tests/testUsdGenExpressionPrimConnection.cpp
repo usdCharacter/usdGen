@@ -6,11 +6,11 @@
 // Covers usdGen:mask specifically, because that is the operator envelope the
 // UsdGenMaskAPI block was replaced with, but the resolution is generic.
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
-#include "usdGen/graph.h"
-#include "usdGen/op.h"
+#include "usdGen/compile/graph.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGenImaging/usdGenGraphDescBuilder.h"
 #include "usdGenUsd/walk/usdGenGraphDescBuilderStage.h"

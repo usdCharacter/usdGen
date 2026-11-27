@@ -5,8 +5,8 @@
 // testUsdGenSeExprOracle (agreement with upstream SeExpr2). This file is about
 // compilation only: every source below either must compile or must be refused
 // with a diagnostic a user can act on.
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/frontend.h"
 
 #include <cstdio>
 #include <set>

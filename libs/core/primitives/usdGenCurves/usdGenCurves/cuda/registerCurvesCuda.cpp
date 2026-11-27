@@ -4,19 +4,19 @@
 // Registered in every build: the capability matrix reads them.
 #include "usdGenCurves/cuda/cudaStages.h"
 
-#include "usdGen/executionPlan.h"
+#include "usdGen/exec/device/executionPlan.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/registrar.h"
 
-#include "usdGen/ops/curveSource.h"
-#include "usdGen/ops/deform.h"
-#include "usdGen/ops/grow.h"
-#include "usdGen/ops/length.h"
-#include "usdGen/ops/noise.h"
-#include "usdGen/ops/scatter.h"
-#include "usdGen/ops/width.h"
-#include "usdGen/ops/widthBlend.h"
+#include "usdGenCurves/ops/curveSource.h"
+#include "usdGenCurves/ops/deform.h"
+#include "usdGenCurves/ops/grow.h"
+#include "usdGenCurves/ops/length.h"
+#include "usdGenCurves/ops/noise.h"
+#include "usdGenSurface/ops/scatter.h"
+#include "usdGenCurves/ops/width.h"
+#include "usdGenCurves/ops/widthBlend.h"
 #include "usdGen/api/span.h"
 
 namespace usdGen {

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: MIT
 //
 // usdGen — strand math shared by the whole-strand operators. See strandUtil.h.
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenSurface/maps/mapInput.h"
 
-#include "usdGen/imagePayload.h"
+#include "usdGenSurface/imagePayload.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
 #include "usdGenMath/math.h"

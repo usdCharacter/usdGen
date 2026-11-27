@@ -7,7 +7,7 @@
 #ifndef USDGEN_SESSION_BACKEND_EXECUTOR_H
 #define USDGEN_SESSION_BACKEND_EXECUTOR_H
 
-#include "usdGen/sessionCooker.h"
+#include "usdGen/exec/sessionCooker.h"
 
 #include <memory>
 #include <vector>

@@ -1,6 +1,6 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/executionTaskGraph.h"
-#include "usdGen/executionPlan.h"
+#include "usdGen/exec/executionTaskGraph.h"
+#include "usdGen/exec/device/executionPlan.h"
 
 #include <algorithm>
 #include <atomic>

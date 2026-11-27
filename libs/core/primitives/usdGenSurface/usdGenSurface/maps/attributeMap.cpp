@@ -1,8 +1,8 @@
 // usdGen — paintable per-surface attribute maps and stroke accumulation.
 // See attributeMap.h for the model and its v1 limits.
-#include "usdGen/maps/attributeMap.h"
+#include "usdGenSurface/maps/attributeMap.h"
 
-#include "usdGen/digest.h"
+#include "usdGen/compile/digest.h"
 
 #include <algorithm>
 #include <atomic>

@@ -3,8 +3,8 @@
 #include "testBackend.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenCurves/cuda/cudaExecution.h"
-#include "usdGen/executionPipeline.h"
-#include "usdGen/executionResources.h"
+#include "usdGen/exec/executionPipeline.h"
+#include "usdGen/exec/device/executionResources.h"
 #include "usdGenCurves/cuda/generation.h"
 
 #include <atomic>

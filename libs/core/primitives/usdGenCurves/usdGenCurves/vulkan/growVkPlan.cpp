@@ -10,7 +10,7 @@
 #include "usdGenSurface/ops/scatter.h"
 #include "usdGenSurface/types/rootSet.h"
 #include "usdGenCurves/types/curveSetInput.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenCurves/types/curveCapture.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/opRegistry.h"

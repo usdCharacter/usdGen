@@ -1,6 +1,6 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
-#include "usdGen/clumpMotion.h"
+#include "usdGenCurves/clumpMotion.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGenCurves/types/curveSet.h"
 #include "usdGenMath/math.h"

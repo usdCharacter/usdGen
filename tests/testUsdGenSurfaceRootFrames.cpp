@@ -1,5 +1,5 @@
 #include "utils/pxrInterop.h"
-#include "usdGen/surfaceRootFrames.h"
+#include "usdGenSurface/surfaceRootFrames.h"
 #include "usdGenUsd/lower.h"
 
 #include <cmath>

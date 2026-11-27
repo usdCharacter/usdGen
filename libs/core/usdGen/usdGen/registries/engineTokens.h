@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // Engine vocabulary that names no op, type or primitive.
 #pragma once
-#include "usdGen/export.h"
+#include "usdGen/api/export.h"
 #include "usdGen/api/token.h"
 
 namespace usdGen {

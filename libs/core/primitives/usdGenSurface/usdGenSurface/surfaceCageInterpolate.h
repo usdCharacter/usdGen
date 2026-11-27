@@ -12,7 +12,7 @@
 #include "usdGenMath/math.h"
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGen/api/graphSpec.h"
-#include "usdGen/maps/ptexMap.h"
+#include "usdGenSurface/maps/ptexMap.h"
 
 #include <array>
 #include <cstdint>

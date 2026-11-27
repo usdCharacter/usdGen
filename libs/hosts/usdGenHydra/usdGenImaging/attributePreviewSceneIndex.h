@@ -45,8 +45,8 @@
 #ifndef USDGEN_IMAGING_ATTRIBUTE_PREVIEW_SCENE_INDEX_H
 #define USDGEN_IMAGING_ATTRIBUTE_PREVIEW_SCENE_INDEX_H
 
-#include "usdGen/sharedCell.h"
-#include "usdGen/maps/attributeMap.h"
+#include "usdGen/exec/sharedCell.h"
+#include "usdGenSurface/maps/attributeMap.h"
 
 #include "pxr/base/gf/vec2f.h"
 #include "pxr/base/tf/token.h"

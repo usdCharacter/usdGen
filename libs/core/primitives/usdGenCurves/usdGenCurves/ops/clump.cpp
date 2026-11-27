@@ -56,7 +56,7 @@
 // strandIndex, used only when usdGen:clump:overrideCount equals the strand
 // count) and sub-clumps (usdGen:clump:sub:*, sector centres projected onto
 // the bound surface).
-#include "usdGen/ops/clump.h"
+#include "usdGenCurves/ops/clump.h"
 #include "usdGen/api/value.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGen/api/token.h"
@@ -65,11 +65,11 @@
 #include "usdGenSurface/surfaceInput.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/ops/clumpModes.h"
-#include "usdGen/ops/opUtil.h"
-#include "usdGen/ops/strandUtil.h"
+#include "usdGenCurves/ops/clumpModes.h"
+#include "usdGenCurves/ops/opUtil.h"
+#include "usdGenCurves/ops/strandUtil.h"
 #include "usdGen/registries/engineTokens.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 #include "usdGenMath/usdGenMath/hash.h"
 #include "usdGenMath/usdGenMath/kernels.h"
 #include "usdGenMath/usdGenMath/ramp.h"

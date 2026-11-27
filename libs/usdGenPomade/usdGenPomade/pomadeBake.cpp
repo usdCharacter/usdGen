@@ -4,13 +4,13 @@
 #include "usdGenPomade/pomadeHierarchy.h"
 #include "usdGenPomade/pomadeModel.h"
 
-#include "usdGen/epoch.h"
-#include "usdGen/maps/ptexMap.h"
-#include "usdGen/parkingWord.h"
+#include "usdGen/exec/epoch.h"
+#include "usdGenSurface/maps/ptexMap.h"
+#include "usdGen/exec/parkingWord.h"
 
 #ifdef USDGEN_POMADE_HAS_CUDA
 #include "usdGenPomade/pomadeKernels.h"
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include <cuda_runtime.h>
 #endif
 

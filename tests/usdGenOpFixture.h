@@ -4,7 +4,7 @@
 // resolved to the record's slots (what the compiler hands an op).
 #pragma once
 #include "utils/pxrInterop.h"
-#include "usdGen/op.h"
+#include "usdGen/registries/op.h"
 #include "usdGenUsd/lower.h"
 #include "usdGen/registries/opRegistry.h"
 

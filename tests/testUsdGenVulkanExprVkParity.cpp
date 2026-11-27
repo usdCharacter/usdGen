@@ -43,8 +43,8 @@
 #include "usdGenExpr/vulkan/exprVkPlan.h"
 #include "usdGenExpr/vulkan/exprVkProgram.h"
 #include "usdGenCurves/vulkan/widthPipeline.h"
-#include "usdGen/expressions/cpuEvaluator.h"
-#include "usdGen/expressions/frontend.h"
+#include "usdGenExpr/expressions/cpuEvaluator.h"
+#include "usdGenExpr/expressions/frontend.h"
 
 #include <vulkan/vulkan.h>
 

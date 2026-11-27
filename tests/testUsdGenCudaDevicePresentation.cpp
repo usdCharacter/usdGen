@@ -5,11 +5,11 @@
 #include "usdGenHydraCurves/publication.h"
 #include "usdGenTestUtils/hydraPublishers.h"
 #include "testBackend.h"
-#include "usdGen/gpu/deviceBuffer.h"
+#include "usdGenCuda/gpu/deviceBuffer.h"
 #include "usdGenUsd/lower.h"
 #include "usdGenUsd/publishPaths.h"
 #include "usdGenCurves/cuda/tools.h"
-#include "usdGen/session.h"
+#include "usdGen/exec/session.h"
 
 #include <cuda_runtime.h>
 

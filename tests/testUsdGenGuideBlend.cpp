@@ -11,13 +11,13 @@
 // XZ plane, root normal +Y) -> GuideInterpolate with a reference guide set.
 // Expected values are computed by hand from the reference rules.
 #include "utils/pxrInterop.h"
-#include "usdGen/compiler.h"
+#include "usdGen/compile/compiler.h"
 #include "usdGenUsd/lower.h"
 #include "nodeSets.h"
-#include "usdGen/graph.h"
-#include "usdGen/ops/guideBlend.h"
+#include "usdGen/compile/graph.h"
+#include "usdGenCurves/ops/guideBlend.h"
 #include "usdGenCurves/types/curveSet.h"
-#include "usdGen/scheduler.h"
+#include "usdGen/exec/scheduler.h"
 
 #include <cmath>
 #include <cstdio>

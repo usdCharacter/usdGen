@@ -16,7 +16,7 @@
 //   5. Use from a thread_local destroyed after the epoch's thread state
 //      claims no slot and is still reclaimed.
 
-#include "usdGen/epoch.h"
+#include "usdGen/exec/epoch.h"
 
 #include <atomic>
 #include <cstdio>

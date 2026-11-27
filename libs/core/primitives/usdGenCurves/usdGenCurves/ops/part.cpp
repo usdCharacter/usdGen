@@ -8,10 +8,10 @@
 // where guide/clump consumers weight by it. Sampling is on rest positions
 // when the buffers carry them, so partIds are stable under deformation.
 // TopologyEffect = None.
-#include "usdGen/ops/part.h"
+#include "usdGenCurves/ops/part.h"
 #include "usdGenCurves/types/curveSet.h"
 
-#include "usdGen/ops/opUtil.h"
+#include "usdGenCurves/ops/opUtil.h"
 
 #include <nanoflann.hpp>
 

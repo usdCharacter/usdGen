@@ -1,10 +1,10 @@
-#include "usdGen/surfaceRootBindings.h"
+#include "usdGenSurface/surfaceRootBindings.h"
 #include "usdGen/api/cowArray.h"
 #include "usdGenMath/math.h"
 #include "usdGen/api/span.h"
 #include "usdGenSurface/surfaceInput.h"
 
-#include "usdGen/taskScheduler.h"
+#include "usdGen/exec/taskScheduler.h"
 
 #include <nanoflann.hpp>
 

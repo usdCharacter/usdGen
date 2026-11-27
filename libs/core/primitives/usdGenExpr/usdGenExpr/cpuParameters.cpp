@@ -6,10 +6,10 @@
 #include "usdGenSurface/maps/mapInput.h"
 #include "usdGenExpr/exprInput.h"
 
-#include "usdGen/expressions/frontend.h"
-#include "usdGen/expressions/irExec.h"
-#include "usdGen/maps/ptexMap.h"
-#include "usdGen/op.h"
+#include "usdGenExpr/expressions/frontend.h"
+#include "usdGenExpr/expressions/irExec.h"
+#include "usdGenSurface/maps/ptexMap.h"
+#include "usdGen/registries/op.h"
 #include "usdGen/registries/opRegistry.h"
 #include "usdGen/registries/token.h"
 

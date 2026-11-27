@@ -9,7 +9,7 @@
 #include "usdGenExpr/vulkan/exprVkPlan.h"
 #include "usdGenExpr/vulkan/exprVkStructural.h"
 #include "usdGenCurves/vulkan/growVkPlan.h"
-#include "usdGen/curveLoader.h"
+#include "usdGenCurves/curveLoader.h"
 #include "usdGenCurves/types/curveDeviceLayout.h"
 #include "usdGen/registries/engineTokens.h"
 #include "usdGen/registries/token.h"
