@@ -1,6 +1,7 @@
 #ifndef USDGEN_SESSION_COOKER_H
 #define USDGEN_SESSION_COOKER_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/session.h"
 #include "usdGen/compile/compiler.h"
 #include "usdGen/exec/generationStore.h"
@@ -21,7 +22,7 @@ namespace usdGen {
 // Private serial-work-owner state.  It is deliberately not a publication
 // object: all values it returns are copied into a candidate for Session's
 // command owner to accept or discard.
-class UsdGenSessionCooker {
+class USDGEN_INTERNAL_API UsdGenSessionCooker {
 public:
     static constexpr size_t kDefaultExecutionCacheBytes = 64u * 1024u * 1024u;
     using CookCompletion = std::function<void(UsdGenGenerationConstPtr, std::exception_ptr)>;

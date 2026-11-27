@@ -20,22 +20,22 @@
 namespace usdGen {
 
 /// Start or stop counting. Starting resets the count and the trace.
-USDGEN_CORE_API void UsdGenEngineAllocCounting(bool on);
+USDGEN_INTERNAL_API void UsdGenEngineAllocCounting(bool on);
 /// Allocations counted since counting last started.
-USDGEN_CORE_API uint64_t UsdGenEngineAllocCount();
+USDGEN_INTERNAL_API uint64_t UsdGenEngineAllocCount();
 /// A counting operator new (ELF: the exe's replacement) calls this per call;
 /// on Windows the CRT import wrappers do.
-USDGEN_CORE_API void UsdGenEngineAllocNote(std::size_t bytes);
+USDGEN_INTERNAL_API void UsdGenEngineAllocNote(std::size_t bytes);
 
 /// Record a return-address stack for the first kUsdGenAllocTraceSlots counted
 /// allocations (Windows; elsewhere only the immediate caller). No allocation.
 /// The test prints them as module+offset (USDGEN_ALLOC_TRACE=1).
 constexpr int kUsdGenAllocTraceSlots = 256;
 constexpr int kUsdGenAllocTraceFrames = 16;
-USDGEN_CORE_API void UsdGenEngineAllocTracing(bool on);
+USDGEN_INTERNAL_API void UsdGenEngineAllocTracing(bool on);
 /// Frames of traced allocation `slot` into `frames`; returns the frame count
 /// (0 past the recorded ones). `bytes` receives the request size.
-USDGEN_CORE_API int UsdGenEngineAllocTrace(int slot, void **frames, int maxFrames,
+USDGEN_INTERNAL_API int UsdGenEngineAllocTrace(int slot, void **frames, int maxFrames,
                                            std::size_t *bytes);
 
 }  // namespace usdGen

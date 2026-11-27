@@ -13,6 +13,7 @@
 #ifndef USDGEN_SCHEDULER_H
 #define USDGEN_SCHEDULER_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/compile/graph.h"
 #include "usdGen/api/ext/op.h"
 #include "usdGen/api/types.h"
@@ -50,7 +51,7 @@ struct UsdGenRunResult
 
 struct UsdGenRunScratch;
 
-class UsdGenScheduler
+class USDGEN_INTERNAL_API UsdGenScheduler
 {
 public:
     using TileCompleted = std::function<void(UsdGenChunkGroup const&,

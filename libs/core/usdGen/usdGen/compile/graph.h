@@ -6,6 +6,7 @@
 #ifndef USDGEN_GRAPH_H
 #define USDGEN_GRAPH_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/api/compile.h"
 #include "usdGen/api/elementSet.h"
 #include "usdGen/api/routing.h"
@@ -122,7 +123,7 @@ struct UsdGenCompiledNode : UsdGenPooled
     double lastTimeCodesPerSecond = 0.0;
 };
 
-class UsdGenGraph
+class USDGEN_INTERNAL_API UsdGenGraph
 {
     friend class UsdGenCompiler;
 public:

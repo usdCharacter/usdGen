@@ -7,6 +7,7 @@
 #ifndef USDGEN_SESSION_BACKEND_EXECUTOR_H
 #define USDGEN_SESSION_BACKEND_EXECUTOR_H
 
+#include "usdGen/api/export.h"
 #include "usdGen/exec/sessionCooker.h"
 
 #include <memory>
@@ -40,7 +41,7 @@ struct UsdGenSessionBackendRequest {
 /// workspace.  The work pipeline retains this shared object for every
 /// submission, so descriptor replacement cannot redirect an old completion
 /// at a newly-created backend workspace.
-class UsdGenSessionBackendExecutor {
+class USDGEN_INTERNAL_API UsdGenSessionBackendExecutor {
 public:
     virtual ~UsdGenSessionBackendExecutor() = default;
     /// A Session owns one executor/cooker across descriptor changes. Routing
@@ -60,7 +61,7 @@ public:
 /// scheduler task. An injected provider wins for its own device backend. An
 /// unregistered backend keeps the unavailable compiler diagnostic, never a
 /// fabricated CPU result.
-std::shared_ptr<UsdGenSessionBackendExecutor> CreateUsdGenSessionBackendExecutor(
+USDGEN_INTERNAL_API std::shared_ptr<UsdGenSessionBackendExecutor> CreateUsdGenSessionBackendExecutor(
     int threadLimit, size_t executionCacheBytes,
     std::shared_ptr<UsdGenExecutionCacheDomain> executionCacheDomain,
     std::shared_ptr<UsdGenSessionDeviceProvider> deviceProvider = {});
