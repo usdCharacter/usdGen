@@ -20,7 +20,7 @@ libs/core/primitives/usdGenCurves/usdGenCurves/cuda/noise_gpu.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/picking.cu 3
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/pointOverride.cu 5
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/rbf.cu 6
-libs/core/primitives/usdGenCurves/usdGenCurves/cuda/scatterGrow.cu 4
+libs/core/primitives/usdGenCurves/usdGenCurves/cuda/scatterGrow.cu 2
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/styleOps.cu 4
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/topology.cu 1
 libs/core/primitives/usdGenCurves/usdGenCurves/cuda/width.cu 4

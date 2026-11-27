@@ -13,9 +13,11 @@
 #include "usdGenCurves/cuda/generation.h"
 #include "usdGen/executionResources.h"
 
+#include <chrono>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 using namespace usdGen::gpu;
@@ -36,6 +38,16 @@ static std::shared_ptr<ScatterGrowRoots> MakeRoots(size_t n)
         roots->rootN.push_back(make_float3(0.0f, 0.0f, 2.0f));
     }
     return roots;
+}
+
+// A rejected overlap grow frees its buffers on the CUDA completion lane.
+static bool DiscardsDrained()
+{
+    for (int i = 0; i < 10000; ++i) {
+        if (ScatterGrowDiscardsInFlightForTesting() == 0) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return false;
 }
 
 static bool BeginThrows(CudaScatterGrow& grow, std::shared_ptr<ScatterGrowRoots> const& roots,
@@ -70,11 +82,13 @@ int main() {
     auto roots = MakeRoots(kBig);
     {
         // Throw with every copy issued: `stream` covers the copies, so the
-        // object discards clean, releases its accounting and stays usable.
+        // object discards clean, releases its accounting (once the lane ran)
+        // and stays usable.
         CudaScatterGrow grow;
         SetScatterGrowOverlapFaultsForTesting(false, true);
         CHECK(BeginThrows(grow, roots, controls, stream));
         CHECK(!grow.pending() && !grow.HasUnprovenWork());
+        CHECK(DiscardsDrained());
         CHECK(resources->Snapshot().usedBytes == baseline.usedBytes);
     }
     CHECK(resources->Snapshot().usedBytes == baseline.usedBytes);
