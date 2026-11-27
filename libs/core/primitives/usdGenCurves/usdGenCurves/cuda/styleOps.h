@@ -95,6 +95,7 @@ public:
                       uint32_t seed, DeviceView<float3> output,
                       cudaStream_t stream);
 
+    // Test hook: blocks on `stream`; no cook caller.
     StyleStatus Finish(cudaStream_t stream);
     bool pending() const { return pending_; }
 

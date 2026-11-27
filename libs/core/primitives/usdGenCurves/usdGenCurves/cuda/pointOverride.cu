@@ -191,6 +191,7 @@ PointOverrideStatus CudaPointOverride::Apply(
     int error = 0;
     if (cudaMemcpyAsync(&error, error_.data(), sizeof(error),
                         cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+        // shutdown wait: test hook (tool path: CudaToolSession, no Session cook caller).
         CudaFenceStream(stream) != cudaSuccess)
         return PointOverrideStatus::CudaError;
     if (error) return DeviceErrorStatus(error);
@@ -216,6 +217,7 @@ PointOverrideStatus CudaPointOverride::Apply(
         if (cudaGetLastError() != cudaSuccess ||
             cudaMemcpyAsync(&error, error_.data(), sizeof(error),
                             cudaMemcpyDeviceToHost, stream) != cudaSuccess ||
+            // shutdown wait: test hook (tool path: CudaToolSession, no Session cook caller).
             CudaFenceStream(stream) != cudaSuccess)
             return PointOverrideStatus::CudaError;
         if (error) return DeviceErrorStatus(error);
@@ -246,8 +248,10 @@ PointOverrideStatus CudaPointOverride::Finish(cudaStream_t stream) {
     if (streamError != cudaSuccess) return PointerStatus(streamError);
     if (!pending_) return PointOverrideStatus::NoPendingUpdate;
     if (cudaStreamWaitEvent(stream, ready_, 0) != cudaSuccess ||
+        // shutdown wait: test hook (tool path: CudaToolSession, no Session cook caller).
         CudaFenceStream(stream) != cudaSuccess)
         return PointOverrideStatus::CudaError;
+    // shutdown wait: test hook (tool path: CudaToolSession, no Session cook caller).
     if (active_.waitOn(stream) != cudaSuccess || CudaFenceStream(stream) != cudaSuccess)
         return PointOverrideStatus::CudaError;
     using std::swap;

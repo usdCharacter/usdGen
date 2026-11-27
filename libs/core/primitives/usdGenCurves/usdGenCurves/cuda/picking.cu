@@ -349,6 +349,7 @@ PickingStatus CudaPicking::abortBegin(cudaStream_t stream, PickingStatus status,
     // A launch/allocation failure after async work has been queued cannot use
     // the previous ready event as a fence. Synchronize this operation's stream
     // before allowing buffers to be reused; quarantine if that proof fails.
+    // shutdown wait: test hook (tool path: CudaToolSession, no Session cook caller).
     if (CudaFenceStream(stream) != cudaSuccess) {
         error_.quarantine(); flags_.quarantine(); prefix_.quarantine();
         pendingFootprint_.quarantine(); scanTemp_.quarantine();
@@ -405,6 +406,7 @@ PickingStatus CudaPicking::Finish(cudaStream_t stream) {
         return fail(PickingStatus::CudaError, "picking diagnostic readback failed");
     // Fence the producer before using stack-backed scalar destinations. The
     // copies below are synchronous and therefore cannot outlive Finish.
+    // shutdown wait: test hook (tool path: CudaToolSession, no Session cook caller).
     if (CudaFenceStream(stream) != cudaSuccess)
         return abortBegin(stream, PickingStatus::CudaError, "picking synchronization failed");
     if (cudaMemcpy(&code, error_.data(), sizeof(code), cudaMemcpyDeviceToHost) != cudaSuccess)

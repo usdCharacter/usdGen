@@ -779,6 +779,7 @@ std::shared_ptr<const UsdGenDeviceGeneration> Transform(
         Fail("CUDA named topology transform callback installation failed", reason);
         return {};
     }
+    // shutdown wait: test hook (TransformCudaNamedChannelsFor*: tests only; the cook uses FinishAsync).
     if (CudaFenceStream(stream) != cudaSuccess) {
         candidate.Quarantine();
         // CUDA may still deliver an already-armed callback after a failed
