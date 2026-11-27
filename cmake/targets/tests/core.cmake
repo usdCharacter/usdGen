@@ -13,6 +13,23 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/tests)
 file(GLOB _usdgen_test_tier_dirs RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/internal/* ${CMAKE_CURRENT_SOURCE_DIR}/tests/hosts/*)
 list(APPEND _usdgen_test_tier_dirs tests/api)
+# add_test records each test's executable (CTest's COMMAND is not readable at
+# configure time); the tail of the root CMakeLists.txt labels tests/internal
+# ones from it. Arguments are re-quoted as bracket arguments, so ';', empty
+# and generator-expression arguments reach add_test unchanged.
+function(add_test)
+    set(_code "_add_test(")
+    math(EXPR _last "${ARGC} - 1")
+    foreach(_i RANGE ${_last})
+        string(APPEND _code " [==[${ARGV${_i}}]==]")
+        if(ARGV${_i} STREQUAL "COMMAND" AND ARGV0 STREQUAL "NAME")
+            math(EXPR _n "${_i} + 1")
+            set_property(GLOBAL PROPERTY USDGEN_TEST_EXE_${ARGV1} "${ARGV${_n}}")
+        endif()
+    endforeach()
+    string(APPEND _code ")")
+    cmake_language(EVAL CODE "${_code}")
+endfunction()
 # Name-driven loops resolve a file name to its tier folder. QUIET: empty out if none.
 function(usdgen_test_source out file_name)
     set(${out} "" PARENT_SCOPE)

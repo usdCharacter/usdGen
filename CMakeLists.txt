@@ -264,6 +264,40 @@ include(cmake/targets/tests/storm.cmake)
 include(cmake/targets/tests/install.cmake)
 
 # ---------------------------------------------------------------------------
+# tests/internal: white-box tests of private classes (USDGEN_*_INTERNAL_API).
+# Labelled "internal"; without USDGEN_EXPORT_INTERNALS they are not built and
+# their tests are disabled, so the api/hosts tests are what an OFF tree runs.
+# ---------------------------------------------------------------------------
+get_property(_usdgen_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+set(_usdgen_internal_targets "")
+foreach(_tgt IN LISTS _usdgen_all_targets)
+    get_target_property(_type ${_tgt} TYPE)
+    if(NOT _type STREQUAL "EXECUTABLE")
+        continue()
+    endif()
+    get_target_property(_srcs ${_tgt} SOURCES)
+    foreach(_src IN LISTS _srcs)
+        if(_src MATCHES "(^|/)tests/internal/")
+            list(APPEND _usdgen_internal_targets ${_tgt})
+            if(NOT USDGEN_EXPORT_INTERNALS)
+                set_target_properties(${_tgt} PROPERTIES EXCLUDE_FROM_ALL ON)
+            endif()
+            break()
+        endif()
+    endforeach()
+endforeach()
+get_property(_usdgen_all_tests DIRECTORY PROPERTY TESTS)
+foreach(_t IN LISTS _usdgen_all_tests)
+    get_property(_exe GLOBAL PROPERTY USDGEN_TEST_EXE_${_t})
+    if(_exe IN_LIST _usdgen_internal_targets)
+        set_property(TEST ${_t} APPEND PROPERTY LABELS internal)
+        if(NOT USDGEN_EXPORT_INTERNALS)
+            set_tests_properties(${_t} PROPERTIES DISABLED ON)
+        endif()
+    endif()
+endforeach()
+
+# ---------------------------------------------------------------------------
 # Loader search path for every registered test.
 #
 # This is a sweep rather than a per-registration property because *all* tests
