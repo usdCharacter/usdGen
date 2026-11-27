@@ -63,8 +63,14 @@ libs/core/primitives/usdGenSurface/usdGenSurface/ops/scatterModes.h 3
 libs/core/primitives/usdGenSurface/usdGenSurface/surfaceCageInterpolate.cpp 2
 libs/core/primitives/usdGenSurface/usdGenSurface/surfaceCageSource.cpp 1
 libs/core/primitives/usdGenSurface/usdGenSurface/vulkan/surfaceVk.cpp 2
+libs/core/usdGen/usdGen/api/cowArray.h 2
+libs/core/usdGen/usdGen/api/debug.cpp 1
 libs/core/usdGen/usdGen/api/deformBinding.h 1
+libs/core/usdGen/usdGen/api/env.cpp 1
 libs/core/usdGen/usdGen/api/graphSpec.h 7
+libs/core/usdGen/usdGen/api/status.cpp 1
+libs/core/usdGen/usdGen/api/trace.h 1
+libs/core/usdGen/usdGen/api/value.h 2
 libs/core/usdGen/usdGen/compile/compiler.cpp 3
 libs/core/usdGen/usdGen/compile/types.h 4
 libs/core/usdGen/usdGen/exec/debugCodes.cpp 1
