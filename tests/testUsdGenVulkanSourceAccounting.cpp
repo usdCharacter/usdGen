@@ -49,10 +49,10 @@ int main(int argc, char** argv) {
     std::memcpy(code.data(), raw.data(), raw.size());
 
     bool unavailable = false;
-    auto native = CreateNative(&unavailable);
+    auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
-    DeviceContext::CreateInfo ci;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true;
     ci.instance = native->instance;
     ci.physicalDevice = native->physical;
     ci.device = native->device;

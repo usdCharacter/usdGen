@@ -80,10 +80,10 @@ int main(int argc, char** argv) {
     bool length = argc == 4 && std::string(argv[2]) == "--length";
     bool blend = argc == 4 && std::string(argv[1]) == "--blend";
     CHECK(argc == 1 || quarantine || cow || length || blend);
-    bool unavailable = false; auto native = CreateNative(&unavailable);
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native); std::weak_ptr<NativeOwner> weakNative = native;
-    DeviceContext::CreateInfo ci;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true;
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7004;

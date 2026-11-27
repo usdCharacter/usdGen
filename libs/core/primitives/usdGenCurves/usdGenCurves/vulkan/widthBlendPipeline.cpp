@@ -28,13 +28,12 @@ namespace usdGen::vulkan {
         std::shared_ptr<ChargedBuffer> output,status;
         VkDescriptorPool descriptors=VK_NULL_HANDLE;
         VkCommandPool commands=VK_NULL_HANDLE;
-        VkFence fence=VK_NULL_HANDLE;
+        uint64_t value=0;  // queue timeline value of the submission
         uint32_t count=0,semantic=UINT32_MAX;
         bool pending=false,lost=false,proved=false;
         std::unique_ptr<std::shared_ptr<State>> quarantine;
         ~State(){
             auto d=native->context->device();
-            if(fence)vkDestroyFence(d,fence,nullptr);
             if(commands)vkDestroyCommandPool(d,commands,nullptr);
             if(descriptors)vkDestroyDescriptorPool(d,descriptors,nullptr);
         }
@@ -53,6 +52,8 @@ namespace usdGen::vulkan {
         ;
         finish(VK_ERROR_INITIALIZATION_FAILED);
         if(!context||code.size()<5||code.front()!=0x07230203u)return{};
+        // Submissions go through the queue timeline.
+        if(!context->computeTimeline()){finish(VK_ERROR_FEATURE_NOT_PRESENT);return{};}
         VkPhysicalDeviceProperties p{};
         vkGetPhysicalDeviceProperties(context->physicalDevice(),&p);
         if(p.limits.maxComputeWorkGroupInvocations<256||p.limits.maxComputeWorkGroupSize[0]<256)return{};
@@ -136,7 +137,7 @@ namespace usdGen::vulkan {
         auto&s=*state_;
         if(s.lost)return VK_ERROR_DEVICE_LOST;
         if(!s.proved){
-            VkResult r=vkGetFenceStatus(s.native->context->device(),s.fence);
+            VkResult r=s.native->context->computeTimeline()->Check(s.value);
             if(r==VK_NOT_READY)return r;
             if(r!=VK_SUCCESS){
                 Quarantine();
@@ -330,13 +331,6 @@ namespace usdGen::vulkan {
                 finish(r);
                 return{};
             }
-            VkFenceCreateInfo fi{};
-            fi.sType=VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            r=vkCreateFence(d,&fi,nullptr,&s->fence);
-            if(r){
-                finish(r);
-                return{};
-            }
             if(hook){
                 bool admitted=false;
                 try{
@@ -351,13 +345,9 @@ namespace usdGen::vulkan {
                     return{};
                 }
             }
-            VkSubmitInfo sub{};
-            sub.sType=VK_STRUCTURE_TYPE_SUBMIT_INFO;
-            sub.commandBufferCount=1;
-            sub.pCommandBuffers=&cmd;
             s->pending=true;
-            r=vkQueueSubmit(context->computeQueue(),1,&sub,s->fence);
-            if(r){
+            s->value=context->computeTimeline()->Submit(&cmd,1,&r);
+            if(!s->value){
                 c->Quarantine();
                 finish(r);
                 return{};

@@ -251,8 +251,12 @@ std::shared_ptr<VkNative> CreateDevice(bool forceLlvmpipe, bool* nvidiaPending,
         VkPhysicalDeviceFeatures core{};
         core.shaderFloat64 = VK_TRUE;
         core.shaderInt64 = VK_TRUE;
+        VkPhysicalDeviceTimelineSemaphoreFeatures timeline{};
+        timeline.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+        timeline.timelineSemaphore = VK_TRUE;
         VkDeviceCreateInfo device{};
         device.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        device.pNext = &timeline;
         device.pEnabledFeatures = &core;
         device.queueCreateInfoCount = 1;
         device.pQueueCreateInfos = &queue;
@@ -1823,6 +1827,7 @@ int main(int argc, char** argv) {
     info.gpuLabel = native->name;
     info.resources = {size_t{256} << 20, 0};
     info.shaderFloat64Enabled = true;
+    info.timelineSemaphoreEnabled = true;
     auto context = vulkan::DeviceContext::Create(info);
     if (!context) {
         std::printf("FAIL: DeviceContext creation failed\n");

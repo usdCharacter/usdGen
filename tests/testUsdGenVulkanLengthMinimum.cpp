@@ -87,10 +87,10 @@ int main(int argc, char** argv) {
     CHECK(argc == 6);
     auto scale=Code(argv[1]), set=Code(argv[2]), cut=Code(argv[3]), reparam=Code(argv[4]), minimum=Code(argv[5]);
     CHECK(!scale.empty() && !set.empty() && !cut.empty() && !reparam.empty() && !minimum.empty());
-    bool unavailable=false; auto native=CreateNative(&unavailable); if (unavailable) return 77; CHECK(native);
+    bool unavailable=false; auto native=CreateTimelineNative(&unavailable); if (unavailable) return 77; CHECK(native);
     VkPhysicalDeviceProperties limits{}; vkGetPhysicalDeviceProperties(native->physical, &limits);
     if (limits.limits.maxPerStageDescriptorStorageBuffers < 5 || limits.limits.maxDescriptorSetStorageBuffers < 5 || limits.limits.maxPushConstantsSize < 32) return 77;
-    DeviceContext::CreateInfo ci; ci.instance=native->instance; ci.physicalDevice=native->physical; ci.device=native->device; ci.computeQueue=native->queue; ci.computeQueueFamily=native->family; ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7934; ci.nativeLifetime=native; ci.resources={size_t{32}<<20,0};
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true; ci.instance=native->instance; ci.physicalDevice=native->physical; ci.device=native->device; ci.computeQueue=native->queue; ci.computeQueueFamily=native->family; ci.physicalIndex=native->physicalIndex; ci.resourceDeviceId=7934; ci.nativeLifetime=native; ci.resources={size_t{32}<<20,0};
     auto context=DeviceContext::Create(ci); CHECK(context); auto pool=context->resources(); auto ledger=pool->Snapshot(); VkResult status=VK_SUCCESS;
     auto base=Upload(native,Source(context)); CHECK(base);
     auto old=LengthScalePipeline::CreateWithReparam(context,scale,set,cut,reparam,&status); CHECK(old && !old->HasMinimum());

@@ -74,10 +74,10 @@ static bool Capture(std::shared_ptr<NativeOwner> const& native,
 int main(int argc, char** argv) {
     CHECK(argc == 2);
     auto code = Code(argv[1]); CHECK(!code.empty());
-    bool unavailable = false; auto native = CreateNative(&unavailable);
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
-    DeviceContext::CreateInfo ci;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true;
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue;
     ci.computeQueueFamily = native->family; ci.physicalIndex = native->physicalIndex;

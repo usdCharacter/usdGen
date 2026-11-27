@@ -76,10 +76,10 @@ int main(int argc, char** argv) {
         lengthCode = ReadSpirv(argv[4]); CHECK(!lengthCode.empty());
         compareCode = ReadSpirv(argv[5]); CHECK(!compareCode.empty());
     }
-    bool unavailable = false; auto native = CreateNative(&unavailable);
+    bool unavailable = false; auto native = CreateTimelineNative(&unavailable);
     if (unavailable) return 77;
     CHECK(native);
-    DeviceContext::CreateInfo ci;
+    DeviceContext::CreateInfo ci; ci.timelineSemaphoreEnabled = true;
     ci.instance = native->instance; ci.physicalDevice = native->physical;
     ci.device = native->device; ci.computeQueue = native->queue; ci.computeQueueFamily = native->family;
     ci.physicalIndex = native->physicalIndex; ci.resourceDeviceId = 7014;
@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
 
         // Foreign-context tile pipelines are rejected at Create; a
         // half-wired job is admitted and runs with tiles disabled.
-        DeviceContext::CreateInfo foreignInfo;
+        DeviceContext::CreateInfo foreignInfo; foreignInfo.timelineSemaphoreEnabled = true;
         foreignInfo.instance = native->instance; foreignInfo.physicalDevice = native->physical;
         foreignInfo.device = native->device; foreignInfo.computeQueue = native->queue;
         foreignInfo.computeQueueFamily = native->family; foreignInfo.physicalIndex = native->physicalIndex;
