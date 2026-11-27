@@ -1,13 +1,11 @@
 // testUsdGenConsumer — M0 downstream consumer check (plan §6.2, sol S-5/X-4).
 //
-// Proves the installed CMake package is actually usable: configure + build a
-// tiny consumer CMake project (tests/consumer/) that does
-//     find_package(pxr REQUIRED CONFIG)    // first — pxrConfig is single-pass
-//     find_package(usdGen REQUIRED)        // usdGenConfig's if(NOT TARGET usd)
-//                                          // guard skips the nested pxr re-find
-// and links usdGen::usdGen, compiling a main that calls the canonical M0 API
-// usdGen::GetVersionString(). This exercises the PATH_VARS-fixed
-// usdGenConfig.cmake end to end (sol S-5/X-4).
+// Proves the installed CMake package is usable on its own (12.5): configure +
+// build a tiny consumer CMake project (tests/consumer/) that does
+// find_package(usdGen) with only the usdGen prefix on CMAKE_PREFIX_PATH (no
+// OpenUSD), links usdGen::usdGen, creates the engine, compiles an empty spec
+// and runs a commit. This exercises the PATH_VARS-fixed usdGenConfig.cmake
+// end to end (sol S-5/X-4).
 //
 // The install prefix is taken from the USDGEN_INSTALL_PREFIX environment
 // variable (the exact name CI must set — the docs lane wires it in the
@@ -44,7 +42,6 @@ int main() {
 
     const std::string srcDir = USDGEN_TEST_CONSUMER_SRC;
     const std::string cmake  = USDGEN_TEST_CMAKE_COMMAND;
-    const std::string usdDir = USDGEN_TEST_USD_INSTALL_DIR;
 
     // A private scratch build dir so repeated runs never collide.
     const std::string tmpl = "/tmp/usdgen-consumer-XXXXXX";
@@ -55,11 +52,8 @@ int main() {
     }
     const std::string buildDir = tmp;
 
-    // CMAKE_PREFIX_PATH must contain BOTH the usdGen install prefix (for
-    // find_package(usdGen)) and the OpenUSD install prefix (for the pxr
-    // dependency that usdGenConfig pulls in / the consumer re-requests).
-    const std::string prefixPath =
-        std::string("\"") + prefix + ";" + usdDir + "\"";
+    // The usdGen prefix only: usdGen::usdGen carries no OpenUSD dependency.
+    const std::string prefixPath = std::string("\"") + prefix + "\"";
 
     std::string cfg = "rm -rf '" + buildDir + "' && mkdir -p '" + buildDir + "'";
     if (Run(cfg) != 0) return 1;
@@ -78,19 +72,19 @@ int main() {
         return 1;
     }
 
-    // Run the consumer and check it reports the canonical core version.
+    // Run the consumer: version, engine, empty-spec compile and commit.
     std::string out = buildDir + "/consumer > '" + buildDir + "/out.txt' 2>&1";
     if (Run(out) != 0) {
         std::printf("FAIL: consumer run failed\n");
         return 1;
     }
-    out = "grep -q 'usdGen' '" + buildDir + "/out.txt'";
+    out = "cat '" + buildDir + "/out.txt'; grep -q 'consumer: PASS' '" + buildDir + "/out.txt'";
     if (Run(out) != 0) {
-        std::printf("FAIL: consumer output missing the usdGen version string\n");
+        std::printf("FAIL: consumer output missing its PASS line\n");
         return 1;
     }
 
-    std::printf("PASS: downstream consumer built against %s and called usdGen::GetVersionString()\n",
+    std::printf("PASS: downstream consumer built against %s without OpenUSD and ran a commit\n",
                 prefix);
     return 0;
 }

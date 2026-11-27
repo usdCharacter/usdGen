@@ -59,9 +59,8 @@ int CheckFile(const std::string &path) {
 }
 
 int CheckNotInstalled(const std::string &path) {
-    FILE *f = std::fopen(path.c_str(), "r");
-    if (f) {
-        std::fclose(f);
+    // access(), not fopen(): directories count too.
+    if (::access(path.c_str(), F_OK) == 0) {
         std::printf("  unexpected: %s (should not be installed)\n", path.c_str());
         return 1;
     }
@@ -101,12 +100,21 @@ int RunLayoutChecks(const std::string &prefix,
     rc |= CheckNotInstalled(prefix + "/" + libDir + "/libusdGenMath.a");
     rc |= CheckNotInstalled(prefix + "/" + libDir + "/libusdGen_seexpr.a");
 
-    // Headers: advertised layout <prefix>/include/<api>/...
+    // Headers (12.5): only include/usdGen/api/ and the usdGenMath headers it
+    // includes; libraries other than usdGen ship as runtime only.
+    rc |= CheckFile(prefix + "/" + libDir + "/libusdGenCurves.so");
     rc |= CheckFile(prefix + "/include/usdGen/api/usdGen.h");
     rc |= CheckFile(prefix + "/include/usdGen/api/export.h");
+    rc |= CheckFile(prefix + "/include/usdGen/api/ext/registrar.h");
+    rc |= CheckFile(prefix + "/include/usdGenMath/vec.h");
     rc |= CheckNotInstalled(prefix + "/include/usdGenMath/usdGenMath.h");
-    rc |= CheckFile(prefix + "/include/usdGenSchema/usdGenSchema.h");
-    rc |= CheckFile(prefix + "/include/usdGenImaging/api.h");
+    rc |= CheckNotInstalled(prefix + "/include/usdGenSchema/usdGenSchema.h");
+    rc |= CheckNotInstalled(prefix + "/include/usdGenImaging/api.h");
+    rc |= CheckNotInstalled(prefix + "/include/usdGen/compile");
+    rc |= CheckNotInstalled(prefix + "/include/usdGen/exec");
+    rc |= CheckNotInstalled(prefix + "/include/usdGen/registries");
+    rc |= CheckNotInstalled(prefix + "/include/usdGenCurves");
+    rc |= CheckNotInstalled(prefix + "/include/usdGenUsd");
     rc |= CheckNotInstalled(prefix + "/include/nanoflann.hpp");
     rc |= CheckNotInstalled(prefix + "/include/seexpr/SeExpr2/Noise.h");
 
