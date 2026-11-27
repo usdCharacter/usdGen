@@ -41,6 +41,7 @@ bool CudaCompletionSubmit(CudaCompletion *completion, cudaStream_t stream) noexc
 
 /// Parks until every operation queued on `stream` so far finished; returns
 /// its status (cudaStreamSynchronize's contract). Never from a CUDA callback.
+// shutdown wait: the blocking primitive; callers are destructors, device loss and tests.
 cudaError_t CudaFenceStream(cudaStream_t stream) noexcept;
 
 /// Test observation: lane passes run, and completions still pending.

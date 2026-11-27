@@ -197,6 +197,7 @@ CudaPicking::~CudaPicking() {
     int previous = -1;
     const bool got = cudaGetDevice(&previous) == cudaSuccess;
     const bool selected = deviceIndex_ >= 0 && cudaSetDevice(deviceIndex_) == cudaSuccess;
+    // shutdown wait: destructor.
     const bool done = selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess);
     if (!selected || !done) {
         error_.quarantine(); flags_.quarantine(); prefix_.quarantine();

@@ -432,6 +432,7 @@ CudaNoise::~CudaNoise() {
         cudaGetDevice(&previous) == cudaSuccess &&
         cudaSetDevice(deviceIndex_) == cudaSuccess);
     const bool complete = !ownsResources ||
+        // shutdown wait: destructor.
         (selected && (!pending_ || !ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     if (!complete) {
         staging_.quarantine();

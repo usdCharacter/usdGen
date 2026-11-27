@@ -230,6 +230,7 @@ cudaError_t CudaRestRootFrames::Storage::waitOn(cudaStream_t stream) const {
 CudaRestRootFrames::~CudaRestRootFrames() {
     int previous = -1; bool const owns = ready_ || active_.curveCount || pendingStorage_.curveCount || error_.size();
     bool const selected = !owns || (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 && cudaSetDevice(deviceIndex_) == cudaSuccess);
+    // shutdown wait: destructor.
     bool const synchronized = !owns || (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess) &&
         (!active_.curveCount || (active_.waitOn(nullptr) == cudaSuccess && cudaStreamSynchronize(nullptr) == cudaSuccess)));
     if (!selected || !synchronized) { active_.quarantine(); pendingStorage_.quarantine(); error_.quarantine(); pendingBadRootCount_.quarantine(); ready_ = nullptr; if (selected && previous >= 0 && previous != deviceIndex_) cudaSetDevice(previous); return; }

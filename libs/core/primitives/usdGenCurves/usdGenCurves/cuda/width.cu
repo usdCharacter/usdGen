@@ -218,6 +218,7 @@ CudaWidth::~CudaWidth() {
     const bool selected = deviceIndex_ >= 0 &&
         cudaSetDevice(deviceIndex_) == cudaSuccess;
     const bool synchronized = selected &&
+        // shutdown wait: destructor.
         (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess);
     // DeviceBuffer::release and event destruction are only valid after both
     // device selection and the producer event have been proved.  A foreign,

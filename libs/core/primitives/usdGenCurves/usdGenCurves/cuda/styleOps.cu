@@ -192,6 +192,7 @@ StyleStatus DecodeError(int code) {
 
 CudaStyleOps::~CudaStyleOps() {
     if (ready_) {
+        // shutdown wait: destructor.
         cudaEventSynchronize(ready_);
         cudaEventDestroy(ready_);
     }

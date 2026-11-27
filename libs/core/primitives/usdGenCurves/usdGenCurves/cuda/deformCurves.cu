@@ -221,6 +221,7 @@ CudaRbfCurveDeformer::~CudaRbfCurveDeformer() {
         (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 &&
          cudaSetDevice(deviceIndex_) == cudaSuccess);
     const bool synchronized = !ownsBuffers || freshUsed_ ||
+        // shutdown wait: destructor.
         (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     if (!selected || !synchronized) {
         if (ownsBuffers) {

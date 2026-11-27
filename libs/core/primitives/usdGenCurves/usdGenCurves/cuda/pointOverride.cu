@@ -121,6 +121,7 @@ CudaPointOverride::~CudaPointOverride() {
     // the publication event would permit cudaFree while a consumer stream is
     // still reading the active generation.  Destruction is rare; synchronize
     // the owning device to cover both producer and consumer events.
+    // shutdown wait: destructor.
     const bool synchronized = !owns || (selected && cudaDeviceSynchronize() == cudaSuccess);
     if (!selected || !synchronized) {
         active_.quarantine(); pendingStorage_.quarantine(); error_.quarantine();

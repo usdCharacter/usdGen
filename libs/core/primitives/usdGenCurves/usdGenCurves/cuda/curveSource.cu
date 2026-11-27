@@ -126,6 +126,7 @@ CudaCurveSource::~CudaCurveSource() {
         (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 &&
          cudaSetDevice(deviceIndex_) == cudaSuccess);
     const bool producerFinished = !owns ||
+        // shutdown wait: destructor.
         (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     if (!selected || !producerFinished) {
         active_.quarantine();

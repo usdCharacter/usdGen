@@ -345,6 +345,7 @@ CudaSurfaceBinding::~CudaSurfaceBinding() {
         return;
     }
     if (ready_) {
+        // shutdown wait: destructor.
         if (!latestFresh_ && cudaEventSynchronize(ready_) != cudaSuccess) {
             quarantine();
             if (previous >= 0 && previous != deviceIndex_)

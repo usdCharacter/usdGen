@@ -334,6 +334,7 @@ CudaLength::~CudaLength() {
     int previous = -1;
     const bool gotPrevious = cudaGetDevice(&previous) == cudaSuccess;
     const bool selected = deviceIndex_ >= 0 && cudaSetDevice(deviceIndex_) == cudaSuccess;
+    // shutdown wait: destructor.
     const bool synchronized = selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess);
     if (!selected || !synchronized) {
         error_.quarantine(); staging_.quarantine(); keepStaging_.quarantine();

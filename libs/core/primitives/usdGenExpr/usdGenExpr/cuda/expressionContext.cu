@@ -188,6 +188,7 @@ CudaExpressionContext::~CudaExpressionContext() {
     const bool selected = !owns ||
         (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 &&
          cudaSetDevice(deviceIndex_) == cudaSuccess);
+    // shutdown wait: destructor.
     if (!selected || (ready_ && cudaEventSynchronize(ready_) != cudaSuccess)) {
         for (auto& field : fields_) field.quarantine();
         owners_.quarantine(); arcLength_.quarantine(); error_.quarantine();

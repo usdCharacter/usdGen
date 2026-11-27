@@ -82,6 +82,7 @@ CudaExpressionProgram::~CudaExpressionProgram() {
         freshHostError_ = nullptr; freshHostCode_ = nullptr;
         freshHostErrorPermit_.Abandon(); freshHostCodePermit_.Abandon();
     };
+    // shutdown wait: destructor.
     if (!selected || (ready_ && cudaEventSynchronize(ready_) != cudaSuccess)) {
         quarantine();
         if (selected && previous != deviceIndex_) cudaSetDevice(previous);

@@ -745,6 +745,7 @@ CudaRbfBinding::~CudaRbfBinding() {
     if (proofHost_) { cudaFreeHost(proofHost_); proofHost_ = nullptr; }
     if (bindDigestStaging_) { cudaFreeHost(bindDigestStaging_); bindDigestStaging_ = nullptr; bindDigestStagingBytes_ = 0; }
     if (HasUnprovenWork()) { AbandonFresh(); return; }
+    // shutdown wait: destructor.
     if (stateReady_) { cudaEventSynchronize(stateReady_); cudaEventDestroy(stateReady_); }
     if (evalReady_) cudaEventDestroy(evalReady_); if (solver_) cusolverDnDestroy(solver_);
 }

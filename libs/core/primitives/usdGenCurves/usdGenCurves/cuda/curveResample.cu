@@ -243,11 +243,13 @@ CudaCurveResample::~CudaCurveResample() {
     const bool selected = !owns || (cudaGetDevice(&previous) == cudaSuccess && device_ >= 0 &&
                                     cudaSetDevice(device_) == cudaSuccess);
     const bool producerFinished = !owns ||
+        // shutdown wait: destructor.
         (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     // DeviceBuffer::release does not wait for a recorded consumer event.
     // Honor recordUse() before freeing output storage on the owning device.
     const bool consumersFinished = !owns || (selected && producerFinished &&
         active_.waitOn(nullptr) == cudaSuccess && staging_.waitOn(nullptr) == cudaSuccess &&
+        // shutdown wait: destructor.
         cudaStreamSynchronize(nullptr) == cudaSuccess);
     if (!selected || !producerFinished || !consumersFinished) {
         active_.quarantine(); staging_.quarantine(); error_.quarantine(); ready_ = nullptr;

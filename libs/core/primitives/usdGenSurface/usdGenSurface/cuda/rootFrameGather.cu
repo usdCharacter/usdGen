@@ -53,6 +53,7 @@ CudaRootFrameGather::~CudaRootFrameGather() {
     bool const owns = ready_ || active_.count || pendingStorage_.count || error_.size();
     bool const selected = !owns || (cudaGetDevice(&previous) == cudaSuccess &&
         deviceIndex_ >= 0 && cudaSetDevice(deviceIndex_) == cudaSuccess);
+    // shutdown wait: destructor.
     bool const done = !owns || (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess) &&
         (!active_.count || (active_.waitOn(nullptr) == cudaSuccess && cudaStreamSynchronize(nullptr) == cudaSuccess)));
     if (!selected || !done) {

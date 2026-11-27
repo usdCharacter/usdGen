@@ -319,6 +319,7 @@ CudaCurveCompaction::~CudaCurveCompaction() {
         (cudaGetDevice(&previous) == cudaSuccess && deviceIndex_ >= 0 &&
          cudaSetDevice(deviceIndex_) == cudaSuccess);
     const bool synchronized = !owns ||
+        // shutdown wait: destructor.
         (selected && (!ready_ || cudaEventSynchronize(ready_) == cudaSuccess));
     if (!selected || !synchronized) {
         active_.quarantine(); pendingStorage_.quarantine();
