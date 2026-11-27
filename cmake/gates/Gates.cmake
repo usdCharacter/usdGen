@@ -156,19 +156,17 @@ endforeach()
 #
 #   testUsdGenNoOpNameLiterals    no op type name literal in the engine
 #                                 outside an op's registration line
-#   testUsdGenNoTokenIntern       no TfToken or UsdGenToken built from text or a string:
-#                                 the interner is the one door
+#   testUsdGenTokenNoTextCtor     UsdGenToken has no constructor from text:
+#                                 the interner is the one door (step 11.5)
 #   testUsdGenEngineNoOpCoupling  no op header and no cast to an op class
 #                                 outside ops/
 #
 # Gate 1's exclude omits the registration line's trailing ';' (a ';' would
 # split the ctest argument).
 set(USDGEN_OP_NAME_LITERAL_PATTERN
-    "(Tf|UsdGen)Token[ ]*[({][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
+    "UsdGenInternToken[ ]*[(][ ]*\"UsdGen[A-Z]|\"UsdGen[A-Z][A-Za-z]*\"")
 set(USDGEN_OP_NAME_LITERAL_EXCLUDE
     "^[ ]*//|^[ ]*[A-Za-z_][A-Za-z0-9_]*[.]name[ ]*=[ ]*\"UsdGen[A-Z][A-Za-z]*\"")
-set(USDGEN_TOKEN_INTERN_PATTERN
-    "(Tf|UsdGen)Token[ ]*[({][ ]*[^ )}]|(Tf|UsdGen)Token[ ]+[A-Za-z_][A-Za-z0-9_]*[ ]*[({][ ]*\"")
 set(USDGEN_OP_COUPLING_PATTERN
     "#[ ]*include[ ]*\"usdGen/ops/|(dynamic|static)_cast<[ ]*(const[ ]+)?UsdGen[A-Za-z]*Op[ ]*(const[ ]*)?[*&]")
 
@@ -181,15 +179,13 @@ add_test(NAME testUsdGenNoOpNameLiterals
         "-DEXCLUDE=${USDGEN_OP_NAME_LITERAL_EXCLUDE}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noOpNameLiterals.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
-add_test(NAME testUsdGenNoTokenIntern
-    COMMAND ${CMAKE_COMMAND}
-        -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-        -DNAME=no-token-intern
-        -DDIRS=libs/core
-        "-DPATTERN=${USDGEN_TOKEN_INTERN_PATTERN}"
-        "-DEXCLUDE=^[ ]*//"
-        -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/noTokenIntern.txt
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
+# The probe is one line, usdGen::UsdGenToken t("x"); it must not compile.
+add_executable(testUsdGenTokenNoTextCtorProbe EXCLUDE_FROM_ALL tests/gates/tokenNoTextCtor.cpp)
+target_link_libraries(testUsdGenTokenNoTextCtorProbe PRIVATE usdGen)
+add_test(NAME testUsdGenTokenNoTextCtor
+    COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target testUsdGenTokenNoTextCtorProbe
+            --config $<CONFIG>)
+set_tests_properties(testUsdGenTokenNoTextCtor PROPERTIES WILL_FAIL TRUE)
 add_test(NAME testUsdGenEngineNoOpCoupling
     COMMAND ${CMAKE_COMMAND}
         -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
@@ -200,7 +196,7 @@ add_test(NAME testUsdGenEngineNoOpCoupling
         "-DPATTERN=${USDGEN_OP_COUPLING_PATTERN}"
         -DBASELINE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/engineNoOpCoupling.txt
         -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/gates/RatchetScan.cmake)
-set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenNoTokenIntern
+set_tests_properties(testUsdGenNoOpNameLiterals testUsdGenTokenNoTextCtor
     testUsdGenEngineNoOpCoupling PROPERTIES LABELS "T0;build;gate;gate:registries")
 
 # Step 5.6: the engine works on element sets; the curve builder buffer, its
