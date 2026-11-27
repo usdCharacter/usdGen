@@ -9,7 +9,7 @@
 #include "usdGen/op.h"
 #include "usdGen/surfaceCageSource.h"
 #include "usdGenCurves/vulkan/vkStages.h"
-#include "pxr/base/gf/vec3d.h"
+#include "usdGenMath/math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -22,7 +22,7 @@ inline bool IsVulkanSurfaceCage(UsdGenOpNode const& node) {
     UsdGenVulkanKernel const cs = UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource);
     for (auto const& p : node.params)
         if (p.name == cs.Param(vulkanP::kCsInterpolationMode))
-            return p.value == VtValue(UsdGenVkTokens().surfaceCage);
+            return p.value == UsdGenValue(UsdGenVkTokens().surfaceCage);
     return false;
 }
 
@@ -44,7 +44,7 @@ inline bool ValidateVulkanSurfaceCage(
         node.mapBindings.size() != 1 || node.maps.front() != node.mapBindings.front().map ||
         node.mapBindings.front().relationship != UsdGenVkTokens().regionMapRel)
         return fail("requires one captured cage, one surface and one usdGen:regionMap");
-    std::set<TfToken> seen;
+    std::set<UsdGenToken> seen;
     for (auto const& p : node.params) {
         bool valid = !p.animated && seen.insert(p.name).second;
         auto const& name = p.name.GetString();
@@ -57,7 +57,7 @@ inline bool ValidateVulkanSurfaceCage(
         else if (name == "expectMapGeneration") valid &= p.value.IsHolding<uint64_t>();
         else if (name == "expectEpoch") valid &= p.value.IsHolding<std::string>();
         else if (name == "interpolationMode" || name == "idSource" ||
-                 name == "staleAction" || name == "rebind") valid &= p.value.IsHolding<TfToken>();
+                 name == "staleAction" || name == "rebind") valid &= p.value.IsHolding<UsdGenToken>();
         else valid = false;
         if (!valid) return fail("unsupported, duplicate or malformed control " + name);
     }
@@ -96,10 +96,10 @@ inline bool CaptureVulkanSurfaceCage(
         return false;
     }
     auto captureNode = node;
-    TfToken const &resampleTo =
+    UsdGenToken const &resampleTo =
         UsdGenVulkanKernelFor(UsdGenVulkanStage::CurveSource).Param(vulkanP::kCsResampleTo);
     for (auto& p : captureNode.params)
-        if (p.name == resampleTo) p.value = VtValue(0);
+        if (p.name == resampleTo) p.value = UsdGenValue(0);
     UsdGenParamView params{&desc, &captureNode};
     UsdGenCaptureContext context;
     context.desc = &desc;
@@ -158,13 +158,13 @@ inline bool GatherVulkanSourceRootTargets(
             return surface->points[surface->faceVertexIndices[starts[size_t(face)] + size_t(corner)]];
         };
         float const u = captured.rootUV[c][0], v = captured.rootUV[c][1];
-        GfVec3f local;
+        UsdGenVec3f local;
         if (surface->faceVertexCounts[size_t(face)] == 3)
             local = p(0) * (1.0f-u-v) + p(1) * u + p(2) * v;
         else
             local = p(0) * ((1.0f-u)*(1.0f-v)) + p(1) * (u*(1.0f-v)) +
                     p(2) * (u*v) + p(3) * ((1.0f-u)*v);
-        auto const world = relative.Transform(GfVec3d(local));
+        auto const world = relative.Transform(UsdGenVec3d(local));
         for (size_t k = 0; k < 3; ++k) {
             if (!std::isfinite(world[k]) || !std::isfinite(float(world[k])))
                 return fail("non-finite pose target");

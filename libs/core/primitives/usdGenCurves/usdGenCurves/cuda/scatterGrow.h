@@ -4,10 +4,9 @@
 #include "usdGenCurves/cuda/curveGeometry.h"
 #include "usdGenSurface/cuda/imageSampler.h"
 
-#include "pxr/base/gf/vec2f.h"
-#include "pxr/base/gf/vec3f.h"
-#include "pxr/base/vt/array.h"
-#include "pxr/pxr.h"
+#include "usdGenMath/math.h"
+#include "usdGenMath/math.h"
+#include "usdGen/api/cowArray.h"
 
 #include <cstdint>
 #include <initializer_list>
@@ -17,44 +16,44 @@
 
 namespace usdGen::gpu {
 
-// Pod conversions between the capture's VtArray element types and the
+// Pod conversions between the capture's UsdGenCowArray element types and the
 // float2/float3/int/uint64_t currency every roots consumer already speaks.
-// Same bytes both ways (the static_asserts pin the layouts, and VtArray
+// Same bytes both ways (the static_asserts pin the layouts, and UsdGenCowArray
 // storage is malloc-aligned); overload resolution picks by argument type.
-static_assert(sizeof(float2) == sizeof(PXR_NS::GfVec2f),
-              "float2/GfVec2f layout");
-static_assert(sizeof(float3) == sizeof(PXR_NS::GfVec3f),
-              "float3/GfVec3f layout");
+static_assert(sizeof(float2) == sizeof(UsdGenVec2f),
+              "float2/UsdGenVec2f layout");
+static_assert(sizeof(float3) == sizeof(UsdGenVec3f),
+              "float3/UsdGenVec3f layout");
 static_assert(sizeof(int) == sizeof(int32_t), "int/int32_t layout");
-inline float2 RootsToPod(PXR_NS::GfVec2f const& e)
+inline float2 RootsToPod(UsdGenVec2f const& e)
 {
     return float2{e[0], e[1]};
 }
-inline float3 RootsToPod(PXR_NS::GfVec3f const& e)
+inline float3 RootsToPod(UsdGenVec3f const& e)
 {
     return float3{e[0], e[1], e[2]};
 }
 inline uint64_t RootsToPod(uint64_t e) { return e; }
 inline int32_t RootsToPod(int e) { return int32_t(e); }
-inline PXR_NS::GfVec2f RootsFromPod(float2 const& p)
+inline UsdGenVec2f RootsFromPod(float2 const& p)
 {
-    return PXR_NS::GfVec2f(p.x, p.y);
+    return UsdGenVec2f(p.x, p.y);
 }
-inline PXR_NS::GfVec3f RootsFromPod(float3 const& p)
+inline UsdGenVec3f RootsFromPod(float3 const& p)
 {
-    return PXR_NS::GfVec3f(p.x, p.y, p.z);
+    return UsdGenVec3f(p.x, p.y, p.z);
 }
 inline uint64_t RootsFromPod(uint64_t p) { return p; }
 inline int RootsFromPod(int32_t p) { return int(p); }
 
-// A VtArray-backed roots plane with the std::vector read API every consumer
+// A UsdGenCowArray-backed roots plane with the std::vector read API every consumer
 // already uses (size/empty/data/const-subscript) plus the small mutation
 // subset tests use (reserve/push_back/pop_back/init-list assign/clear and
 // a mutable data() for word-level fault planting).
 // The producer adopts capture planes with O(1) moves instead of copying
 // them element-wise; the stored bytes are identical either way, so every
 // consumer observes the same values. Copies share storage copy-on-write
-// (VtArray's own guarantee): mutating a copy detaches first, exactly as
+// (UsdGenCowArray's own guarantee): mutating a copy detaches first, exactly as
 // a deep copy would read. Const subscript returns by value (converted
 // out of the stored element, so no aliasing); mutable subscript returns
 // a proxy converting to/from Pod on read/write.
@@ -105,7 +104,7 @@ public:
         return reinterpret_cast<Pod const*>(store.cdata());
     }
     // Mutable base (detaches a COW-shared plane first, like every other
-    // VtArray mutation, so a live copy keeps its bytes).
+    // UsdGenCowArray mutation, so a live copy keeps its bytes).
     Pod* data() noexcept
     {
         return reinterpret_cast<Pod*>(store.data());
@@ -139,16 +138,16 @@ private:
 // Immutable, captured Scatter roots.  The producer retains the shared owner
 // until the producer stream's terminal callback has been proved and committed.
 // The six layout-identical planes are adopted (moved) from the capture's
-// VtArrays; positions is transposed from the SoA point planes through an
+// UsdGenCowArrays; positions is transposed from the SoA point planes through an
 // uninitialized fill (a vector cannot fill thread-parallel without a
 // zero-init pass).  Same bytes as the old all-vector spelling, without
 // the copies.
 struct ScatterGrowRoots {
-    ScatterGrowPlane<PXR_NS::VtVec3fArray, float3, PXR_NS::GfVec3f> positions;
-    ScatterGrowPlane<PXR_NS::VtArray<uint64_t>, uint64_t, uint64_t> stableIds;
-    ScatterGrowPlane<PXR_NS::VtIntArray, int32_t, int> rootPrim;
-    ScatterGrowPlane<PXR_NS::VtVec2fArray, float2, PXR_NS::GfVec2f> rootUV;
-    ScatterGrowPlane<PXR_NS::VtVec3fArray, float3, PXR_NS::GfVec3f> rootT, rootB,
+    ScatterGrowPlane<UsdGenVec3fArray, float3, UsdGenVec3f> positions;
+    ScatterGrowPlane<UsdGenCowArray<uint64_t>, uint64_t, uint64_t> stableIds;
+    ScatterGrowPlane<UsdGenIntArray, int32_t, int> rootPrim;
+    ScatterGrowPlane<UsdGenVec2fArray, float2, UsdGenVec2f> rootUV;
+    ScatterGrowPlane<UsdGenVec3fArray, float3, UsdGenVec3f> rootT, rootB,
         rootN;
 };
 

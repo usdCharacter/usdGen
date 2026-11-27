@@ -35,7 +35,7 @@ ProgramDef const *ProgramFor(UsdGenGraphSpec const &spec) noexcept
     for (UsdGenOpNode const &node : spec.nodes) {
         if (node.key != spec.terminal) continue;
         if (node.opId != UsdGenOpId::Invalid) {
-            TfToken const &name = UsdGenOpRegistry::Get().Record(node.opId).OutputType();
+            UsdGenToken const &name = UsdGenOpRegistry::Get().Record(node.opId).OutputType();
             if (!name.IsEmpty()) type = types.Find(name);
         }
         break;
