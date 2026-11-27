@@ -109,16 +109,27 @@ VkResult ChargedBuffer::MarkSubmitted(VkFence fence, std::shared_ptr<const void>
     submitted_ = true; unproven_ = true; fence_ = fence; submissionLifetime_ = std::move(submissionLifetime);
     return VK_SUCCESS;
 }
+VkResult ChargedBuffer::MarkSubmittedAt(uint64_t timelineValue, std::shared_ptr<const void> submissionLifetime) {
+    if (!buffer_ || submitted_ || unproven_ || !timelineValue || !submissionLifetime ||
+        !context_->computeTimeline()) return VK_ERROR_INITIALIZATION_FAILED;
+    *quarantineSubmission_ = submissionLifetime;
+    submitted_ = true; unproven_ = true; timelineValue_ = timelineValue;
+    submissionLifetime_ = std::move(submissionLifetime);
+    return VK_SUCCESS;
+}
 VkResult ChargedBuffer::PollComplete() {
-    if (!submitted_ || !fence_) return VK_ERROR_INITIALIZATION_FAILED;
-    VkResult status = vkGetFenceStatus(context_->device(), fence_);
+    if (!submitted_ || (!fence_ && !timelineValue_)) return VK_ERROR_INITIALIZATION_FAILED;
+    VkResult status = fence_ ? vkGetFenceStatus(context_->device(), fence_)
+                             : context_->computeTimeline()->Check(timelineValue_);
     if (status == VK_NOT_READY) return status;
     if (status != VK_SUCCESS) { Quarantine(); return status; }
-    submitted_ = false; unproven_ = false; fence_ = VK_NULL_HANDLE; submissionLifetime_.reset(); quarantineSubmission_->reset();
+    submitted_ = false; unproven_ = false; fence_ = VK_NULL_HANDLE; timelineValue_ = 0;
+    submissionLifetime_.reset(); quarantineSubmission_->reset();
     return VK_SUCCESS;
 }
 void ChargedBuffer::Quarantine() noexcept {
     unproven_ = true; buffer_ = VK_NULL_HANDLE; memory_ = VK_NULL_HANDLE; block_ = nullptr; fence_ = VK_NULL_HANDLE;
+    timelineValue_ = 0;
     // Permanently retain context/submission lifetimes and the allocation
     // charge when proof is lost. This helper has no reclamation path; it
     // never destroys the device or waits for queue idleness to infer safety.
