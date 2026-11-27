@@ -4,6 +4,5 @@ libs/core/usdGen/usdGen/api/debug.cpp 1
 libs/core/usdGen/usdGen/api/env.cpp 1
 libs/core/usdGen/usdGen/api/status.cpp 1
 libs/core/usdGen/usdGen/api/trace.h 1
-libs/core/usdGen/usdGen/api/value.h 2
 libs/core/usdGen/usdGen/exec/debugCodes.cpp 1
 libs/core/usdGen/usdGen/exec/debugCodes.h 2
