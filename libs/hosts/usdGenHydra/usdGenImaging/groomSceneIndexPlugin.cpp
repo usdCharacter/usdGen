@@ -15,7 +15,7 @@
 #include "pxr/imaging/hd/extComputationPrimvarsSchema.h"
 #include "pxr/imaging/hd/extentSchema.h"
 #include "pxr/imaging/hd/xformSchema.h"
-#include "usdGen/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGen/op.h"
 #include "usdGen/registries/backend.h"
 #include "usdGen/registries/opRegistry.h"
@@ -1557,6 +1557,7 @@ struct UsdGenGroomSceneIndex::_State : std::enable_shared_from_this<_State> {
         uint64_t const attachmentEpoch = g->attachmentEpoch;
         uint64_t const structuralRevision = g->structuralRevision;
         uint64_t const animationPose = g->animationPose;
+        usdGenUsd::SyncDebugCodes();   // TfDebug state reaches the engine once per commit
         Session::CommitRequest request;
         request.reason = usdGen::UsdGenCommitReason::NoticeBatchEnd;
         request.desc = g->desc;

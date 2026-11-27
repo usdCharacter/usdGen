@@ -4,7 +4,7 @@
 // captures (UsdGenSurfaceData), its record layout and InputDesc, the packer
 // and the read view with the payload's field names.
 #pragma once
-#include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/cowArray.h"

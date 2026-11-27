@@ -17,7 +17,7 @@
 #include "usdGen/api/deformBinding.h"
 #include "usdGen/api/publishDesc.h"
 #include "usdGen/compile/graph.h"
-#include "usdGen/exec/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGen/exec/generationStore.h"
 #include "usdGen/exec/scheduler.h"
 #include "usdGen/registries/engineTokens.h"

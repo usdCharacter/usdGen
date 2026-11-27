@@ -130,6 +130,12 @@ add_executable(testUsdGenCowArray tests/usdGenUsd/testUsdGenCowArray.cpp)
 target_link_libraries(testUsdGenCowArray PRIVATE usdGen usdGenUsd tf vt gf)
 add_test(NAME testUsdGenCowArray COMMAND testUsdGenCowArray)
 set_tests_properties(testUsdGenCowArray PROPERTIES LABELS "T0;elementSet" TIMEOUT 60)
+# Step 11.8: env parsing as TfGetenv, TF_DEBUG as TfDebug, trace and report sinks.
+add_executable(testUsdGenDiagnostics tests/usdGenUsd/testUsdGenDiagnostics.cpp)
+target_link_libraries(testUsdGenDiagnostics PRIVATE usdGen usdGenUsd tf)
+add_test(NAME testUsdGenDiagnostics COMMAND testUsdGenDiagnostics)
+set_tests_properties(testUsdGenDiagnostics PROPERTIES LABELS "T0;registries" TIMEOUT 60
+    ENVIRONMENT "TF_DEBUG=USDGEN_C* USDGEN_SCH* -USDGEN_SCHEDULE USDGEN_FUR")
 # Step 11.7: UsdGenValue against VtValue: every value-type row round trips, exact types, hash laws.
 add_executable(testUsdGenValue tests/usdGenUsd/testUsdGenValue.cpp)
 target_link_libraries(testUsdGenValue PRIVATE usdGen usdGenUsd sdf tf vt gf)

@@ -5,7 +5,7 @@
 // packer, the read view with the payload's field names, and the reference
 // set its materialize hook derives.
 #pragma once
-#include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/graphSpec.h"
 #include "usdGenCurves/types/curveTokens.h"
 #include "usdGen/compile/types.h"
 #include "usdGenCurves/export.h"

@@ -3,7 +3,7 @@
 #include "usdGenHydraCurves/tokens.h"
 #include "usdGen/registries/engineTokens.h"
 
-#include "usdGen/exec/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGen/exec/scheduler.h"
 
 #include "pxr/base/gf/matrix4f.h"

@@ -7,8 +7,10 @@
 //   Ingress   scene index notices and description captures
 //   Fur       one line per optical-depth bake
 //
-// Alias phase (step 11.1): the codes are TfDebug's USDGEN_* codes
-// (exec/debugCodes.h); 11.8 parses TF_DEBUG itself.
+// The engine reads TF_DEBUG on the first query (TfDebug's syntax: words,
+// a trailing '*' matches a prefix, a leading '-' turns codes off). Hosts
+// that register the codes with TfDebug (usdGenUsd/debugCodes.h) mirror
+// TfDebug's state into the engine once per commit.
 #pragma once
 #include "usdGen/api/export.h"
 
@@ -25,7 +27,7 @@ namespace usdGen {
 enum class UsdGenDebugCode : uint8_t { Commit, Schedule, Ingress, Fur, Count };
 USDGEN_CORE_API bool UsdGenDebugEnabled(UsdGenDebugCode c) noexcept;
 USDGEN_CORE_API void UsdGenSetDebugEnabled(UsdGenDebugCode c, bool on) noexcept;
-/// printf-style, to TfDebug's output (stdout unless redirected).
+/// printf-style, to stdout (TfDebug's default output).
 USDGEN_CORE_API void UsdGenDebugMsg(char const *fmt, ...) noexcept USDGEN_DEBUG_PRINTF_FORMAT(1, 2);
 
 }  // namespace usdGen

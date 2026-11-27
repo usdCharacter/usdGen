@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Nick Burkard
 // SPDX-License-Identifier: MIT
 // UsdGenStatus (a result code and message) and UsdGenReport, the engine's
-// diagnostics door. Hosts install a sink; until one does, reports go to
-// Tf's diagnostics (alias phase, step 11.1).
+// diagnostics door. Hosts install a sink (usdGenUsd forwards to Tf's
+// diagnostics); until one does, reports go to stderr.
 #pragma once
 #include "usdGen/api/export.h"
 #include "usdGen/api/text.h"

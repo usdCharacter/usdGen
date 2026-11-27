@@ -4,7 +4,7 @@
 // program and the gprims its samplers read, as a host captures them, their
 // record layouts and InputDescs, the packers and the read views.
 #pragma once
-#include "usdGen/api/graphSpec.h"   // pxr gf/tf/vt types (interim, step 11)
+#include "usdGen/api/graphSpec.h"
 #include "usdGen/api/token.h"
 #include "usdGen/api/span.h"
 #include "usdGen/api/cowArray.h"

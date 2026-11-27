@@ -2,14 +2,10 @@
 // SPDX-License-Identifier: MIT
 #include "usdGen/api/status.h"
 
-#include "pxr/base/tf/diagnostic.h"
-
 #include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <string>
-
-PXR_NAMESPACE_USING_DIRECTIVE
 
 namespace usdGen {
 namespace {
@@ -22,17 +18,9 @@ void Forward(UsdGenSeverity s, char const *message) noexcept
         fn(gReportUser.load(std::memory_order_relaxed), s, message);
         return;
     }
-    try {
-        switch (s) {
-        case UsdGenSeverity::Status: TF_STATUS("%s", message); break;
-        case UsdGenSeverity::Warning: TF_WARN("%s", message); break;
-        case UsdGenSeverity::Error: TF_RUNTIME_ERROR("%s", message); break;
-        case UsdGenSeverity::CodingError: TF_CODING_ERROR("%s", message); break;
-        }
-    } catch (...) {
-        std::fputs(message, stderr);
-        std::fputc('\n', stderr);
-    }
+    // No sink: stderr, one line per report.
+    static constexpr char const *kLabels[] = {"Status", "Warning", "Error", "Coding error"};
+    std::fprintf(stderr, "usdGen %s: %s\n", kLabels[size_t(s) < 4 ? size_t(s) : 2], message);
 }
 }  // namespace
 

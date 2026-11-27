@@ -36,7 +36,7 @@ template <class T>
 class UsdGenSpan {
 public:
     constexpr UsdGenSpan() noexcept = default;
-    using value_type = std::remove_cv_t<T>;   // lets TfSpan's container constructor take a UsdGenSpan
+    using value_type = std::remove_cv_t<T>;   // lets a host span's container constructor take a UsdGenSpan
     constexpr UsdGenSpan(T *data, size_t size) noexcept : _data(data), _size(size) {}
     template <size_t N>
     constexpr UsdGenSpan(T (&array)[N]) noexcept : _data(array), _size(N) {}
@@ -52,7 +52,7 @@ public:
                                        span_detail::IsContainer<T, std::remove_reference_t<C>>::value>>
     constexpr UsdGenSpan(C &&c) : _data(_Data(c)), _size(c.size()) {}
     constexpr T *data() const noexcept { return _data; }
-    constexpr T const *cdata() const noexcept { return _data; }     // VtArray spelling
+    constexpr T const *cdata() const noexcept { return _data; }     // host array spelling
     constexpr size_t size() const noexcept { return _size; }
     constexpr bool empty() const noexcept { return _size == 0; }
     constexpr T &operator[](size_t i) const noexcept { return _data[i]; }

@@ -13,7 +13,7 @@
 #include "usdGenUsd/walk/usdGenTokens.h"
 
 #include "usdGenUsd/resolve/authoredPlaneConvert.h"
-#include "usdGen/debugCodes.h"
+#include "usdGenUsd/debugCodes.h"
 #include "usdGenUsd/resolve/sdfValueShape.h"
 
 #include "pxr/base/trace/trace.h"
