@@ -6,7 +6,6 @@ libs/core/usdGen/usdGen/api/debug.cpp 10
 libs/core/usdGen/usdGen/api/env.cpp 2
 libs/core/usdGen/usdGen/api/span.h 2
 libs/core/usdGen/usdGen/api/status.cpp 5
-libs/core/usdGen/usdGen/api/token.h 1
 libs/core/usdGen/usdGen/api/trace.h 3
 libs/core/usdGen/usdGen/api/value.h 2
 libs/core/usdGen/usdGen/exec/debugCodes.cpp 7
